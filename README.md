@@ -40,7 +40,7 @@ Il server partirà su `http://localhost:8082`.
 
 ## ☸️ Connessione al Cluster Kubernetes
 
-Il backend deve potersi connettere al cluster per leggere gli `Esperimenti` e lanciare i `TestRun`.
+Il backend deve potersi connettere al cluster per leggere gli `Esperimenti` e lanciare i `Test di carico`.
 
 ### Modalità Locale (Sviluppo)
 Se lanci il backend dal tuo PC, cercherà la configurazione di Kubernetes in quest'ordine:
@@ -58,36 +58,9 @@ Se il backend gira come un Pod dentro Kubernetes, userà automaticamente il **Se
 
 ---
 
-## 🏗️ Build per la Produzione
-Per creare un unico pacchetto dove il server Go serve anche i file statici della UI:
-
-1.  **Build del Frontend:**
-    ```bash
-    cd ui
-    npm run build
-    ```
-    Questo creerà la cartella `ui/dist`.
-
-2.  **Build del Backend:**
-    ```bash
-    go build -o server ./cmd/server/main.go
-    ```
-
-3.  **Esecuzione:**
-    ```bash
-    ./server
-    ```
-    Il server rileverà la cartella `ui/dist` e servirà la UI su `http://localhost:8082`.
-
----
-
 ## ⚙️ Configurazione (.env)
 Puoi creare un file `.env` nella root per personalizzare il comportamento:
 *   `PORT`: La porta su cui gira il server (default: 8082).
 *   `GIN_MODE`: Imposta a `release` in produzione.
 
 ---
-
-## 📝 Note Tecniche
-*   **Persistenza Locale:** La configurazione dei test K6 nel form viene salvata nel `localStorage` del browser, divisa per ogni singolo esperimento.
-*   **Cleanup:** Se cancelli un esperimento dalla UI, tutte le risorse k6 associate (TestRun, ConfigMap) verranno eliminate automaticamente grazie alle `OwnerReferences` impostate dal backend.
