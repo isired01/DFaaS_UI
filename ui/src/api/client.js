@@ -1,12 +1,8 @@
 const API_BASE = '/api';
 
-/**
- * Wrapper generico per le chiamate fetch verso il backend Go.
- * Gestisce errori e parsing JSON.
- */
 async function request(endpoint, options = {}) {
   const url = `${API_BASE}${endpoint}`;
-  
+
   const res = await fetch(url, {
     headers: {
       'Content-Type': 'application/json',
@@ -20,61 +16,51 @@ async function request(endpoint, options = {}) {
     throw new Error(error.error || `Request failed: ${res.status}`);
   }
 
+  if (res.status === 204) return null;
   return res.json();
 }
 
-/**
- * GET /api/experiments — Lista tutti gli esperimenti da tutti i namespace.
- */
-export async function fetchExperiments() {
-  const data = await request('/experiments');
-  return data.experiments || [];
+// --- Environments ---
+
+export async function fetchEnvironments() {
+  const data = await request('/environments');
+  return data.environments || [];
 }
 
-/**
- * GET /api/experiments/:namespace/:name — Dettaglio singolo esperimento.
- */
-export async function fetchExperiment(namespace, name) {
-  return request(`/experiments/${namespace}/${name}`);
+export async function fetchEnvironment(namespace, name) {
+  return request(`/environments/${namespace}/${name}`);
 }
 
-/**
- * POST /api/k6/generate — Genera uno script k6 e il manifest YAML TestRun.
- */
-export async function generateK6(scenarios) {
-  return request('/k6/generate', {
+export async function createEnvironment(payload) {
+  return request('/environments', {
     method: 'POST',
-    body: JSON.stringify({ scenarios }),
+    body: JSON.stringify(payload),
   });
 }
 
-/**
- * POST /api/experiments/:namespace/:name/k6/launch — Genera e lancia TestRun sul cluster.
- */
-export async function launchK6(namespace, name, scenarios, metricsQueries) {
-  return request(`/experiments/${namespace}/${name}/k6/launch`, {
+export async function deleteEnvironment(namespace, name) {
+  return request(`/environments/${namespace}/${name}`, { method: 'DELETE' });
+}
+
+// --- LoadTests ---
+
+export async function fetchLoadTests({ environment } = {}) {
+  const qs = environment ? `?environment=${encodeURIComponent(environment)}` : '';
+  const data = await request(`/loadtests${qs}`);
+  return data.loadtests || [];
+}
+
+export async function fetchLoadTest(namespace, name) {
+  return request(`/loadtests/${namespace}/${name}`);
+}
+
+export async function createLoadTest(payload) {
+  return request('/loadtests', {
     method: 'POST',
-    body: JSON.stringify({ scenarios, metricsQueries }),
+    body: JSON.stringify(payload),
   });
 }
 
-/**
- * POST /api/k6/upload — Carica un file .js di k6 esistente.
- * Restituisce il contenuto e il YAML generato.
- */
-export async function uploadK6Script(file) {
-  const formData = new FormData();
-  formData.append('script', file);
-
-  const res = await fetch(`${API_BASE}/k6/upload`, {
-    method: 'POST',
-    body: formData,
-  });
-
-  if (!res.ok) {
-    const error = await res.json().catch(() => ({ error: res.statusText }));
-    throw new Error(error.error || `Upload failed: ${res.status}`);
-  }
-
-  return res.json();
+export async function deleteLoadTest(namespace, name) {
+  return request(`/loadtests/${namespace}/${name}`, { method: 'DELETE' });
 }

@@ -1,23 +1,19 @@
-import { Server, Cpu, Zap, Box, Clock, Layers } from 'lucide-react';
+import { Server, Cpu, Zap, Box, Clock, Layers, Key, Play } from 'lucide-react';
 
-/**
- * Colori bordo in base alla capacity del nodo.
- */
 const CAPACITY_STYLES = {
-  LOW:    { border: 'border-blue-500/40', bg: 'bg-blue-500/10', text: 'text-blue-400', label: 'Low' },
+  LOW:    { border: 'border-blue-500/40',  bg: 'bg-blue-500/10',  text: 'text-blue-400',  label: 'Low' },
   MEDIUM: { border: 'border-amber-500/40', bg: 'bg-amber-500/10', text: 'text-amber-400', label: 'Medium' },
-  HIGH:   { border: 'border-red-500/40', bg: 'bg-red-500/10', text: 'text-red-400', label: 'High' },
+  HIGH:   { border: 'border-red-500/40',   bg: 'bg-red-500/10',   text: 'text-red-400',   label: 'High' },
 };
 
-/**
- * Card che mostra i dettagli di un singolo nodo della federazione.
- * 
- * @param {Object} props
- * @param {Object} props.node — Dati del nodo (nodeID, ipAddress, capacity, functions, etc.)
- * @param {number} props.index — Indice per l'animazione staggered
- */
-export default function NodeCard({ node, index }) {
+const ROLE_LABEL = {
+  'dfaas-worker':      'dFaaS Worker',
+  'k6-load-generator': 'k6 Generator',
+};
+
+export default function NodeCard({ node, index, variant, onConfigureLoad, configureDisabled, configureDisabledReason }) {
   const capacity = CAPACITY_STYLES[node.capacity] || CAPACITY_STYLES.MEDIUM;
+  const isK6 = variant === 'k6' || node.role === 'k6-load-generator';
 
   return (
     <div
@@ -25,7 +21,6 @@ export default function NodeCard({ node, index }) {
       style={{ animationDelay: `${index * 80}ms` }}
       id={`node-card-${node.nodeID}`}
     >
-      {/* Header */}
       <div className="flex items-start justify-between mb-4">
         <div className="flex items-center gap-3">
           <div className={`w-10 h-10 rounded-xl ${capacity.bg} flex items-center justify-center`}>
@@ -36,19 +31,28 @@ export default function NodeCard({ node, index }) {
             <p className="text-xs text-surface-400 font-mono">{node.ipAddress}</p>
           </div>
         </div>
-        <span className={`badge text-[10px] px-2 py-0.5 ${capacity.bg} ${capacity.text} border ${capacity.border}`}>
-          {capacity.label}
-        </span>
+        <div className="flex flex-col items-end gap-1">
+          <span className={`badge text-[10px] px-2 py-0.5 ${capacity.bg} ${capacity.text} border ${capacity.border}`}>
+            {capacity.label}
+          </span>
+          {node.role && (
+            <span className="text-[10px] text-surface-500 uppercase tracking-wider">
+              {ROLE_LABEL[node.role] || node.role}
+            </span>
+          )}
+        </div>
       </div>
 
-      {/* Info Grid */}
       <div className="grid grid-cols-2 gap-3 mb-4">
-        <InfoItem icon={Layers} label="Strategy" value={formatStrategy(node.balancingStrategy)} />
+        {isK6 ? (
+          <InfoItem icon={Key} label="Kubeconfig Secret" value={node.kubeconfigSecret || '—'} />
+        ) : (
+          <InfoItem icon={Layers} label="Strategy" value={formatStrategy(node.balancingStrategy)} />
+        )}
         <InfoItem icon={Cpu} label="Username" value={node.username} />
       </div>
 
-      {/* Functions */}
-      {node.functions && node.functions.length > 0 && (
+      {!isK6 && node.functions && node.functions.length > 0 && (
         <div className="mt-4 pt-4 border-t border-surface-700/50">
           <h4 className="text-xs font-semibold text-surface-400 uppercase tracking-wider mb-3 flex items-center gap-1.5">
             <Zap className="w-3.5 h-3.5" />
@@ -59,6 +63,21 @@ export default function NodeCard({ node, index }) {
               <FunctionRow key={fn.name + i} fn={fn} />
             ))}
           </div>
+        </div>
+      )}
+
+      {isK6 && onConfigureLoad && (
+        <div className="mt-4 pt-4 border-t border-surface-700/50">
+          <button
+            type="button"
+            className="btn-primary w-full justify-center text-xs py-2"
+            disabled={configureDisabled}
+            onClick={onConfigureLoad}
+            title={configureDisabled ? configureDisabledReason : undefined}
+          >
+            <Play className="w-3.5 h-3.5" />
+            Configure Load
+          </button>
         </div>
       )}
     </div>
@@ -92,9 +111,7 @@ function FunctionRow({ fn }) {
           <Clock className="w-3 h-3" />
           {fn.execTimeout}s
         </span>
-        <span title="Max Inflight">
-          ↕ {fn.maxInflight}
-        </span>
+        <span title="Max Inflight">↕ {fn.maxInflight}</span>
       </div>
     </div>
   );
@@ -108,5 +125,5 @@ function formatStrategy(strategy) {
     alllocalstrategy: 'All Local',
     rlagentstrategy: 'RL Agent',
   };
-  return map[strategy] || strategy;
+  return map[strategy] || strategy || '—';
 }

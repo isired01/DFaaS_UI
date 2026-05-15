@@ -5,28 +5,38 @@ import (
 	"os"
 	"path/filepath"
 
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
-// EsperimentoGVR è il GroupVersionResource della CRD Esperimento.
-// Usato dal dynamic client per interagire con risorse non tipizzate.
-var EsperimentoGVR = schema.GroupVersionResource{
+// EnvironmentGVR is the GroupVersionResource of the operator's Environment CRD.
+var EnvironmentGVR = schema.GroupVersionResource{
 	Group:    "dfaas.dfaas.io",
 	Version:  "v1",
-	Resource: "esperimentos",
+	Resource: "environments",
 }
 
-// NewK8sClient crea un client dinamico Kubernetes.
-// Prova prima la configurazione in-cluster (quando gira dentro un pod),
-// poi fallback su KUBECONFIG (per sviluppo locale).
+// LoadTestGVR is the GroupVersionResource of the operator's LoadTest CRD.
+var LoadTestGVR = schema.GroupVersionResource{
+	Group:    "dfaas.dfaas.io",
+	Version:  "v1",
+	Resource: "loadtests",
+}
+
+// ConfigMapGVR is the GVR for core/v1 ConfigMaps, used to materialize k6 scripts.
+var ConfigMapGVR = schema.GroupVersionResource{
+	Group:    "",
+	Version:  "v1",
+	Resource: "configmaps",
+}
+
+// NewK8sClient builds a dynamic Kubernetes client.
+// In-cluster config first, then KUBECONFIG env, then ~/.kube/config.
 func NewK8sClient() (dynamic.Interface, error) {
-	// 1. Prova in-cluster config
 	config, err := rest.InClusterConfig()
 	if err != nil {
-		// 2. Fallback su KUBECONFIG
 		kubeconfig := os.Getenv("KUBECONFIG")
 		if kubeconfig == "" {
 			home, _ := os.UserHomeDir()
@@ -35,14 +45,13 @@ func NewK8sClient() (dynamic.Interface, error) {
 
 		config, err = clientcmd.BuildConfigFromFlags("", kubeconfig)
 		if err != nil {
-			return nil, fmt.Errorf("impossibile creare config Kubernetes: %w", err)
+			return nil, fmt.Errorf("kubernetes config: %w", err)
 		}
 	}
 
-	// 3. Crea il dynamic client
 	dynClient, err := dynamic.NewForConfig(config)
 	if err != nil {
-		return nil, fmt.Errorf("impossibile creare dynamic client: %w", err)
+		return nil, fmt.Errorf("dynamic client: %w", err)
 	}
 
 	return dynClient, nil

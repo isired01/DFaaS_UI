@@ -2,295 +2,503 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
+	"regexp"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/dynamic"
 )
 
-// Handler contiene il client Kubernetes e gestisce le richieste HTTP.
+// Handler wires the dynamic Kubernetes client into the HTTP layer.
 type Handler struct {
 	client dynamic.Interface
 }
 
-// NewHandler crea un nuovo handler con il client Kubernetes fornito.
+// NewHandler builds a Handler bound to the provided dynamic client.
 func NewHandler(client dynamic.Interface) *Handler {
 	return &Handler{client: client}
 }
 
-// RegisterRoutes registra tutte le rotte API sul router Gin.
+// RegisterRoutes mounts every API route on the Gin engine.
 func (h *Handler) RegisterRoutes(r *gin.Engine) {
 	api := r.Group("/api")
 	{
-		api.GET("/experiments", h.ListExperiments)
-		api.GET("/experiments/:namespace/:name", h.GetExperiment)
-		api.POST("/k6/generate", h.GenerateK6)
-		api.POST("/k6/upload", h.UploadK6Script)
-		api.POST("/experiments/:namespace/:name/k6/launch", h.LaunchK6)
+		api.GET("/environments", h.ListEnvironments)
+		api.GET("/environments/:namespace/:name", h.GetEnvironment)
+		api.POST("/environments", h.CreateEnvironment)
+		api.DELETE("/environments/:namespace/:name", h.DeleteEnvironment)
+
+		api.GET("/loadtests", h.ListLoadTests)
+		api.GET("/loadtests/:namespace/:name", h.GetLoadTest)
+		api.POST("/loadtests", h.CreateLoadTest)
+		api.DELETE("/loadtests/:namespace/:name", h.DeleteLoadTest)
 	}
 }
 
-// ListExperiments gestisce GET /api/experiments
-// Lista tutti gli esperimenti da tutti i namespace.
-func (h *Handler) ListExperiments(c *gin.Context) {
+// --- Environment handlers ---
+
+func (h *Handler) ListEnvironments(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
 	defer cancel()
 
-	// Lista da tutti i namespace (namespace vuoto = tutti)
-	result, err := h.client.Resource(EsperimentoGVR).
-		Namespace("").
-		List(ctx, metav1.ListOptions{})
+	result, err := h.client.Resource(EnvironmentGVR).Namespace("").List(ctx, metav1.ListOptions{})
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": fmt.Sprintf("Errore nel recupero degli esperimenti: %v", err),
-		})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("list environments: %v", err)})
 		return
 	}
 
-	experiments := make([]ExperimentSummary, 0, len(result.Items))
+	out := make([]EnvironmentSummary, 0, len(result.Items))
 	for _, item := range result.Items {
-		experiments = append(experiments, mapToSummary(item))
+		out = append(out, mapEnvSummary(item))
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"experiments": experiments,
-		"count":       len(experiments),
-	})
+	c.JSON(http.StatusOK, gin.H{"environments": out, "count": len(out)})
 }
 
-// GetExperiment gestisce GET /api/experiments/:namespace/:name
-// Restituisce il dettaglio completo di un singolo esperimento.
-func (h *Handler) GetExperiment(c *gin.Context) {
+func (h *Handler) GetEnvironment(c *gin.Context) {
 	namespace := c.Param("namespace")
 	name := c.Param("name")
 
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
 	defer cancel()
 
-	result, err := h.client.Resource(EsperimentoGVR).
-		Namespace(namespace).
-		Get(ctx, name, metav1.GetOptions{})
+	result, err := h.client.Resource(EnvironmentGVR).Namespace(namespace).Get(ctx, name, metav1.GetOptions{})
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{
-			"error": fmt.Sprintf("Esperimento '%s/%s' non trovato: %v", namespace, name, err),
-		})
+		c.JSON(http.StatusNotFound, gin.H{"error": fmt.Sprintf("environment '%s/%s' not found: %v", namespace, name, err)})
 		return
 	}
 
-	detail := mapToDetail(*result)
+	c.JSON(http.StatusOK, mapEnvDetail(*result))
+}
+
+func (h *Handler) CreateEnvironment(c *gin.Context) {
+	var req CreateEnvironmentRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("invalid body: %v", err)})
+		return
+	}
+
+	for i, n := range req.Nodes {
+		if n.NodeID == "" || n.IpAddress == "" || n.Role == "" || n.Capacity == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("node[%d]: nodeID, ipAddress, role, capacity required", i)})
+			return
+		}
+		if n.Role != "dfaas-worker" && n.Role != "k6-load-generator" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("node[%d]: role must be dfaas-worker or k6-load-generator", i)})
+			return
+		}
+		switch n.Capacity {
+		case "LOW", "MEDIUM", "HIGH":
+		default:
+			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("node[%d]: capacity must be LOW|MEDIUM|HIGH", i)})
+			return
+		}
+		if n.Role == "k6-load-generator" {
+			if n.BalancingStrategy != "" {
+				c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("node[%d]: balancingStrategy must be empty for k6-load-generator", i)})
+				return
+			}
+			if len(n.Functions) > 0 {
+				c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("node[%d]: functions not allowed on k6-load-generator", i)})
+				return
+			}
+		}
+		if n.Role == "dfaas-worker" {
+			if n.BalancingStrategy != "" {
+				switch n.BalancingStrategy {
+				case "staticstrategy", "nodemarginstrategy", "recalcstrategy", "alllocalstrategy", "rlagentstrategy":
+				default:
+					c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("node[%d]: balancingStrategy must be one of staticstrategy|nodemarginstrategy|recalcstrategy|alllocalstrategy|rlagentstrategy", i)})
+					return
+				}
+			}
+		}
+	}
+
+	obj := buildEnvironmentUnstructured(req)
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 15*time.Second)
+	defer cancel()
+
+	created, err := h.client.Resource(EnvironmentGVR).Namespace(req.Namespace).Create(ctx, obj, metav1.CreateOptions{})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("create environment: %v", err)})
+		return
+	}
+
+	c.JSON(http.StatusCreated, mapEnvDetail(*created))
+}
+
+func (h *Handler) DeleteEnvironment(c *gin.Context) {
+	namespace := c.Param("namespace")
+	name := c.Param("name")
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
+	defer cancel()
+
+	err := h.client.Resource(EnvironmentGVR).Namespace(namespace).Delete(ctx, name, metav1.DeleteOptions{})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("delete environment: %v", err)})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": fmt.Sprintf("environment '%s/%s' deletion requested", namespace, name)})
+}
+
+// --- LoadTest handlers ---
+
+func (h *Handler) ListLoadTests(c *gin.Context) {
+	envFilter := c.Query("environment")
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
+	defer cancel()
+
+	result, err := h.client.Resource(LoadTestGVR).Namespace("").List(ctx, metav1.ListOptions{})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("list loadtests: %v", err)})
+		return
+	}
+
+	var filterNs, filterName string
+	if envFilter != "" {
+		parts := strings.SplitN(envFilter, "/", 2)
+		if len(parts) == 2 {
+			filterNs, filterName = parts[0], parts[1]
+		}
+	}
+
+	out := make([]LoadTestSummary, 0, len(result.Items))
+	for _, item := range result.Items {
+		s := mapLoadTestSummary(item)
+		if filterNs != "" && (s.Namespace != filterNs || s.TargetEnvironment != filterName) {
+			continue
+		}
+		out = append(out, s)
+	}
+
+	c.JSON(http.StatusOK, gin.H{"loadtests": out, "count": len(out)})
+}
+
+func (h *Handler) GetLoadTest(c *gin.Context) {
+	namespace := c.Param("namespace")
+	name := c.Param("name")
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
+	defer cancel()
+
+	result, err := h.client.Resource(LoadTestGVR).Namespace(namespace).Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": fmt.Sprintf("loadtest '%s/%s' not found: %v", namespace, name, err)})
+		return
+	}
+
+	detail := mapLoadTestDetail(*result)
+	h.inlineScripts(ctx, namespace, &detail)
+
 	c.JSON(http.StatusOK, detail)
 }
 
-// GenerateK6 gestisce POST /api/k6/generate
-// Genera uno script k6 base e il manifest YAML TestRun.
-func (h *Handler) GenerateK6(c *gin.Context) {
-	var req K6GenerateRequest
+func (h *Handler) CreateLoadTest(c *gin.Context) {
+	var req CreateLoadTestRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": fmt.Sprintf("Parametri non validi: %v", err),
-		})
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("invalid body: %v", err)})
 		return
 	}
 
-	script, err := GenerateK6ScriptAdvanced(req)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": fmt.Sprintf("Errore durante la generazione dello script: %v", err),
-		})
-		return
-	}
-	yaml := GenerateK6TestRunYAML(script, "load-test", "", req.MetricsQueries)
-
-	c.JSON(http.StatusOK, K6GenerateResponse{
-		Script: script,
-		YAML:   yaml,
-	})
-}
-
-// LaunchK6 genera lo script e lo lancia sul cluster (crea ConfigMap e TestRun)
-func (h *Handler) LaunchK6(c *gin.Context) {
-	namespace := c.Param("namespace")
-	expName := c.Param("name")
-
-	var req K6GenerateRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
-	// 1. Genera lo script JS
-	script, err := GenerateK6ScriptAdvanced(req)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Errore generazione script: %v", err)})
-		return
-	}
-
-	dynClient := h.client
-
-	// 1.5 Recupera l'Esperimento per ottenere l'UID (per OwnerReferences)
-	expGVR := schema.GroupVersionResource{Group: "dfaas.dfaas.io", Version: "v1", Resource: "esperimentos"}
-	expObj, err := dynClient.Resource(expGVR).Namespace(namespace).Get(context.TODO(), expName, metav1.GetOptions{})
-	var ownerRefs []interface{}
-	if err == nil {
-		ownerRefs = []interface{}{
-			map[string]interface{}{
-				"apiVersion":         "dfaas.dfaas.io/v1",
-				"kind":               "Esperimento",
-				"name":               expObj.GetName(),
-				"uid":                expObj.GetUID(),
-				"controller":         true,
-				"blockOwnerDeletion": true,
-			},
+	for i, pn := range req.PerNodeLoad {
+		if pn.Script == "" && pn.ScriptConfigMap == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("perNodeLoad[%d]: script or scriptConfigMap required", i)})
+			return
 		}
-	} else {
-		fmt.Printf("Avviso: Impossibile recuperare l'Esperimento %s per impostare l'ownerReference: %v\n", expName, err)
-	}
-
-	timestamp := time.Now().Format("20060102-150405")
-	baseName := fmt.Sprintf("%s-k6-%s", expName, timestamp)
-	cmName := baseName + "-script"
-
-	// 2. Crea ConfigMap
-	cmMetadata := map[string]interface{}{
-		"name":      cmName,
-		"namespace": namespace,
-	}
-	if len(ownerRefs) > 0 {
-		cmMetadata["ownerReferences"] = ownerRefs
-	}
-
-	cm := &unstructured.Unstructured{
-		Object: map[string]interface{}{
-			"apiVersion": "v1",
-			"kind":       "ConfigMap",
-			"metadata":   cmMetadata,
-			"data": map[string]interface{}{
-				"test.js": script,
-			},
-		},
-	}
-	cmGVR := schema.GroupVersionResource{Group: "", Version: "v1", Resource: "configmaps"}
-	_, err = dynClient.Resource(cmGVR).Namespace(namespace).Create(context.TODO(), cm, metav1.CreateOptions{})
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Errore creazione ConfigMap: %v", err)})
-		return
-	}
-
-	// 3. Crea TestRun
-	trMetadata := map[string]interface{}{
-		"name":      baseName,
-		"namespace": namespace,
-		"labels": map[string]interface{}{
-			"dfaas.io/experiment-name": expName,
-		},
-	}
-	
-	if req.MetricsQueries != "" {
-		trMetadata["annotations"] = map[string]interface{}{
-			"dfaas.io/metrics-queries": req.MetricsQueries,
+		if pn.Script != "" && pn.ScriptConfigMap != "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("perNodeLoad[%d]: only one of script or scriptConfigMap allowed", i)})
+			return
 		}
 	}
-	
-	if len(ownerRefs) > 0 {
-		trMetadata["ownerReferences"] = ownerRefs
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
+	defer cancel()
+
+	envObj, err := h.client.Resource(EnvironmentGVR).Namespace(req.Namespace).Get(ctx, req.TargetEnvironment, metav1.GetOptions{})
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": fmt.Sprintf("environment '%s/%s' not found: %v", req.Namespace, req.TargetEnvironment, err)})
+		return
 	}
 
-	tr := &unstructured.Unstructured{
-		Object: map[string]interface{}{
-			"apiVersion": "k6.io/v1alpha1",
-			"kind":       "TestRun",
-			"metadata":   trMetadata,
-			"spec": map[string]interface{}{
-				"parallelism": int64(1),
-				"script": map[string]interface{}{
-					"configMap": map[string]interface{}{
-						"name": cmName,
-						"file": "test.js",
+	phase := getNestedString(envObj.Object, "status", "phase")
+	if phase != "Ready" {
+		c.JSON(http.StatusConflict, gin.H{"error": fmt.Sprintf("environment '%s' is not Ready (current phase: %s)", req.TargetEnvironment, phase)})
+		return
+	}
+
+	k6IDs := map[string]struct{}{}
+	k6Status, _, _ := unstructured.NestedSlice(envObj.Object, "status", "k6Nodes")
+	for _, kn := range k6Status {
+		if m, ok := kn.(map[string]interface{}); ok {
+			if id := getStringFromMap(m, "nodeID"); id != "" {
+				k6IDs[id] = struct{}{}
+			}
+		}
+	}
+	if len(k6IDs) == 0 {
+		nodes, _, _ := unstructured.NestedSlice(envObj.Object, "spec", "nodes")
+		for _, n := range nodes {
+			if m, ok := n.(map[string]interface{}); ok {
+				if getStringFromMap(m, "role") == "k6-load-generator" {
+					if id := getStringFromMap(m, "nodeID"); id != "" {
+						k6IDs[id] = struct{}{}
+					}
+				}
+			}
+		}
+	}
+
+	for i, pn := range req.PerNodeLoad {
+		if _, ok := k6IDs[pn.NodeID]; !ok {
+			valid := make([]string, 0, len(k6IDs))
+			for id := range k6IDs {
+				valid = append(valid, id)
+			}
+			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("perNodeLoad[%d].nodeID '%s' not a k6-load-generator (valid: %v)", i, pn.NodeID, valid)})
+			return
+		}
+	}
+
+	ltName := req.Name
+	if ltName == "" {
+		ltName = sanitizeDNS1123(fmt.Sprintf("lt-%s-%s", req.TargetEnvironment, time.Now().Format("20060102-150405")))
+	}
+
+	createdCMs := make([]string, 0, len(req.PerNodeLoad))
+	cleanup := func() {
+		for _, cmName := range createdCMs {
+			_ = h.client.Resource(ConfigMapGVR).Namespace(req.Namespace).Delete(context.Background(), cmName, metav1.DeleteOptions{})
+		}
+	}
+
+	for i := range req.PerNodeLoad {
+		pn := &req.PerNodeLoad[i]
+		if pn.Script == "" {
+			continue
+		}
+		cmName := sanitizeDNS1123(fmt.Sprintf("%s-%s-script", ltName, pn.NodeID))
+		cm := &unstructured.Unstructured{
+			Object: map[string]interface{}{
+				"apiVersion": "v1",
+				"kind":       "ConfigMap",
+				"metadata": map[string]interface{}{
+					"name":      cmName,
+					"namespace": req.Namespace,
+					"labels": map[string]interface{}{
+						"dfaas.io/loadtest":    ltName,
+						"dfaas.io/environment": req.TargetEnvironment,
+						"dfaas.io/node-id":     pn.NodeID,
 					},
 				},
-				"runner": map[string]interface{}{
-					"image": "ghcr.io/grafana/k6:latest",
+				"data": map[string]interface{}{
+					"script.js": pn.Script,
 				},
+			},
+		}
+		if _, err := h.client.Resource(ConfigMapGVR).Namespace(req.Namespace).Create(ctx, cm, metav1.CreateOptions{}); err != nil {
+			cleanup()
+			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("create script configmap '%s': %v", cmName, err)})
+			return
+		}
+		createdCMs = append(createdCMs, cmName)
+		pn.ScriptConfigMap = cmName
+	}
+
+	step := req.MetricsExport.Step
+	if step == "" {
+		step = "15s"
+	}
+
+	perNodeSpec := make([]interface{}, 0, len(req.PerNodeLoad))
+	for _, pn := range req.PerNodeLoad {
+		perNodeSpec = append(perNodeSpec, map[string]interface{}{
+			"nodeID":   pn.NodeID,
+			"vus":      int64(pn.VUs),
+			"duration": pn.Duration,
+			"scriptConfigMap": map[string]interface{}{
+				"name": pn.ScriptConfigMap,
+			},
+		})
+	}
+
+	queries := make([]interface{}, 0, len(req.MetricsExport.Queries))
+	for _, q := range req.MetricsExport.Queries {
+		queries = append(queries, q)
+	}
+
+	metricsExport := map[string]interface{}{
+		"queries": queries,
+		"step":    step,
+	}
+	if req.MetricsExport.GoogleDrive != nil {
+		metricsExport["googleDrive"] = map[string]interface{}{
+			"folderId":             req.MetricsExport.GoogleDrive.FolderID,
+			"credentialsSecretRef": req.MetricsExport.GoogleDrive.CredentialsSecretRef,
+		}
+	}
+
+	lt := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "dfaas.dfaas.io/v1",
+			"kind":       "LoadTest",
+			"metadata": map[string]interface{}{
+				"name":      ltName,
+				"namespace": req.Namespace,
+			},
+			"spec": map[string]interface{}{
+				"targetEnvironment": req.TargetEnvironment,
+				"perNodeLoad":       perNodeSpec,
+				"metricsExport":     metricsExport,
 			},
 		},
 	}
-	trGVR := schema.GroupVersionResource{Group: "k6.io", Version: "v1alpha1", Resource: "testruns"}
-	_, err = dynClient.Resource(trGVR).Namespace(namespace).Create(context.TODO(), tr, metav1.CreateOptions{})
+
+	created, err := h.client.Resource(LoadTestGVR).Namespace(req.Namespace).Create(ctx, lt, metav1.CreateOptions{})
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Errore creazione TestRun: %v", err)})
+		cleanup()
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("create loadtest: %v", err)})
 		return
 	}
 
-	yamlManifest := GenerateK6TestRunYAML(script, baseName, expName, req.MetricsQueries)
-
-	c.JSON(http.StatusOK, gin.H{
-		"message": fmt.Sprintf("TestRun '%s' avviato con successo nel namespace '%s'.", baseName, namespace),
-		"script":  script,
-		"yaml":    yamlManifest,
-	})
-}
-
-// UploadK6Script gestisce POST /api/k6/upload
-// Riceve un file .js e restituisce il contenuto come stringa + il YAML generato.
-func (h *Handler) UploadK6Script(c *gin.Context) {
-	file, header, err := c.Request.FormFile("script")
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "File 'script' mancante nel body",
+	if len(createdCMs) > 0 {
+		ownerRef := map[string]interface{}{
+			"apiVersion":         "dfaas.dfaas.io/v1",
+			"kind":               "LoadTest",
+			"name":               created.GetName(),
+			"uid":                string(created.GetUID()),
+			"controller":         true,
+			"blockOwnerDeletion": true,
+		}
+		patch, _ := json.Marshal(map[string]interface{}{
+			"metadata": map[string]interface{}{
+				"ownerReferences": []interface{}{ownerRef},
+			},
 		})
+		for _, cmName := range createdCMs {
+			_, _ = h.client.Resource(ConfigMapGVR).Namespace(req.Namespace).Patch(ctx, cmName, types.MergePatchType, patch, metav1.PatchOptions{})
+		}
+	}
+
+	detail := mapLoadTestDetail(*created)
+	h.inlineScripts(ctx, req.Namespace, &detail)
+
+	c.JSON(http.StatusCreated, detail)
+}
+
+func (h *Handler) DeleteLoadTest(c *gin.Context) {
+	namespace := c.Param("namespace")
+	name := c.Param("name")
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
+	defer cancel()
+
+	if err := h.client.Resource(LoadTestGVR).Namespace(namespace).Delete(ctx, name, metav1.DeleteOptions{}); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("delete loadtest: %v", err)})
 		return
 	}
-	defer file.Close()
 
-	content, err := io.ReadAll(file)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": "Impossibile leggere il file",
+	c.JSON(http.StatusOK, gin.H{"message": fmt.Sprintf("loadtest '%s/%s' deletion requested", namespace, name)})
+}
+
+// --- Helpers ---
+
+// inlineScripts reads each referenced ConfigMap and inlines its "script.js" value.
+func (h *Handler) inlineScripts(ctx context.Context, namespace string, detail *LoadTestDetail) {
+	for i, pn := range detail.PerNodeLoad {
+		if pn.ScriptConfigMap == "" {
+			continue
+		}
+		cm, err := h.client.Resource(ConfigMapGVR).Namespace(namespace).Get(ctx, pn.ScriptConfigMap, metav1.GetOptions{})
+		if err != nil {
+			continue
+		}
+		detail.PerNodeLoad[i].Script = getNestedString(cm.Object, "data", "script.js")
+	}
+}
+
+func buildEnvironmentUnstructured(req CreateEnvironmentRequest) *unstructured.Unstructured {
+	nodes := make([]interface{}, 0, len(req.Nodes))
+	for _, n := range req.Nodes {
+		node := map[string]interface{}{
+			"nodeID":    n.NodeID,
+			"ipAddress": n.IpAddress,
+			"role":      n.Role,
+			"capacity":  n.Capacity,
+			"username":  n.Username,
+			"password":  n.Password,
+		}
+		if n.PrivateKey != "" {
+			node["privateKey"] = n.PrivateKey
+		}
+		if n.BalancingStrategy != "" {
+			node["balancingStrategy"] = n.BalancingStrategy
+		}
+		if len(n.Functions) > 0 {
+			funcs := make([]interface{}, 0, len(n.Functions))
+			for _, f := range n.Functions {
+				fn := map[string]interface{}{
+					"name":        f.Name,
+					"image":       f.Image,
+					"execTimeout": int64(f.ExecTimeout),
+					"maxInflight": int64(f.MaxInflight),
+					"timeoutMs":   int64(f.TimeoutMs),
+				}
+				if f.MaxRate > 0 {
+					fn["maxRate"] = int64(f.MaxRate)
+				}
+				funcs = append(funcs, fn)
+			}
+			node["functions"] = funcs
+		}
+		nodes = append(nodes, node)
+	}
+
+	links := make([]interface{}, 0, len(req.Topology.Links))
+	for _, l := range req.Topology.Links {
+		links = append(links, map[string]interface{}{
+			"nodeA":     l.NodeA,
+			"nodeB":     l.NodeB,
+			"latencyMs": int64(l.LatencyMs),
 		})
-		return
 	}
 
-	script := string(content)
-	// Per l'upload manuale passiamo stringhe vuote, non abbiamo metricsQueries dirette qui.
-	yaml := GenerateK6TestRunYAML(script, "load-test-custom", "", "")
+	spec := map[string]interface{}{
+		"nodes":           nodes,
+		"cleanupOnDelete": req.CleanupOnDelete,
+	}
+	if len(links) > 0 {
+		spec["topology"] = map[string]interface{}{"links": links}
+	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"filename": header.Filename,
-		"script":   script,
-		"yaml":     yaml,
-	})
-}
-
-// --- Mapping functions ---
-// Convertono le risorse Kubernetes unstructured nei DTOs tipizzati.
-
-func mapToSummary(item unstructured.Unstructured) ExperimentSummary {
-	phase := getNestedString(item.Object, "status", "phase")
-	message := getNestedString(item.Object, "status", "message")
-
-	// Conta i nodi nella federazione
-	nodes, _, _ := unstructured.NestedSlice(item.Object, "spec", "federation", "nodes")
-
-	creationTime := item.GetCreationTimestamp().Time
-
-	return ExperimentSummary{
-		Name:              item.GetName(),
-		Namespace:         item.GetNamespace(),
-		Phase:             phase,
-		Message:           message,
-		CreationTimestamp: creationTime,
-		NodeCount:         len(nodes),
+	return &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "dfaas.dfaas.io/v1",
+			"kind":       "Environment",
+			"metadata": map[string]interface{}{
+				"name":      req.Name,
+				"namespace": req.Namespace,
+			},
+			"spec": spec,
+		},
 	}
 }
 
-func mapToDetail(item unstructured.Unstructured) ExperimentDetail {
-	detail := ExperimentDetail{
+// --- Mappers ---
+
+func mapEnvSummary(item unstructured.Unstructured) EnvironmentSummary {
+	s := EnvironmentSummary{
 		Name:              item.GetName(),
 		Namespace:         item.GetNamespace(),
 		Phase:             getNestedString(item.Object, "status", "phase"),
@@ -298,18 +506,42 @@ func mapToDetail(item unstructured.Unstructured) ExperimentDetail {
 		CreationTimestamp: item.GetCreationTimestamp().Time,
 	}
 
-	// IsCleanupRequested
-	cleanup, _, _ := unstructured.NestedBool(item.Object, "spec", "isCleanupRequested")
-	detail.IsCleanupRequested = cleanup
+	nodes, _, _ := unstructured.NestedSlice(item.Object, "spec", "nodes")
+	s.NodeCount = len(nodes)
+	for _, n := range nodes {
+		m, ok := n.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		switch getStringFromMap(m, "role") {
+		case "dfaas-worker":
+			s.DfaasNodeCount++
+		case "k6-load-generator":
+			s.K6NodeCount++
+		}
+	}
 
-	// Conditions
+	return s
+}
+
+func mapEnvDetail(item unstructured.Unstructured) EnvironmentDetail {
+	d := EnvironmentDetail{
+		Name:              item.GetName(),
+		Namespace:         item.GetNamespace(),
+		Phase:             getNestedString(item.Object, "status", "phase"),
+		Message:           getNestedString(item.Object, "status", "message"),
+		CreationTimestamp: item.GetCreationTimestamp().Time,
+	}
+
+	d.CleanupOnDelete, _, _ = unstructured.NestedBool(item.Object, "spec", "cleanupOnDelete")
+
 	conditions, _, _ := unstructured.NestedSlice(item.Object, "status", "conditions")
 	for _, c := range conditions {
 		cMap, ok := c.(map[string]interface{})
 		if !ok {
 			continue
 		}
-		detail.Conditions = append(detail.Conditions, ConditionInfo{
+		d.Conditions = append(d.Conditions, ConditionInfo{
 			Type:               getStringFromMap(cMap, "type"),
 			Status:             getStringFromMap(cMap, "status"),
 			Reason:             getStringFromMap(cMap, "reason"),
@@ -318,8 +550,7 @@ func mapToDetail(item unstructured.Unstructured) ExperimentDetail {
 		})
 	}
 
-	// Federation nodes
-	nodes, _, _ := unstructured.NestedSlice(item.Object, "spec", "federation", "nodes")
+	nodes, _, _ := unstructured.NestedSlice(item.Object, "spec", "nodes")
 	for _, n := range nodes {
 		nMap, ok := n.(map[string]interface{})
 		if !ok {
@@ -328,14 +559,13 @@ func mapToDetail(item unstructured.Unstructured) ExperimentDetail {
 		node := NodeInfo{
 			NodeID:            getStringFromMap(nMap, "nodeID"),
 			IpAddress:         getStringFromMap(nMap, "ipAddress"),
+			Role:              getStringFromMap(nMap, "role"),
 			Username:          getStringFromMap(nMap, "username"),
 			Password:          getStringFromMap(nMap, "password"),
 			PrivateKey:        getStringFromMap(nMap, "privateKey"),
 			Capacity:          getStringFromMap(nMap, "capacity"),
 			BalancingStrategy: getStringFromMap(nMap, "balancingStrategy"),
 		}
-
-		// Functions
 		functions, _, _ := unstructured.NestedSlice(nMap, "functions")
 		for _, f := range functions {
 			fMap, ok := f.(map[string]interface{})
@@ -348,30 +578,160 @@ func mapToDetail(item unstructured.Unstructured) ExperimentDetail {
 				ExecTimeout: getIntFromMap(fMap, "execTimeout"),
 				MaxInflight: getIntFromMap(fMap, "maxInflight"),
 				TimeoutMs:   getIntFromMap(fMap, "timeoutMs"),
+				MaxRate:     getIntFromMap(fMap, "maxRate"),
 			})
 		}
-
-		detail.Federation.Nodes = append(detail.Federation.Nodes, node)
+		d.Nodes = append(d.Nodes, node)
 	}
 
-	// Topology links
 	links, _, _ := unstructured.NestedSlice(item.Object, "spec", "topology", "links")
 	for _, l := range links {
 		lMap, ok := l.(map[string]interface{})
 		if !ok {
 			continue
 		}
-		detail.Topology.Links = append(detail.Topology.Links, LinkInfo{
+		d.Topology.Links = append(d.Topology.Links, LinkInfo{
 			NodeA:     getStringFromMap(lMap, "nodeA"),
 			NodeB:     getStringFromMap(lMap, "nodeB"),
 			LatencyMs: getIntFromMap(lMap, "latencyMs"),
 		})
 	}
 
-	return detail
+	k6Status, _, _ := unstructured.NestedSlice(item.Object, "status", "k6Nodes")
+	for _, k := range k6Status {
+		kMap, ok := k.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		d.K6Nodes = append(d.K6Nodes, K6NodeStatus{
+			NodeID:           getStringFromMap(kMap, "nodeID"),
+			IPAddress:        getStringFromMap(kMap, "ipAddress"),
+			KubeconfigSecret: getStringFromMap(kMap, "kubeconfigSecret"),
+		})
+	}
+
+	dfaasStatus, _, _ := unstructured.NestedSlice(item.Object, "status", "dfaasNodes")
+	for _, n := range dfaasStatus {
+		if s, ok := n.(string); ok {
+			d.DfaasNodes = append(d.DfaasNodes, s)
+		}
+	}
+
+	return d
 }
 
-// --- Utility functions ---
+func mapLoadTestSummary(item unstructured.Unstructured) LoadTestSummary {
+	s := LoadTestSummary{
+		Name:              item.GetName(),
+		Namespace:         item.GetNamespace(),
+		TargetEnvironment: getNestedString(item.Object, "spec", "targetEnvironment"),
+		Phase:             getNestedString(item.Object, "status", "phase"),
+		Message:           getNestedString(item.Object, "status", "message"),
+		CreationTimestamp: item.GetCreationTimestamp().Time,
+	}
+
+	if t, ok := parseStatusTime(item.Object, "startTime"); ok {
+		s.StartTime = &t
+	}
+	if t, ok := parseStatusTime(item.Object, "endTime"); ok {
+		s.EndTime = &t
+	}
+
+	return s
+}
+
+func mapLoadTestDetail(item unstructured.Unstructured) LoadTestDetail {
+	d := LoadTestDetail{LoadTestSummary: mapLoadTestSummary(item)}
+
+	perNode, _, _ := unstructured.NestedSlice(item.Object, "spec", "perNodeLoad")
+	for _, pn := range perNode {
+		m, ok := pn.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		cmName := ""
+		if cm, ok := m["scriptConfigMap"].(map[string]interface{}); ok {
+			cmName = getStringFromMap(cm, "name")
+		}
+		d.PerNodeLoad = append(d.PerNodeLoad, PerNodeLoadView{
+			NodeID:          getStringFromMap(m, "nodeID"),
+			VUs:             getIntFromMap(m, "vus"),
+			Duration:        getStringFromMap(m, "duration"),
+			ScriptConfigMap: cmName,
+		})
+	}
+
+	queries, _, _ := unstructured.NestedSlice(item.Object, "spec", "metricsExport", "queries")
+	for _, q := range queries {
+		if s, ok := q.(string); ok {
+			d.MetricsExport.Queries = append(d.MetricsExport.Queries, s)
+		}
+	}
+	d.MetricsExport.Step = getNestedString(item.Object, "spec", "metricsExport", "step")
+	if gd, _, _ := unstructured.NestedMap(item.Object, "spec", "metricsExport", "googleDrive"); gd != nil {
+		d.MetricsExport.GoogleDrive = &GoogleDriveConfigView{
+			FolderID:             getStringFromMap(gd, "folderId"),
+			CredentialsSecretRef: getStringFromMap(gd, "credentialsSecretRef"),
+		}
+	}
+
+	testRuns, _, _ := unstructured.NestedSlice(item.Object, "status", "testRuns")
+	for _, tr := range testRuns {
+		m, ok := tr.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		d.TestRuns = append(d.TestRuns, TestRunRefView{
+			NodeID:    getStringFromMap(m, "nodeID"),
+			Name:      getStringFromMap(m, "name"),
+			Namespace: getStringFromMap(m, "namespace"),
+			Phase:     getStringFromMap(m, "phase"),
+		})
+	}
+
+	d.ExporterJob = getNestedString(item.Object, "status", "exporterJob")
+
+	conditions, _, _ := unstructured.NestedSlice(item.Object, "status", "conditions")
+	for _, c := range conditions {
+		cMap, ok := c.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		d.Conditions = append(d.Conditions, ConditionInfo{
+			Type:               getStringFromMap(cMap, "type"),
+			Status:             getStringFromMap(cMap, "status"),
+			Reason:             getStringFromMap(cMap, "reason"),
+			Message:            getStringFromMap(cMap, "message"),
+			LastTransitionTime: getStringFromMap(cMap, "lastTransitionTime"),
+		})
+	}
+
+	return d
+}
+
+func parseStatusTime(obj map[string]interface{}, field string) (time.Time, bool) {
+	raw := getNestedString(obj, "status", field)
+	if raw == "" {
+		return time.Time{}, false
+	}
+	t, err := time.Parse(time.RFC3339, raw)
+	if err != nil {
+		return time.Time{}, false
+	}
+	return t, true
+}
+
+var dns1123Sub = regexp.MustCompile(`[^a-z0-9-]+`)
+
+func sanitizeDNS1123(s string) string {
+	s = strings.ToLower(s)
+	s = dns1123Sub.ReplaceAllString(s, "-")
+	s = strings.Trim(s, "-")
+	if len(s) > 253 {
+		s = s[:253]
+	}
+	return s
+}
 
 func getNestedString(obj map[string]interface{}, fields ...string) string {
 	val, _, _ := unstructured.NestedString(obj, fields...)
