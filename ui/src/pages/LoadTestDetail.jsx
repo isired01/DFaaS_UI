@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { ArrowLeft, TestTube2, Trash2, AlertTriangle, Info, ChevronDown, ChevronUp, Server, BarChart3, FileCode } from 'lucide-react';
-import { fetchLoadTest, deleteLoadTest } from '../api/client';
+import { ArrowLeft, TestTube2, Trash2, AlertTriangle, Info, ChevronDown, ChevronUp, Server, BarChart3, FileCode, Download, Play, FileEdit } from 'lucide-react';
+import { fetchLoadTest, deleteLoadTest, fetchLoadTestYAML, downloadTextAsFile, activateLoadTest } from '../api/client';
 import PhaseBadge from '../components/PhaseBadge';
 
 const ACTIVE_PHASES = new Set(['Pending', 'Running', 'Exporting', '']);
@@ -28,6 +28,7 @@ export default function LoadTestDetail() {
   const [deleting, setDeleting] = useState(false);
   const [expandedScript, setExpandedScript] = useState(null);
   const [showSpec, setShowSpec] = useState(false);
+  const [activating, setActivating] = useState(false);
 
   useEffect(() => {
     const load = async () => {
@@ -45,6 +46,27 @@ export default function LoadTestDetail() {
     return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [namespace, name, loadtest?.phase]);
+
+  const handleDownloadYAML = async () => {
+    try {
+      const yaml = await fetchLoadTestYAML(namespace, name);
+      downloadTextAsFile(yaml, `loadtest-${namespace}-${name}.yaml`, 'application/yaml');
+    } catch (err) { setError(err.message); }
+  };
+
+  const handleActivate = async () => {
+    if (!confirm(`Start load test '${name}' now? This will exit Draft mode and dispatch k6 jobs.`)) return;
+    setActivating(true);
+    try {
+      await activateLoadTest(namespace, name);
+      const data = await fetchLoadTest(namespace, name);
+      setLoadtest(data);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setActivating(false);
+    }
+  };
 
   const handleDelete = async () => {
     if (!confirm(`Delete load test '${name}'?`)) return;
@@ -74,6 +96,13 @@ export default function LoadTestDetail() {
 
   if (!loadtest) return null;
 
+  // Desired state from spec.suspended is the source of truth (Conditions[Suspended]
+  // is derived and may be empty during the first reconcile after creation).
+  const isDraft = loadtest.suspended === true;
+  const pendingTooltip = loadtest.phase === 'Pending'
+    ? (isDraft ? 'Draft saved' : 'Waiting for Environment Ready')
+    : '';
+
   return (
     <div className="space-y-6 animate-fade-in">
       <div>
@@ -91,13 +120,33 @@ export default function LoadTestDetail() {
               <Link to={`/environments/${namespace}/${loadtest.targetEnvironment}`} className="text-xs font-mono text-dfaas-400 hover:text-dfaas-300">
                 env: {loadtest.targetEnvironment}
               </Link>
-              <PhaseBadge kind="loadtest" phase={loadtest.phase} size="lg" />
+              <span title={pendingTooltip}>
+                <PhaseBadge kind="loadtest" phase={loadtest.phase} size="lg" />
+              </span>
+              {isDraft && (
+                <span className="badge text-xs px-3 py-1 bg-violet-500/15 text-violet-300 border border-violet-500/30 inline-flex items-center gap-1.5" id="loadtest-draft-badge">
+                  <FileEdit className="w-3.5 h-3.5" />
+                  Draft
+                </span>
+              )}
             </div>
           </div>
-          <button onClick={handleDelete} disabled={deleting} className="btn-secondary text-red-400 hover:text-red-300">
-            <Trash2 className="w-4 h-4" />
-            {deleting ? 'Deleting...' : 'Delete'}
-          </button>
+          <div className="flex items-center gap-2">
+            {isDraft && (
+              <button onClick={handleActivate} disabled={activating} className="btn-primary" id="start-loadtest-btn">
+                <Play className="w-4 h-4" />
+                {activating ? 'Starting...' : 'Start'}
+              </button>
+            )}
+            <button onClick={handleDownloadYAML} className="btn-secondary" id="download-loadtest-yaml-btn">
+              <Download className="w-4 h-4" />
+              Download YAML
+            </button>
+            <button onClick={handleDelete} disabled={deleting} className="btn-secondary text-red-400 hover:text-red-300">
+              <Trash2 className="w-4 h-4" />
+              {deleting ? 'Deleting...' : 'Delete'}
+            </button>
+          </div>
         </div>
         {loadtest.message && (
           <div className={`mt-4 p-3 rounded-xl flex items-start gap-2 text-sm ${loadtest.phase === 'Failed' ? 'bg-red-500/10 border border-red-500/30 text-red-400' : 'bg-surface-800/50 border border-surface-700/50 text-surface-300'}`}>
@@ -163,6 +212,15 @@ export default function LoadTestDetail() {
                     <div className="flex items-center gap-3 text-xs">
                       <TestRunBadge phase={tr?.phase} />
                       <span className="text-surface-500 font-mono">{tr?.name || pn.scriptConfigMap}</span>
+                      <button
+                        type="button"
+                        onClick={() => downloadTextAsFile(pn.script || '', `${loadtest.name}-${pn.nodeID}.js`, 'text/javascript')}
+                        disabled={!pn.script}
+                        className="text-surface-400 hover:text-white disabled:opacity-30 disabled:hover:text-surface-400"
+                        title={pn.script ? 'Download k6 script' : 'Script not available'}
+                      >
+                        <Download className="w-4 h-4" />
+                      </button>
                       <button type="button" onClick={() => setExpandedScript(scriptOpen ? null : pn.nodeID)} className="text-surface-400 hover:text-white" title="Toggle script">
                         <FileCode className="w-4 h-4" />
                       </button>

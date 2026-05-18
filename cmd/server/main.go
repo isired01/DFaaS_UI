@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
@@ -52,8 +53,14 @@ func main() {
 		r.Static("/assets", filepath.Join(uiDistPath, "assets"))
 		r.StaticFile("/favicon.ico", filepath.Join(uiDistPath, "favicon.ico"))
 
-		// Tutte le rotte non-API servono index.html (SPA routing)
+		// Tutte le rotte non-API servono index.html (SPA routing).
+		// Per /api/* sconosciuti restituiamo JSON 404 invece di SPA fallback,
+		// così il client non scarica index.html scambiandolo per la risposta API.
 		r.NoRoute(func(c *gin.Context) {
+			if strings.HasPrefix(c.Request.URL.Path, "/api/") {
+				c.JSON(http.StatusNotFound, gin.H{"error": "route not found: " + c.Request.URL.Path})
+				return
+			}
 			c.File(filepath.Join(uiDistPath, "index.html"))
 		})
 		log.Printf("📂 Frontend servito da: %s", uiDistPath)

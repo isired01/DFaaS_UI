@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Network, Zap, TestTube2, AlertTriangle, Info, Plus, Trash2, Server, Cpu } from 'lucide-react';
-import { fetchEnvironment, fetchLoadTests, deleteEnvironment } from '../api/client';
+import { ArrowLeft, Network, Zap, TestTube2, AlertTriangle, Info, Plus, Trash2, Server, Cpu, CheckCircle2, Loader2, XCircle, Download } from 'lucide-react';
+import { fetchEnvironment, fetchLoadTests, deleteEnvironment, fetchEnvironmentYAML, downloadTextAsFile } from '../api/client';
 import PhaseBadge from '../components/PhaseBadge';
 import NodeCard from '../components/NodeCard';
 
@@ -31,6 +31,13 @@ export default function EnvironmentDetail() {
     const interval = setInterval(load, 5000);
     return () => clearInterval(interval);
   }, [namespace, name]);
+
+  const handleDownloadYAML = async () => {
+    try {
+      const yaml = await fetchEnvironmentYAML(namespace, name);
+      downloadTextAsFile(yaml, `environment-${namespace}-${name}.yaml`, 'application/yaml');
+    } catch (err) { setError(err.message); }
+  };
 
   const handleDelete = async () => {
     if (!confirm(`Delete environment '${name}'? The operator finalizer will tear down VMs if cleanupOnDelete is true.`)) return;
@@ -84,10 +91,16 @@ export default function EnvironmentDetail() {
               )}
             </div>
           </div>
-          <button onClick={handleDelete} disabled={deleting} className="btn-secondary text-red-400 hover:text-red-300" id="delete-environment-btn">
-            <Trash2 className="w-4 h-4" />
-            {deleting ? 'Deleting...' : 'Delete'}
-          </button>
+          <div className="flex items-center gap-2">
+            <button onClick={handleDownloadYAML} className="btn-secondary" id="download-environment-yaml-btn">
+              <Download className="w-4 h-4" />
+              Download YAML
+            </button>
+            <button onClick={handleDelete} disabled={deleting} className="btn-secondary text-red-400 hover:text-red-300" id="delete-environment-btn">
+              <Trash2 className="w-4 h-4" />
+              {deleting ? 'Deleting...' : 'Delete'}
+            </button>
+          </div>
         </div>
         {environment.message && (
           <div className={`mt-4 p-3 rounded-xl flex items-start gap-2 text-sm ${environment.phase === 'Failed' ? 'bg-red-500/10 border border-red-500/30 text-red-400' : 'bg-surface-800/50 border border-surface-700/50 text-surface-300'}`}>
@@ -95,6 +108,16 @@ export default function EnvironmentDetail() {
           </div>
         )}
       </div>
+
+      {environment.phase === 'ProvisioningInfra' && (
+        <div className="glass-card p-5" id="provisioning-infra-progress">
+          <h2 className="text-sm font-semibold text-surface-300 uppercase tracking-wider mb-3">Infrastructure Provisioning</h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <ConditionRow conditions={environment.conditions} type="K6Ready" label="k6 Ansible" />
+            <ConditionRow conditions={environment.conditions} type="MonitoringReady" label="Monitoring (Helm)" />
+          </div>
+        </div>
+      )}
 
       {environment.conditions && environment.conditions.length > 0 && (
         <div className="glass-card p-5">
@@ -232,6 +255,39 @@ export default function EnvironmentDetail() {
             </tbody>
           </table>
         )}
+      </div>
+    </div>
+  );
+}
+
+function ConditionRow({ conditions, type, label }) {
+  const c = (conditions || []).find(x => x.type === type);
+  const status = c?.status || 'Unknown';
+  const reason = c?.reason || '';
+  const message = c?.message || '';
+
+  let Icon = Loader2;
+  let iconClass = 'text-amber-400 animate-spin';
+  let bgClass = 'bg-amber-500/10 border-amber-500/30';
+  if (status === 'True') {
+    Icon = CheckCircle2;
+    iconClass = 'text-emerald-400';
+    bgClass = 'bg-emerald-500/10 border-emerald-500/30';
+  } else if (reason === 'AnsibleFailed' || reason === 'HelmFailed') {
+    Icon = XCircle;
+    iconClass = 'text-red-400';
+    bgClass = 'bg-red-500/10 border-red-500/30';
+  }
+
+  return (
+    <div className={`p-3 rounded-xl border flex items-start gap-3 ${bgClass}`} id={`condition-${type}`}>
+      <Icon className={`w-5 h-5 flex-shrink-0 mt-0.5 ${iconClass}`} />
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-semibold text-white">{label}</span>
+          {reason && <span className="text-[10px] text-surface-400 uppercase tracking-wider">{reason}</span>}
+        </div>
+        {message && <p className="text-xs text-surface-300 mt-1 truncate">{message}</p>}
       </div>
     </div>
   );

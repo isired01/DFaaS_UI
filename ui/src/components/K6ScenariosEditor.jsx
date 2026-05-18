@@ -52,9 +52,6 @@ export default function K6ScenariosEditor({ scenarios, onChange, availableUrls =
     <div className="space-y-3">
       <div className="flex items-center justify-between">
         <h4 className="text-xs font-semibold text-surface-300">Scenarios ({scenarios.length})</h4>
-        <button type="button" onClick={addScenario} className="btn-secondary text-xs px-3 py-1.5">
-          <Plus className="w-3.5 h-3.5" />Add Scenario
-        </button>
       </div>
 
       {scenarios.map((scen, sIdx) => {
@@ -141,7 +138,6 @@ export default function K6ScenariosEditor({ scenarios, onChange, availableUrls =
                 <div>
                   <div className="flex items-center justify-between mb-1">
                     <label className="block text-[10px] text-surface-400">Stages (Arrival Rate)</label>
-                    <button type="button" onClick={() => addStage(sIdx)} className="text-[10px] text-dfaas-400 hover:text-dfaas-300 font-medium">+ Add Stage</button>
                   </div>
                   <div className="space-y-1.5">
                     {scen.stages.map((stage, stIdx) => (
@@ -154,12 +150,20 @@ export default function K6ScenariosEditor({ scenarios, onChange, availableUrls =
                       </div>
                     ))}
                   </div>
+                  <div className="mt-2 flex justify-end">
+                    <button type="button" onClick={() => addStage(sIdx)} className="text-[10px] text-dfaas-400 hover:text-dfaas-300 font-medium">+ Add Stage</button>
+                  </div>
                 </div>
               </div>
             )}
           </div>
         );
       })}
+      <div className="flex justify-end">
+        <button type="button" onClick={addScenario} className="btn-secondary text-xs px-3 py-1.5">
+          <Plus className="w-3.5 h-3.5" />Add Scenario
+        </button>
+      </div>
     </div>
   );
 }

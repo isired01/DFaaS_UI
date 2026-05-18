@@ -49,7 +49,6 @@ type NodeInfo struct {
 	Role              string         `json:"role"`
 	Username          string         `json:"username"`
 	Password          string         `json:"password"`
-	PrivateKey        string         `json:"privateKey,omitempty"`
 	Capacity          string         `json:"capacity"`
 	BalancingStrategy string         `json:"balancingStrategy,omitempty"`
 	Functions         []FunctionInfo `json:"functions,omitempty"`
@@ -102,6 +101,7 @@ type LoadTestSummary struct {
 	Namespace         string     `json:"namespace"`
 	TargetEnvironment string     `json:"targetEnvironment"`
 	Phase             string     `json:"phase"`
+	Suspended         bool       `json:"suspended,omitempty"`
 	Message           string     `json:"message,omitempty"`
 	StartTime         *time.Time `json:"startTime,omitempty"`
 	EndTime           *time.Time `json:"endTime,omitempty"`
@@ -153,6 +153,7 @@ type CreateLoadTestRequest struct {
 	Namespace         string              `json:"namespace" binding:"required"`
 	Name              string              `json:"name,omitempty"`
 	TargetEnvironment string              `json:"targetEnvironment" binding:"required"`
+	Suspended         bool                `json:"suspended,omitempty"`
 	PerNodeLoad       []CreatePerNodeLoad `json:"perNodeLoad" binding:"required,min=1"`
 	MetricsExport     CreateMetricsExport `json:"metricsExport"`
 }

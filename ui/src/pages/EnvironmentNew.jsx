@@ -26,7 +26,6 @@ function emptyNode() {
     capacity: 'MEDIUM',
     username: '',
     password: '',
-    privateKey: '',
     balancingStrategy: '',
     functions: [],
   };
@@ -98,7 +97,6 @@ export default function EnvironmentNew() {
             username: n.username.trim(),
             password: n.password,
           };
-          if (n.privateKey) node.privateKey = n.privateKey;
           if (n.role === 'dfaas-worker') {
             node.balancingStrategy = n.balancingStrategy;
             if (n.functions.length > 0) {
@@ -173,9 +171,6 @@ export default function EnvironmentNew() {
           <h2 className="text-sm font-semibold text-surface-300 uppercase tracking-wider flex items-center gap-2">
             <Server className="w-4 h-4" />Nodes ({nodes.length})
           </h2>
-          <button type="button" onClick={addNode} className="btn-secondary text-xs px-3 py-1.5">
-            <Plus className="w-3.5 h-3.5" />Add Node
-          </button>
         </div>
 
         {nodes.map((node, i) => (
@@ -230,11 +225,6 @@ export default function EnvironmentNew() {
               </div>
             </div>
 
-            <div>
-              <label className="block text-xs font-medium text-surface-400 mb-1">Private Key (optional)</label>
-              <textarea className="input py-2 text-xs font-mono h-20" value={node.privateKey} onChange={(e) => updateNode(i, { privateKey: e.target.value })} placeholder="-----BEGIN OPENSSH PRIVATE KEY-----..." />
-            </div>
-
             {node.role === 'dfaas-worker' && (
               <>
                 <div>
@@ -247,9 +237,6 @@ export default function EnvironmentNew() {
                 <div className="border-t border-surface-700/50 pt-3">
                   <div className="flex items-center justify-between mb-2">
                     <label className="block text-xs font-medium text-surface-400">Functions ({node.functions.length})</label>
-                    <button type="button" onClick={() => addFunction(i)} className="text-[10px] text-dfaas-400 hover:text-dfaas-300 font-medium">
-                      + Add Function
-                    </button>
                   </div>
                   <div className="space-y-2">
                     {node.functions.map((fn, fIdx) => (
@@ -288,11 +275,21 @@ export default function EnvironmentNew() {
                       </div>
                     ))}
                   </div>
+                  <div className="mt-2 flex justify-end">
+                    <button type="button" onClick={() => addFunction(i)} className="text-[10px] text-dfaas-400 hover:text-dfaas-300 font-medium">
+                      + Add Function
+                    </button>
+                  </div>
                 </div>
               </>
             )}
           </div>
         ))}
+        <div className="flex justify-end">
+          <button type="button" onClick={addNode} className="btn-secondary text-xs px-3 py-1.5">
+            <Plus className="w-3.5 h-3.5" />Add Node
+          </button>
+        </div>
       </div>
 
       <div className="glass-card p-5 space-y-4">
@@ -300,9 +297,6 @@ export default function EnvironmentNew() {
           <h2 className="text-sm font-semibold text-surface-300 uppercase tracking-wider flex items-center gap-2">
             <Network className="w-4 h-4" />Topology Links ({links.length})
           </h2>
-          <button type="button" onClick={addLink} className="btn-secondary text-xs px-3 py-1.5">
-            <Plus className="w-3.5 h-3.5" />Add Link
-          </button>
         </div>
 
         {links.length === 0 ? (
@@ -334,6 +328,11 @@ export default function EnvironmentNew() {
             </div>
           </div>
         ))}
+        <div className="flex justify-end">
+          <button type="button" onClick={addLink} className="btn-secondary text-xs px-3 py-1.5">
+            <Plus className="w-3.5 h-3.5" />Add Link
+          </button>
+        </div>
       </div>
 
       {error && <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-sm">{error}</div>}

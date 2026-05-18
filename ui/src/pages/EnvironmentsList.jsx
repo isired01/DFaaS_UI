@@ -4,7 +4,7 @@ import { FlaskConical, RefreshCw, Search, Server, ChevronRight, Plus } from 'luc
 import { fetchEnvironments } from '../api/client';
 import PhaseBadge from '../components/PhaseBadge';
 
-const PROVISIONING_PHASES = new Set(['ProvisioningVMs', 'ProvisioningK6', 'ProvisioningMonitoring']);
+const PROVISIONING_PHASES = new Set(['ProvisioningVMs', 'ProvisioningInfra']);
 
 export default function EnvironmentsList() {
   const [environments, setEnvironments] = useState([]);

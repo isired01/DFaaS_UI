@@ -6,12 +6,15 @@ import (
 	"fmt"
 	"net/http"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	yamlv3 "gopkg.in/yaml.v3"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/dynamic"
 )
@@ -32,12 +35,15 @@ func (h *Handler) RegisterRoutes(r *gin.Engine) {
 	{
 		api.GET("/environments", h.ListEnvironments)
 		api.GET("/environments/:namespace/:name", h.GetEnvironment)
+		api.GET("/environments/:namespace/:name/yaml", h.GetEnvironmentYAML)
 		api.POST("/environments", h.CreateEnvironment)
 		api.DELETE("/environments/:namespace/:name", h.DeleteEnvironment)
 
 		api.GET("/loadtests", h.ListLoadTests)
 		api.GET("/loadtests/:namespace/:name", h.GetLoadTest)
+		api.GET("/loadtests/:namespace/:name/yaml", h.GetLoadTestYAML)
 		api.POST("/loadtests", h.CreateLoadTest)
+		api.POST("/loadtests/:namespace/:name/activate", h.ActivateLoadTest)
 		api.DELETE("/loadtests/:namespace/:name", h.DeleteLoadTest)
 	}
 }
@@ -233,7 +239,7 @@ func (h *Handler) CreateLoadTest(c *gin.Context) {
 	}
 
 	phase := getNestedString(envObj.Object, "status", "phase")
-	if phase != "Ready" {
+	if !req.Suspended && phase != "Ready" {
 		c.JSON(http.StatusConflict, gin.H{"error": fmt.Sprintf("environment '%s' is not Ready (current phase: %s)", req.TargetEnvironment, phase)})
 		return
 	}
@@ -364,6 +370,10 @@ func (h *Handler) CreateLoadTest(c *gin.Context) {
 			},
 		},
 	}
+	if req.Suspended {
+		spec := lt.Object["spec"].(map[string]interface{})
+		spec["suspended"] = true
+	}
 
 	created, err := h.client.Resource(LoadTestGVR).Namespace(req.Namespace).Create(ctx, lt, metav1.CreateOptions{})
 	if err != nil {
@@ -438,9 +448,6 @@ func buildEnvironmentUnstructured(req CreateEnvironmentRequest) *unstructured.Un
 			"capacity":  n.Capacity,
 			"username":  n.Username,
 			"password":  n.Password,
-		}
-		if n.PrivateKey != "" {
-			node["privateKey"] = n.PrivateKey
 		}
 		if n.BalancingStrategy != "" {
 			node["balancingStrategy"] = n.BalancingStrategy
@@ -562,7 +569,6 @@ func mapEnvDetail(item unstructured.Unstructured) EnvironmentDetail {
 			Role:              getStringFromMap(nMap, "role"),
 			Username:          getStringFromMap(nMap, "username"),
 			Password:          getStringFromMap(nMap, "password"),
-			PrivateKey:        getStringFromMap(nMap, "privateKey"),
 			Capacity:          getStringFromMap(nMap, "capacity"),
 			BalancingStrategy: getStringFromMap(nMap, "balancingStrategy"),
 		}
@@ -621,11 +627,13 @@ func mapEnvDetail(item unstructured.Unstructured) EnvironmentDetail {
 }
 
 func mapLoadTestSummary(item unstructured.Unstructured) LoadTestSummary {
+	suspended, _, _ := unstructured.NestedBool(item.Object, "spec", "suspended")
 	s := LoadTestSummary{
 		Name:              item.GetName(),
 		Namespace:         item.GetNamespace(),
 		TargetEnvironment: getNestedString(item.Object, "spec", "targetEnvironment"),
 		Phase:             getNestedString(item.Object, "status", "phase"),
+		Suspended:         suspended,
 		Message:           getNestedString(item.Object, "status", "message"),
 		CreationTimestamp: item.GetCreationTimestamp().Time,
 	}
@@ -764,5 +772,185 @@ func getIntFromMap(m map[string]interface{}, key string) int {
 		return v
 	default:
 		return 0
+	}
+}
+
+// --- LoadTest activation ---
+
+// ActivateLoadTest flips spec.suspended=false via merge-patch.
+// 202 Accepted on success, 404 NotFound, 409 if already past Pending,
+// 400 if Pending but not actually a draft (Conditions[Suspended] != True).
+func (h *Handler) ActivateLoadTest(c *gin.Context) {
+	namespace := c.Param("namespace")
+	name := c.Param("name")
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
+	defer cancel()
+
+	obj, err := h.client.Resource(LoadTestGVR).Namespace(namespace).Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": fmt.Sprintf("loadtest '%s/%s' not found: %v", namespace, name, err)})
+		return
+	}
+
+	phase := getNestedString(obj.Object, "status", "phase")
+	if phase != "" && phase != "Pending" {
+		c.JSON(http.StatusConflict, gin.H{"error": fmt.Sprintf("loadtest '%s' phase is '%s' — activation only valid while Pending", name, phase)})
+		return
+	}
+
+	// Check desired state, not observed condition: avoids race when reconciler
+	// hasn't stamped Conditions[Suspended] yet on a freshly-created draft.
+	suspended, _, _ := unstructured.NestedBool(obj.Object, "spec", "suspended")
+	if !suspended {
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("loadtest '%s' is not a draft (spec.suspended != true)", name)})
+		return
+	}
+
+	patch := []byte(`{"spec":{"suspended":false}}`)
+	if _, err := h.client.Resource(LoadTestGVR).Namespace(namespace).Patch(ctx, name, types.MergePatchType, patch, metav1.PatchOptions{}); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("patch loadtest: %v", err)})
+		return
+	}
+
+	c.Status(http.StatusAccepted)
+}
+
+// --- YAML export handlers ---
+
+func (h *Handler) GetEnvironmentYAML(c *gin.Context) {
+	h.exportResourceYAML(c, EnvironmentGVR, "environment")
+}
+
+func (h *Handler) GetLoadTestYAML(c *gin.Context) {
+	h.exportResourceYAML(c, LoadTestGVR, "loadtest")
+}
+
+func (h *Handler) exportResourceYAML(c *gin.Context, gvr schema.GroupVersionResource, kind string) {
+	namespace := c.Param("namespace")
+	name := c.Param("name")
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
+	defer cancel()
+
+	obj, err := h.client.Resource(gvr).Namespace(namespace).Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": fmt.Sprintf("%s '%s/%s' not found: %v", kind, namespace, name, err)})
+		return
+	}
+
+	cleanForApply(obj.Object)
+
+	yamlBytes, err := marshalOrderedYAML(obj.Object, kind)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("marshal %s yaml: %v", kind, err)})
+		return
+	}
+
+	c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename="%s-%s-%s.yaml"`, kind, namespace, name))
+	c.Data(http.StatusOK, "application/yaml", yamlBytes)
+}
+
+// Preferred key order per path. Unknown keys at a level are appended
+// alphabetically after the preferred ones. Paths use a synthetic notation:
+// `root.spec.nodes[]` denotes "items of the nodes sequence under spec".
+var envKeyOrder = map[string][]string{
+	"root":                          {"apiVersion", "kind", "metadata", "spec"},
+	"root.metadata":                 {"name", "namespace", "labels", "annotations"},
+	"root.spec":                     {"cleanupOnDelete", "nodes", "topology"},
+	"root.spec.nodes[]":             {"nodeID", "ipAddress", "role", "capacity", "username", "password", "balancingStrategy", "functions"},
+	"root.spec.nodes[].functions[]": {"name", "image", "execTimeout", "maxInflight", "timeoutMs", "maxRate"},
+	"root.spec.topology":            {"links"},
+	"root.spec.topology.links[]":    {"nodeA", "nodeB", "latencyMs"},
+}
+
+var loadtestKeyOrder = map[string][]string{
+	"root":                    {"apiVersion", "kind", "metadata", "spec"},
+	"root.metadata":           {"name", "namespace", "labels", "annotations"},
+	"root.spec":               {"targetEnvironment", "perNodeLoad", "metricsExport"},
+	"root.spec.perNodeLoad[]": {"nodeID", "vus", "duration", "scriptConfigMap", "script"},
+	"root.spec.perNodeLoad[].scriptConfigMap": {"name"},
+	"root.spec.metricsExport":                 {"queries", "step", "googleDrive"},
+	"root.spec.metricsExport.googleDrive":     {"folderId", "credentialsSecretRef"},
+}
+
+func marshalOrderedYAML(obj map[string]interface{}, kind string) ([]byte, error) {
+	order := envKeyOrder
+	if kind == "loadtest" {
+		order = loadtestKeyOrder
+	}
+	node, err := toOrderedYAMLNode(obj, order, "root")
+	if err != nil {
+		return nil, err
+	}
+	return yamlv3.Marshal(node)
+}
+
+func toOrderedYAMLNode(v interface{}, order map[string][]string, path string) (*yamlv3.Node, error) {
+	switch x := v.(type) {
+	case map[string]interface{}:
+		n := &yamlv3.Node{Kind: yamlv3.MappingNode}
+		for _, k := range orderedKeys(x, order[path]) {
+			keyNode := &yamlv3.Node{Kind: yamlv3.ScalarNode, Value: k}
+			valNode, err := toOrderedYAMLNode(x[k], order, path+"."+k)
+			if err != nil {
+				return nil, err
+			}
+			n.Content = append(n.Content, keyNode, valNode)
+		}
+		return n, nil
+	case []interface{}:
+		n := &yamlv3.Node{Kind: yamlv3.SequenceNode}
+		for _, item := range x {
+			ch, err := toOrderedYAMLNode(item, order, path+"[]")
+			if err != nil {
+				return nil, err
+			}
+			n.Content = append(n.Content, ch)
+		}
+		return n, nil
+	default:
+		n := &yamlv3.Node{}
+		if err := n.Encode(v); err != nil {
+			return nil, err
+		}
+		return n, nil
+	}
+}
+
+func orderedKeys(m map[string]interface{}, preferred []string) []string {
+	out := make([]string, 0, len(m))
+	seen := make(map[string]bool, len(preferred))
+	for _, k := range preferred {
+		if _, ok := m[k]; ok {
+			out = append(out, k)
+			seen[k] = true
+		}
+	}
+	rest := make([]string, 0)
+	for k := range m {
+		if !seen[k] {
+			rest = append(rest, k)
+		}
+	}
+	sort.Strings(rest)
+	return append(out, rest...)
+}
+
+// cleanForApply strips server-managed metadata and status so the resulting
+// YAML is safe to feed back into `kubectl apply -f` on a fresh namespace.
+func cleanForApply(obj map[string]interface{}) {
+	delete(obj, "status")
+	md, _ := obj["metadata"].(map[string]interface{})
+	if md == nil {
+		return
+	}
+	for _, k := range []string{
+		"resourceVersion", "uid", "generation",
+		"creationTimestamp", "deletionTimestamp",
+		"managedFields", "ownerReferences", "selfLink",
+		"finalizers",
+	} {
+		delete(md, k)
 	}
 }

@@ -42,6 +42,7 @@ export default function LoadTestNew() {
   const [driveSecretRef, setDriveSecretRef] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [cooldown, setCooldown] = useState(false);
+  const [saveAsDraft, setSaveAsDraft] = useState(false);
 
   useEffect(() => {
     fetchEnvironment(namespace, envName)
@@ -105,7 +106,7 @@ export default function LoadTestNew() {
     setSubmitting(true);
     setError(null);
     try {
-      if (environment?.phase !== 'Ready') {
+      if (!saveAsDraft && environment?.phase !== 'Ready') {
         throw new Error('Environment is not Ready');
       }
       const cleanQueries = queries.map(q => q.trim()).filter(Boolean);
@@ -160,6 +161,7 @@ export default function LoadTestNew() {
         perNodeLoad,
         metricsExport,
       };
+      if (saveAsDraft) payload.suspended = true;
 
       const created = await createLoadTest(payload);
       setCooldown(true);
@@ -290,9 +292,6 @@ export default function LoadTestNew() {
           <h2 className="text-sm font-semibold text-surface-300 uppercase tracking-wider flex items-center gap-2">
             <BarChart3 className="w-4 h-4" />Metrics Export
           </h2>
-          <button type="button" onClick={addQuery} className="btn-secondary text-xs px-3 py-1.5">
-            <Plus className="w-3.5 h-3.5" />Add Query
-          </button>
         </div>
 
         <div className="space-y-2">
@@ -304,6 +303,11 @@ export default function LoadTestNew() {
               </button>
             </div>
           ))}
+          <div className="flex justify-end">
+            <button type="button" onClick={addQuery} className="btn-secondary text-xs px-3 py-1.5">
+              <Plus className="w-3.5 h-3.5" />Add Query
+            </button>
+          </div>
         </div>
 
         <div>
@@ -334,13 +338,20 @@ export default function LoadTestNew() {
 
       {error && <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-sm">{error}</div>}
 
-      <div className="flex items-center justify-end gap-3">
-        <Link to={`/environments/${namespace}/${envName}`} className="btn-secondary">Cancel</Link>
-        <button type="submit" disabled={!isReady || submitting || cooldown} className="btn-primary">
-          {submitting ? <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />Launching...</>
-            : cooldown ? <>Cooling down...</>
-            : <><Play className="w-4 h-4" />Launch Load Test</>}
-        </button>
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <label className="flex items-center gap-2 text-sm text-surface-300 cursor-pointer" title="Save the LoadTest as a draft. It will not run until you click Start from its detail page.">
+          <input type="checkbox" checked={saveAsDraft} onChange={(e) => setSaveAsDraft(e.target.checked)} />
+          Save as Draft <span className="text-[10px] text-surface-500">(skip Ready gate, start manually later)</span>
+        </label>
+        <div className="flex items-center gap-3">
+          <Link to={`/environments/${namespace}/${envName}`} className="btn-secondary">Cancel</Link>
+          <button type="submit" disabled={(!saveAsDraft && !isReady) || submitting || cooldown} className="btn-primary">
+            {submitting ? <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />{saveAsDraft ? 'Saving...' : 'Launching...'}</>
+              : cooldown ? <>Cooling down...</>
+              : saveAsDraft ? <><Play className="w-4 h-4" />Save as Draft</>
+              : <><Play className="w-4 h-4" />Launch Load Test</>}
+          </button>
+        </div>
       </div>
     </form>
   );
