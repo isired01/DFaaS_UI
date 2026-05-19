@@ -44,13 +44,14 @@ export default function LoadTestsList() {
         </button>
       </div>
 
-      <div className="grid grid-cols-5 gap-4">
+      <div className="grid grid-cols-6 gap-4">
         {[
           { label: 'Total',      value: loadtests.length, color: 'text-white' },
           { label: 'Pending',    value: loadtests.filter(l => l.phase === 'Pending').length, color: 'text-surface-300' },
           { label: 'Running',    value: loadtests.filter(l => l.phase === 'Running').length, color: 'text-amber-400' },
           { label: 'Completed',  value: loadtests.filter(l => l.phase === 'Completed').length, color: 'text-emerald-400' },
           { label: 'Failed',     value: loadtests.filter(l => l.phase === 'Failed').length, color: 'text-red-400' },
+          { label: 'Aborted',    value: loadtests.filter(l => l.phase === 'Aborted').length, color: 'text-slate-400' },
         ].map(stat => (
           <div key={stat.label} className="glass-card p-4">
             <p className="text-xs text-surface-500 uppercase tracking-wider">{stat.label}</p>

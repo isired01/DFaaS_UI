@@ -122,6 +122,7 @@ type LoadTestSummary struct {
 	TargetEnvironment string     `json:"targetEnvironment"`
 	Phase             string     `json:"phase"`
 	Suspended         bool       `json:"suspended,omitempty"`
+	Stop              bool       `json:"stop,omitempty"`
 	Message           string     `json:"message,omitempty"`
 	StartTime         *time.Time `json:"startTime,omitempty"`
 	EndTime           *time.Time `json:"endTime,omitempty"`
@@ -149,9 +150,19 @@ type PerNodeLoadView struct {
 
 // MetricsExportView mirrors LoadTest.spec.metricsExport.
 type MetricsExportView struct {
-	Queries     []string               `json:"queries"`
+	Metrics     []MetricEntryView      `json:"metrics"`
 	Step        string                 `json:"step,omitempty"`
 	GoogleDrive *GoogleDriveConfigView `json:"googleDrive,omitempty"`
+}
+
+// MetricEntryView mirrors LoadTest.spec.metricsExport.metrics[].
+// Type is "raw" or "custom-promql". MetricName is optional for raw entries
+// (operator falls back to query) and required for custom-promql.
+type MetricEntryView struct {
+	Type       string `json:"type"`
+	MetricName string `json:"metricName,omitempty"`
+	Query      string `json:"query"`
+	Comment    string `json:"comment,omitempty"`
 }
 
 // GoogleDriveConfigView mirrors LoadTest.spec.metricsExport.googleDrive.
@@ -189,9 +200,18 @@ type CreatePerNodeLoad struct {
 
 // CreateMetricsExport: server defaults Step to "15s" when empty.
 type CreateMetricsExport struct {
-	Queries     []string                 `json:"queries" binding:"required,min=1"`
+	Metrics     []CreateMetricEntry      `json:"metrics" binding:"required,min=1"`
 	Step        string                   `json:"step,omitempty"`
 	GoogleDrive *CreateGoogleDriveConfig `json:"googleDrive,omitempty"`
+}
+
+// CreateMetricEntry: each row in metricsExport.metrics.
+// Query is always required. MetricName must be non-empty when Type=="custom-promql".
+type CreateMetricEntry struct {
+	Type       string `json:"type" binding:"required,oneof=raw custom-promql"`
+	MetricName string `json:"metricName,omitempty"`
+	Query      string `json:"query" binding:"required,min=1"`
+	Comment    string `json:"comment,omitempty"`
 }
 
 // CreateGoogleDriveConfig: both fields required when present.

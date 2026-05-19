@@ -102,6 +102,10 @@
     @apply bg-red-500/15 text-red-400 border border-red-500/30;
   }
 
+  .badge-aborted {
+    @apply bg-slate-500/15 text-slate-300 border border-slate-500/40;
+  }
+
   /* Button styles */
   .btn-primary {
     @apply inline-flex items-center gap-2 px-5 py-2.5 rounded-xl

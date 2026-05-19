@@ -8,9 +8,18 @@ import { generateK6Script } from '../lib/k6Generator';
 const SOURCE_GENERATE = 'generate';
 const SOURCE_RAW = 'raw';
 
-const DEFAULT_QUERIES = [
-  'sum(rate(container_cpu_usage_seconds_total{pod=~"dfaas-node-.*"}[1m])) by (pod)',
-  'sum(container_memory_working_set_bytes{pod=~"dfaas-node-.*"}) by (pod)',
+const METRIC_TYPES = [
+  { value: 'raw',           label: 'Metrica Grezza' },
+  { value: 'custom-promql', label: 'Query PromQL Custom' },
+];
+
+function emptyMetric() {
+  return { type: 'custom-promql', metricName: '', query: '', comment: '' };
+}
+
+const DEFAULT_METRICS = [
+  { type: 'custom-promql', metricName: 'cpu_dfaas_pods',    query: 'sum(rate(container_cpu_usage_seconds_total{pod=~"dfaas-node-.*"}[1m])) by (pod)', comment: 'CPU rate per dFaaS pod' },
+  { type: 'custom-promql', metricName: 'memory_dfaas_pods', query: 'sum(container_memory_working_set_bytes{pod=~"dfaas-node-.*"}) by (pod)',          comment: 'Working set memory per dFaaS pod' },
 ];
 
 function defaultPerNode() {
@@ -35,7 +44,7 @@ export default function LoadTestNew() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [perNode, setPerNode] = useState({});
-  const [queries, setQueries] = useState(DEFAULT_QUERIES);
+  const [metrics, setMetrics] = useState(DEFAULT_METRICS);
   const [step, setStep] = useState('15s');
   const [driveEnabled, setDriveEnabled] = useState(false);
   const [driveFolderID, setDriveFolderID] = useState('');
@@ -96,17 +105,42 @@ export default function LoadTestNew() {
     reader.readAsText(file);
   };
 
-  const addQuery = () => setQueries([...queries, '']);
-  const removeQuery = (i) => setQueries(queries.filter((_, idx) => idx !== i));
-  const updateQuery = (i, value) => setQueries(queries.map((q, idx) => idx === i ? value : q));
+  const addMetric = () => setMetrics([...metrics, emptyMetric()]);
+  const removeMetric = (i) => setMetrics(metrics.filter((_, idx) => idx !== i));
+  const updateMetric = (i, patch) => setMetrics(metrics.map((m, idx) => idx === i ? { ...m, ...patch } : m));
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setSubmitting(true);
     setError(null);
     try {
-      const cleanQueries = queries.map(q => q.trim()).filter(Boolean);
-      if (cleanQueries.length === 0) throw new Error('At least one metrics query is required');
+      const cleanMetrics = metrics
+        .map(m => ({
+          type: m.type,
+          metricName: (m.metricName || '').trim(),
+          query: (m.query || '').trim(),
+          comment: (m.comment || '').trim(),
+        }))
+        .filter(m => m.query || m.metricName);
+      if (cleanMetrics.length === 0) throw new Error('At least one metric row is required');
+      cleanMetrics.forEach((m, i) => {
+        if (m.type !== 'raw' && m.type !== 'custom-promql') {
+          throw new Error(`metrics[${i}]: invalid type`);
+        }
+        if (!m.query) throw new Error(`metrics[${i}]: query is required`);
+        if (m.type === 'custom-promql' && !m.metricName) {
+          throw new Error(`metrics[${i}]: metric name is required for 'Query PromQL Custom'`);
+        }
+      });
+      const nameCounts = cleanMetrics.reduce((acc, m) => {
+        if (m.metricName) acc[m.metricName] = (acc[m.metricName] || 0) + 1;
+        return acc;
+      }, {});
+      const dupes = Object.keys(nameCounts).filter(n => nameCounts[n] > 1);
+      if (dupes.length > 0) {
+        // Warn-only per contract; do not block.
+        console.warn(`[metrics] duplicate metricName(s):`, dupes);
+      }
 
       const perNodeLoad = [];
       for (const [nodeID, draft] of Object.entries(perNode)) {
@@ -140,7 +174,12 @@ export default function LoadTestNew() {
       if (perNodeLoad.length === 0) throw new Error('Enable at least one k6 node and configure its load');
 
       const metricsExport = {
-        queries: cleanQueries,
+        metrics: cleanMetrics.map(m => {
+          const out = { type: m.type, query: m.query };
+          if (m.metricName) out.metricName = m.metricName;
+          if (m.comment) out.comment = m.comment;
+          return out;
+        }),
         step: step || '15s',
       };
       if (driveEnabled) {
@@ -287,18 +326,79 @@ export default function LoadTestNew() {
           </h2>
         </div>
 
-        <div className="space-y-2">
-          {queries.map((q, i) => (
-            <div key={i} className="flex items-center gap-2">
-              <input type="text" placeholder="k6_http_req_duration" className="input py-1.5 text-xs flex-1" value={q} onChange={(e) => updateQuery(i, e.target.value)} />
-              <button type="button" onClick={() => removeQuery(i)} disabled={queries.length === 1} className="p-1.5 text-surface-500 hover:text-red-400 disabled:opacity-30">
-                <Trash2 className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          ))}
-          <div className="flex justify-end">
-            <button type="button" onClick={addQuery} className="btn-secondary text-xs px-3 py-1.5">
-              <Plus className="w-3.5 h-3.5" />Add Query
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="text-left text-[10px] text-surface-500 uppercase tracking-wider">
+                <th className="py-1.5 px-2 w-[18%]">Tipo</th>
+                <th className="py-1.5 px-2 w-[22%]">Nome metrica</th>
+                <th className="py-1.5 px-2 w-[40%]">Query PromQL</th>
+                <th className="py-1.5 px-2 w-[18%]">Commento</th>
+                <th className="py-1.5 px-2 w-[2%]"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {metrics.map((m, i) => {
+                const isCustom = m.type === 'custom-promql';
+                return (
+                  <tr key={i} className="align-top">
+                    <td className="py-1 px-2">
+                      <select
+                        className="input py-1.5 text-xs"
+                        value={m.type}
+                        onChange={(e) => updateMetric(i, { type: e.target.value })}
+                      >
+                        {METRIC_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+                      </select>
+                    </td>
+                    <td className="py-1 px-2">
+                      <input
+                        type="text"
+                        className="input py-1.5 text-xs"
+                        value={m.metricName}
+                        onChange={(e) => updateMetric(i, { metricName: e.target.value })}
+                        placeholder={isCustom ? 'required' : '(defaults to query value)'}
+                        required={isCustom}
+                      />
+                    </td>
+                    <td className="py-1 px-2">
+                      <input
+                        type="text"
+                        className="input py-1.5 text-xs font-mono"
+                        value={m.query}
+                        onChange={(e) => updateMetric(i, { query: e.target.value })}
+                        placeholder={isCustom ? 'sum(rate(...))' : 'haproxy_backend_http_requests_total'}
+                        required
+                      />
+                    </td>
+                    <td className="py-1 px-2">
+                      <input
+                        type="text"
+                        className="input py-1.5 text-xs"
+                        value={m.comment}
+                        onChange={(e) => updateMetric(i, { comment: e.target.value })}
+                        placeholder="optional"
+                      />
+                    </td>
+                    <td className="py-1 px-2">
+                      <button
+                        type="button"
+                        onClick={() => removeMetric(i)}
+                        disabled={metrics.length === 1}
+                        className="p-1.5 text-surface-500 hover:text-red-400 disabled:opacity-30"
+                        title={metrics.length === 1 ? 'At least one metric required' : 'Remove row'}
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          <div className="flex justify-end mt-2">
+            <button type="button" onClick={addMetric} className="btn-secondary text-xs px-3 py-1.5">
+              <Plus className="w-3.5 h-3.5" />Aggiungi Riga
             </button>
           </div>
         </div>

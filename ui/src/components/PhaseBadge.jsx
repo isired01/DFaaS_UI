@@ -1,6 +1,6 @@
 import {
   Circle, Server, Activity, Download,
-  CheckCircle, Play, CheckCheck, XCircle, LineChart, Clock,
+  CheckCircle, Play, CheckCheck, XCircle, LineChart, Clock, Ban,
 } from 'lucide-react';
 
 const ENV_PHASE = {
@@ -20,6 +20,7 @@ const LT_PHASE = {
   'Exporting':  { badge: 'badge-monitoring', icon: LineChart,  label: 'Exporting', spin: true },
   'Completed':  { badge: 'badge-completed',  icon: CheckCheck, label: 'Completed' },
   'Failed':     { badge: 'badge-failed',     icon: XCircle,    label: 'Failed' },
+  'Aborted':    { badge: 'badge-aborted',    icon: Ban,        label: 'Aborted' },
 };
 
 const MAPS = { env: ENV_PHASE, loadtest: LT_PHASE };

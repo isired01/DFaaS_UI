@@ -76,6 +76,10 @@ export async function activateLoadTest(namespace, name) {
   return request(`/loadtests/${namespace}/${name}/activate`, { method: 'POST' });
 }
 
+export async function abortLoadTest(namespace, name) {
+  return request(`/loadtests/${namespace}/${name}/abort`, { method: 'PATCH' });
+}
+
 // --- YAML exports ---
 
 async function fetchText(path) {

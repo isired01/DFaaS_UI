@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { ArrowLeft, TestTube2, Trash2, AlertTriangle, Info, ChevronDown, ChevronUp, Server, BarChart3, FileCode, Download, Play, FileEdit } from 'lucide-react';
-import { fetchLoadTest, deleteLoadTest, fetchLoadTestYAML, downloadTextAsFile, activateLoadTest } from '../api/client';
+import { ArrowLeft, TestTube2, Trash2, AlertTriangle, Info, ChevronDown, ChevronUp, Server, BarChart3, FileCode, Download, Play, FileEdit, Ban, Loader2 } from 'lucide-react';
+import { fetchLoadTest, deleteLoadTest, fetchLoadTestYAML, downloadTextAsFile, activateLoadTest, abortLoadTest } from '../api/client';
 import PhaseBadge from '../components/PhaseBadge';
 
 const ACTIVE_PHASES = new Set(['Pending', 'Running', 'Exporting', '']);
@@ -29,6 +29,7 @@ export default function LoadTestDetail() {
   const [expandedScript, setExpandedScript] = useState(null);
   const [showSpec, setShowSpec] = useState(false);
   const [activating, setActivating] = useState(false);
+  const [aborting, setAborting] = useState(false);
 
   useEffect(() => {
     const load = async () => {
@@ -68,6 +69,20 @@ export default function LoadTestDetail() {
     }
   };
 
+  const handleAbort = async () => {
+    if (!confirm(`Abort load test '${name}'? Remote k6 jobs will be terminated. The CR persists in history.`)) return;
+    setAborting(true);
+    try {
+      await abortLoadTest(namespace, name);
+      const data = await fetchLoadTest(namespace, name);
+      setLoadtest(data);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setAborting(false);
+    }
+  };
+
   const handleDelete = async () => {
     if (!confirm(`Delete load test '${name}'?`)) return;
     setDeleting(true);
@@ -99,9 +114,17 @@ export default function LoadTestDetail() {
   // Desired state from spec.suspended is the source of truth (Conditions[Suspended]
   // is derived and may be empty during the first reconcile after creation).
   const isDraft = loadtest.suspended === true;
+  const isTerminal = ['Completed', 'Failed', 'Aborted'].includes(loadtest.phase);
+  const abortRequested = loadtest.stop === true;
+  const canAbort = loadtest.phase === 'Running' && !abortRequested;
+  const isRunning = loadtest.phase === 'Running';
+  // Tooltip on terminal Aborted: surface operator-stamped Ready=False reason=UserAborted message.
+  const abortedMsg = loadtest.phase === 'Aborted'
+    ? (loadtest.conditions || []).find(c => c.type === 'Ready' && c.reason === 'UserAborted')?.message || ''
+    : '';
   const pendingTooltip = loadtest.phase === 'Pending'
     ? (isDraft ? 'Draft saved' : 'Waiting for Environment Ready')
-    : '';
+    : abortedMsg;
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -129,20 +152,47 @@ export default function LoadTestDetail() {
                   Draft
                 </span>
               )}
+              {abortRequested && loadtest.phase !== 'Aborted' && (
+                <span
+                  className="badge text-xs px-3 py-1 bg-slate-500/15 text-slate-300 border border-slate-500/40 inline-flex items-center gap-1.5"
+                  title="Abort requested. Operator is tearing down remote k6 jobs."
+                  id="loadtest-aborting-badge"
+                >
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  Aborting…
+                </span>
+              )}
             </div>
           </div>
           <div className="flex items-center gap-2">
-            {isDraft && (
-              <button onClick={handleActivate} disabled={activating} className="btn-primary" id="start-loadtest-btn">
+            {isDraft && !isTerminal && (
+              <button onClick={handleActivate} disabled={activating || aborting} className="btn-primary" id="start-loadtest-btn">
                 <Play className="w-4 h-4" />
                 {activating ? 'Starting...' : 'Start'}
+              </button>
+            )}
+            {canAbort && (
+              <button
+                onClick={handleAbort}
+                disabled={aborting}
+                className="btn-secondary text-slate-300 hover:text-white border-slate-500/40"
+                id="abort-loadtest-btn"
+                title="Stop this load test. Operator reclaims remote k6 jobs; CR persists in history."
+              >
+                <Ban className="w-4 h-4" />
+                {aborting ? 'Aborting…' : 'Abort Test'}
               </button>
             )}
             <button onClick={handleDownloadYAML} className="btn-secondary" id="download-loadtest-yaml-btn">
               <Download className="w-4 h-4" />
               Download YAML
             </button>
-            <button onClick={handleDelete} disabled={deleting} className="btn-secondary text-red-400 hover:text-red-300">
+            <button
+              onClick={handleDelete}
+              disabled={deleting || isRunning}
+              className="btn-secondary text-red-400 hover:text-red-300 disabled:opacity-40 disabled:hover:text-red-400"
+              title={isRunning ? 'Cannot delete while Running — Abort first' : ''}
+            >
               <Trash2 className="w-4 h-4" />
               {deleting ? 'Deleting...' : 'Delete'}
             </button>
@@ -242,14 +292,54 @@ export default function LoadTestDetail() {
         <h2 className="text-lg font-semibold text-white flex items-center gap-2 mb-3">
           <BarChart3 className="w-5 h-5 text-violet-400" />Metrics Export
         </h2>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
-          <div className="md:col-span-2">
-            <p className="text-surface-500 uppercase tracking-wider mb-1">Queries</p>
-            <ul className="space-y-1">
-              {(loadtest.metricsExport?.queries || []).map((q, i) => (
-                <li key={i} className="font-mono text-surface-200 bg-surface-900/50 border border-surface-700/30 rounded-lg px-2 py-1">{q}</li>
-              ))}
-            </ul>
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-3 text-xs">
+          <div className="md:col-span-3">
+            <p className="text-surface-500 uppercase tracking-wider mb-1">Metrics</p>
+            {(() => {
+              const metrics = loadtest.metricsExport?.metrics;
+              const legacyQueries = loadtest.metricsExport?.queries;
+              if ((!metrics || metrics.length === 0) && Array.isArray(legacyQueries) && legacyQueries.length > 0) {
+                return (
+                  <div>
+                    <div className="p-2 mb-2 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 text-[10px]">
+                      Legacy format — recreate to migrate to the structured 4-field schema.
+                    </div>
+                    <ul className="space-y-1">
+                      {legacyQueries.map((q, i) => (
+                        <li key={i} className="font-mono text-surface-400 bg-surface-900/50 border border-surface-700/30 rounded-lg px-2 py-1 opacity-70">{q}</li>
+                      ))}
+                    </ul>
+                  </div>
+                );
+              }
+              if (!metrics || metrics.length === 0) {
+                return <p className="text-surface-500 italic">No metrics configured.</p>;
+              }
+              return (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-[11px]">
+                    <thead>
+                      <tr className="text-left text-[10px] text-surface-500 uppercase tracking-wider border-b border-surface-700/40">
+                        <th className="py-1.5 px-2">Tipo</th>
+                        <th className="py-1.5 px-2">Nome metrica</th>
+                        <th className="py-1.5 px-2">Query PromQL</th>
+                        <th className="py-1.5 px-2">Commento</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {metrics.map((m, i) => (
+                        <tr key={i} className="border-b border-surface-800/40">
+                          <td className="py-1.5 px-2 text-surface-300">{m.type}</td>
+                          <td className="py-1.5 px-2 font-mono text-surface-200">{m.metricName || <span className="text-surface-500 italic">(=query)</span>}</td>
+                          <td className="py-1.5 px-2 font-mono text-surface-300 break-all">{m.query}</td>
+                          <td className="py-1.5 px-2 text-surface-400">{m.comment || '—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              );
+            })()}
           </div>
           <div>
             <p className="text-surface-500 uppercase tracking-wider mb-1">Step</p>

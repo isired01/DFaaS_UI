@@ -46,6 +46,7 @@ func (h *Handler) RegisterRoutes(r *gin.Engine) {
 		api.GET("/loadtests/:namespace/:name/yaml", h.GetLoadTestYAML)
 		api.POST("/loadtests", h.CreateLoadTest)
 		api.POST("/loadtests/:namespace/:name/activate", h.ActivateLoadTest)
+		api.PATCH("/loadtests/:namespace/:name/abort", h.AbortLoadTest)
 		api.DELETE("/loadtests/:namespace/:name", h.DeleteLoadTest)
 	}
 }
@@ -404,13 +405,28 @@ func (h *Handler) CreateLoadTest(c *gin.Context) {
 		})
 	}
 
-	queries := make([]interface{}, 0, len(req.MetricsExport.Queries))
-	for _, q := range req.MetricsExport.Queries {
-		queries = append(queries, q)
+	metrics := make([]interface{}, 0, len(req.MetricsExport.Metrics))
+	for i, m := range req.MetricsExport.Metrics {
+		if m.Type == "custom-promql" && m.MetricName == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("metricsExport.metrics[%d]: metricName required when type='custom-promql'", i)})
+			cleanup()
+			return
+		}
+		entry := map[string]interface{}{
+			"type":  m.Type,
+			"query": m.Query,
+		}
+		if m.MetricName != "" {
+			entry["metricName"] = m.MetricName
+		}
+		if m.Comment != "" {
+			entry["comment"] = m.Comment
+		}
+		metrics = append(metrics, entry)
 	}
 
 	metricsExport := map[string]interface{}{
-		"queries": queries,
+		"metrics": metrics,
 		"step":    step,
 	}
 	if req.MetricsExport.GoogleDrive != nil {
@@ -699,12 +715,14 @@ func mapEnvDetail(item unstructured.Unstructured) EnvironmentDetail {
 
 func mapLoadTestSummary(item unstructured.Unstructured) LoadTestSummary {
 	suspended, _, _ := unstructured.NestedBool(item.Object, "spec", "suspended")
+	stop, _, _ := unstructured.NestedBool(item.Object, "spec", "stop")
 	s := LoadTestSummary{
 		Name:              item.GetName(),
 		Namespace:         item.GetNamespace(),
 		TargetEnvironment: getNestedString(item.Object, "spec", "targetEnvironment"),
 		Phase:             getNestedString(item.Object, "status", "phase"),
 		Suspended:         suspended,
+		Stop:              stop,
 		Message:           getNestedString(item.Object, "status", "message"),
 		CreationTimestamp: item.GetCreationTimestamp().Time,
 	}
@@ -740,11 +758,18 @@ func mapLoadTestDetail(item unstructured.Unstructured) LoadTestDetail {
 		})
 	}
 
-	queries, _, _ := unstructured.NestedSlice(item.Object, "spec", "metricsExport", "queries")
-	for _, q := range queries {
-		if s, ok := q.(string); ok {
-			d.MetricsExport.Queries = append(d.MetricsExport.Queries, s)
+	metrics, _, _ := unstructured.NestedSlice(item.Object, "spec", "metricsExport", "metrics")
+	for _, m := range metrics {
+		mp, ok := m.(map[string]interface{})
+		if !ok {
+			continue
 		}
+		d.MetricsExport.Metrics = append(d.MetricsExport.Metrics, MetricEntryView{
+			Type:       getStringFromMap(mp, "type"),
+			MetricName: getStringFromMap(mp, "metricName"),
+			Query:      getStringFromMap(mp, "query"),
+			Comment:    getStringFromMap(mp, "comment"),
+		})
 	}
 	d.MetricsExport.Step = getNestedString(item.Object, "spec", "metricsExport", "step")
 	if gd, _, _ := unstructured.NestedMap(item.Object, "spec", "metricsExport", "googleDrive"); gd != nil {
@@ -887,6 +912,39 @@ func (h *Handler) ActivateLoadTest(c *gin.Context) {
 	c.Status(http.StatusAccepted)
 }
 
+// AbortLoadTest flips spec.stop=true via merge-patch. Thin pass-through:
+// operator owns the run-once guard (silent no-op on Exporting/Completed/
+// Failed/Aborted) and the phase transition. Gateway forwards the patch
+// regardless of phase; UI hides the button outside {Pending, Running}.
+// 202 Accepted on success, 404 NotFound, 409 on resourceVersion conflict,
+// 500 otherwise.
+func (h *Handler) AbortLoadTest(c *gin.Context) {
+	namespace := c.Param("namespace")
+	name := c.Param("name")
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
+	defer cancel()
+
+	patch := []byte(`{"spec":{"stop":true}}`)
+	if _, err := h.client.Resource(LoadTestGVR).Namespace(namespace).Patch(ctx, name, types.MergePatchType, patch, metav1.PatchOptions{}); err != nil {
+		switch {
+		case apierrors.IsNotFound(err):
+			c.JSON(http.StatusNotFound, gin.H{"error": fmt.Sprintf("loadtest '%s/%s' not found", namespace, name)})
+		case apierrors.IsConflict(err):
+			c.JSON(http.StatusConflict, gin.H{"error": fmt.Sprintf("concurrent edit on '%s/%s': %v", namespace, name, err)})
+		default:
+			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("patch loadtest: %v", err)})
+		}
+		return
+	}
+
+	c.JSON(http.StatusAccepted, gin.H{
+		"name":      name,
+		"namespace": namespace,
+		"stop":      true,
+	})
+}
+
 // --- YAML export handlers ---
 
 func (h *Handler) GetEnvironmentYAML(c *gin.Context) {
@@ -941,7 +999,8 @@ var loadtestKeyOrder = map[string][]string{
 	"root.spec":               {"targetEnvironment", "perNodeLoad", "metricsExport"},
 	"root.spec.perNodeLoad[]": {"nodeID", "vus", "duration", "scriptConfigMap", "script"},
 	"root.spec.perNodeLoad[].scriptConfigMap": {"name"},
-	"root.spec.metricsExport":                 {"queries", "step", "googleDrive"},
+	"root.spec.metricsExport":                 {"metrics", "step", "googleDrive"},
+	"root.spec.metricsExport.metrics[]":       {"type", "metricName", "query", "comment"},
 	"root.spec.metricsExport.googleDrive":     {"folderId", "credentialsSecretRef"},
 }
 
