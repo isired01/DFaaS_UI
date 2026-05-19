@@ -42,6 +42,13 @@ export async function deleteEnvironment(namespace, name) {
   return request(`/environments/${namespace}/${name}`, { method: 'DELETE' });
 }
 
+export async function updateEnvironment(namespace, name, specPatch) {
+  return request(`/environments/${namespace}/${name}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ spec: specPatch }),
+  });
+}
+
 // --- LoadTests ---
 
 export async function fetchLoadTests({ environment } = {}) {

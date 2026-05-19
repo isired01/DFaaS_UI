@@ -7,29 +7,33 @@ import "time"
 
 // EnvironmentSummary is returned by GET /api/environments.
 type EnvironmentSummary struct {
-	Name              string    `json:"name"`
-	Namespace         string    `json:"namespace"`
-	Phase             string    `json:"phase"`
-	Message           string    `json:"message,omitempty"`
-	CreationTimestamp time.Time `json:"creationTimestamp"`
-	NodeCount         int       `json:"nodeCount"`
-	K6NodeCount       int       `json:"k6NodeCount"`
-	DfaasNodeCount    int       `json:"dfaasNodeCount"`
+	Name               string    `json:"name"`
+	Namespace          string    `json:"namespace"`
+	Phase              string    `json:"phase"`
+	Message            string    `json:"message,omitempty"`
+	CreationTimestamp  time.Time `json:"creationTimestamp"`
+	Generation         int64     `json:"generation"`
+	ObservedGeneration int64     `json:"observedGeneration"`
+	NodeCount          int       `json:"nodeCount"`
+	K6NodeCount        int       `json:"k6NodeCount"`
+	DfaasNodeCount     int       `json:"dfaasNodeCount"`
 }
 
 // EnvironmentDetail is returned by GET /api/environments/:namespace/:name.
 type EnvironmentDetail struct {
-	Name              string          `json:"name"`
-	Namespace         string          `json:"namespace"`
-	Phase             string          `json:"phase"`
-	Message           string          `json:"message,omitempty"`
-	CreationTimestamp time.Time       `json:"creationTimestamp"`
-	Conditions        []ConditionInfo `json:"conditions,omitempty"`
-	Nodes             []NodeInfo      `json:"nodes"`
-	Topology          TopologyInfo    `json:"topology"`
-	CleanupOnDelete   bool            `json:"cleanupOnDelete"`
-	K6Nodes           []K6NodeStatus  `json:"k6Nodes,omitempty"`
-	DfaasNodes        []string        `json:"dfaasNodes,omitempty"`
+	Name               string          `json:"name"`
+	Namespace          string          `json:"namespace"`
+	Phase              string          `json:"phase"`
+	Message            string          `json:"message,omitempty"`
+	CreationTimestamp  time.Time       `json:"creationTimestamp"`
+	Generation         int64           `json:"generation"`
+	ObservedGeneration int64           `json:"observedGeneration"`
+	Conditions         []ConditionInfo `json:"conditions,omitempty"`
+	Nodes              []NodeInfo      `json:"nodes"`
+	Topology           TopologyInfo    `json:"topology"`
+	CleanupOnDelete    bool            `json:"cleanupOnDelete"`
+	K6Nodes            []K6NodeStatus  `json:"k6Nodes,omitempty"`
+	DfaasNodes         []string        `json:"dfaasNodes,omitempty"`
 }
 
 // ConditionInfo mirrors metav1.Condition.
@@ -90,6 +94,22 @@ type CreateEnvironmentRequest struct {
 	Nodes           []NodeInfo   `json:"nodes" binding:"required,min=1"`
 	Topology        TopologyInfo `json:"topology"`
 	CleanupOnDelete bool         `json:"cleanupOnDelete"`
+}
+
+// UpdateEnvironmentRequest is the body for PATCH /api/environments/:ns/:name.
+// Mirrors the merge-patch shape Kubernetes expects: { "spec": { ... } }.
+// Pointer/omitempty on each spec field means "absent in the patch" rather than
+// "set to zero value".
+type UpdateEnvironmentRequest struct {
+	Spec UpdateEnvironmentSpec `json:"spec" binding:"required"`
+}
+
+// UpdateEnvironmentSpec carries the subset of Environment.spec the client wants
+// to merge-patch. Any field left nil/omitted is preserved on the cluster object.
+type UpdateEnvironmentSpec struct {
+	CleanupOnDelete *bool         `json:"cleanupOnDelete,omitempty"`
+	Nodes           []NodeInfo    `json:"nodes,omitempty"`
+	Topology        *TopologyInfo `json:"topology,omitempty"`
 }
 
 // --- LoadTest DTOs ---

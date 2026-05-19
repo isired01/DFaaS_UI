@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Network, Zap, TestTube2, AlertTriangle, Info, Plus, Trash2, Server, Cpu, CheckCircle2, Loader2, XCircle, Download } from 'lucide-react';
+import { ArrowLeft, Network, Zap, TestTube2, AlertTriangle, Info, Plus, Trash2, Server, Cpu, CheckCircle2, Loader2, XCircle, Download, Pencil, RefreshCw } from 'lucide-react';
 import { fetchEnvironment, fetchLoadTests, deleteEnvironment, fetchEnvironmentYAML, downloadTextAsFile } from '../api/client';
 import PhaseBadge from '../components/PhaseBadge';
 import NodeCard from '../components/NodeCard';
@@ -74,6 +74,10 @@ export default function EnvironmentDetail() {
     .filter(n => n.role === 'k6-load-generator')
     .map(n => ({ ...n, kubeconfigSecret: k6StatusByID[n.nodeID]?.kubeconfigSecret || '' }));
 
+  const gen = environment.generation ?? 0;
+  const observedGen = environment.observedGeneration ?? 0;
+  const isUpdating = observedGen > 0 && gen > observedGen;
+
   return (
     <div className="space-y-8 animate-fade-in">
       <div>
@@ -83,20 +87,39 @@ export default function EnvironmentDetail() {
         <div className="flex items-start justify-between">
           <div>
             <h1 className="text-2xl font-bold text-white" id="environment-name">{environment.name}</h1>
-            <div className="flex items-center gap-3 mt-2">
+            <div className="flex items-center gap-3 mt-2 flex-wrap">
               <span className="text-xs font-mono text-surface-400 px-2 py-1 bg-surface-800/50 rounded-lg border border-surface-700/50">{environment.namespace}</span>
               <PhaseBadge kind="env" phase={environment.phase} size="lg" />
+              {isUpdating && (
+                <span
+                  className="badge text-xs px-3 py-1 bg-amber-500/15 text-amber-300 border border-amber-500/40 inline-flex items-center gap-1.5"
+                  title={`Spec edited (gen ${observedGen} → ${gen}). Operator is restarting from ProvisioningVMs.`}
+                  id="environment-updating-badge"
+                >
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  Updating (gen {observedGen} → {gen})
+                </span>
+              )}
               {environment.cleanupOnDelete && (
                 <span className="text-[10px] text-orange-400 uppercase tracking-wider">cleanup on delete</span>
               )}
             </div>
           </div>
           <div className="flex items-center gap-2">
+            <Link
+              to={`/environments/${environment.namespace}/${environment.name}/edit`}
+              className={`btn-secondary ${isUpdating ? 'opacity-50 pointer-events-none' : ''}`}
+              title={isUpdating ? 'Update in progress — wait for reconcile to settle' : 'Edit spec (PATCH)'}
+              id="edit-environment-btn"
+            >
+              <Pencil className="w-4 h-4" />
+              Edit
+            </Link>
             <button onClick={handleDownloadYAML} className="btn-secondary" id="download-environment-yaml-btn">
               <Download className="w-4 h-4" />
               Download YAML
             </button>
-            <button onClick={handleDelete} disabled={deleting} className="btn-secondary text-red-400 hover:text-red-300" id="delete-environment-btn">
+            <button onClick={handleDelete} disabled={deleting || isUpdating} className="btn-secondary text-red-400 hover:text-red-300" id="delete-environment-btn" title={isUpdating ? 'Cannot delete while update in progress' : ''}>
               <Trash2 className="w-4 h-4" />
               {deleting ? 'Deleting...' : 'Delete'}
             </button>

@@ -14,6 +14,7 @@ export default function App() {
         <Route path="/" element={<Layout />}>
           <Route index element={<EnvironmentsList />} />
           <Route path="environments/new" element={<EnvironmentNew />} />
+          <Route path="environments/:namespace/:name/edit" element={<EnvironmentNew mode="edit" />} />
           <Route path="environments/:namespace/:name" element={<EnvironmentDetail />} />
           <Route path="environments/:namespace/:name/loadtests/new" element={<LoadTestNew />} />
           <Route path="loadtests" element={<LoadTestsList />} />

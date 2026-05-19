@@ -1,7 +1,7 @@
-import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Plus, Trash2, Server, Network, Save } from 'lucide-react';
-import { createEnvironment } from '../api/client';
+import { useState, useEffect } from 'react';
+import { Link, useNavigate, useParams } from 'react-router-dom';
+import { ArrowLeft, Plus, Trash2, Server, Network, Save, Lock } from 'lucide-react';
+import { createEnvironment, fetchEnvironment, updateEnvironment } from '../api/client';
 
 const BALANCING_STRATEGIES = [
   { value: 'staticstrategy',     label: 'Static — fixed routing weights' },
@@ -39,15 +39,50 @@ function emptyLink() {
   return { nodeA: '', nodeB: '', latencyMs: 10 };
 }
 
-export default function EnvironmentNew() {
+export default function EnvironmentNew({ mode = 'create' }) {
   const navigate = useNavigate();
-  const [namespace, setNamespace] = useState('default');
-  const [name, setName] = useState('');
+  const params = useParams();
+  const isEdit = mode === 'edit';
+  const [namespace, setNamespace] = useState(isEdit ? (params.namespace || '') : 'default');
+  const [name, setName] = useState(isEdit ? (params.name || '') : '');
   const [cleanupOnDelete, setCleanupOnDelete] = useState(false);
   const [nodes, setNodes] = useState([emptyNode()]);
   const [links, setLinks] = useState([]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
+  const [loadingEnv, setLoadingEnv] = useState(isEdit);
+
+  useEffect(() => {
+    if (!isEdit) return;
+    fetchEnvironment(params.namespace, params.name)
+      .then(env => {
+        setCleanupOnDelete(!!env.cleanupOnDelete);
+        const prefilledNodes = (env.nodes || []).map(n => ({
+          nodeID: n.nodeID || '',
+          ipAddress: n.ipAddress || '',
+          role: n.role || '',
+          capacity: n.capacity || 'MEDIUM',
+          username: n.username || '',
+          password: n.password || '',
+          balancingStrategy: n.balancingStrategy || '',
+          functions: (n.functions || []).map(fn => ({
+            name: fn.name || '',
+            image: fn.image || '',
+            execTimeout: fn.execTimeout ?? 5,
+            maxInflight: fn.maxInflight ?? 400,
+            timeoutMs: fn.timeoutMs ?? 6000,
+            maxRate: fn.maxRate ?? 100,
+          })),
+          _locked: true,
+        }));
+        setNodes(prefilledNodes.length > 0 ? prefilledNodes : [emptyNode()]);
+        setLinks((env.topology?.links || []).map(l => ({
+          nodeA: l.nodeA, nodeB: l.nodeB, latencyMs: l.latencyMs ?? 10,
+        })));
+      })
+      .catch(err => setError(err.message))
+      .finally(() => setLoadingEnv(false));
+  }, [isEdit, params.namespace, params.name]);
 
   const updateNode = (i, patch) => setNodes(nodes.map((n, idx) => idx === i ? { ...n, ...patch } : n));
   const addNode = () => setNodes([...nodes, emptyNode()]);
@@ -128,7 +163,15 @@ export default function EnvironmentNew() {
         },
       };
 
-      await createEnvironment(payload);
+      if (isEdit) {
+        await updateEnvironment(namespace, name, {
+          cleanupOnDelete: payload.cleanupOnDelete,
+          nodes: payload.nodes,
+          topology: payload.topology,
+        });
+      } else {
+        await createEnvironment(payload);
+      }
       navigate(`/environments/${namespace}/${name}`);
     } catch (err) {
       setError(err.message);
@@ -144,8 +187,12 @@ export default function EnvironmentNew() {
         <Link to="/" className="inline-flex items-center gap-1.5 text-sm text-surface-400 hover:text-white transition-colors mb-4">
           <ArrowLeft className="w-4 h-4" />Back to Environments
         </Link>
-        <h1 className="text-2xl font-bold text-white">New Environment</h1>
-        <p className="text-sm text-surface-400 mt-1">Define the federation infrastructure and trigger provisioning.</p>
+        <h1 className="text-2xl font-bold text-white">{isEdit ? `Edit Environment — ${name}` : 'New Environment'}</h1>
+        <p className="text-sm text-surface-400 mt-1">
+          {isEdit
+            ? 'PATCH the spec. Operator restarts the FSM from ProvisioningVMs once the patch lands.'
+            : 'Define the federation infrastructure and trigger provisioning.'}
+        </p>
       </div>
 
       <div className="glass-card p-5 space-y-4">
@@ -153,11 +200,11 @@ export default function EnvironmentNew() {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
             <label className="block text-xs font-medium text-surface-400 mb-1">Namespace</label>
-            <input type="text" className="input" value={namespace} onChange={(e) => setNamespace(e.target.value)} required />
+            <input type="text" className={`input ${isEdit ? 'opacity-60 cursor-not-allowed' : ''}`} value={namespace} onChange={(e) => setNamespace(e.target.value)} readOnly={isEdit} required />
           </div>
           <div>
             <label className="block text-xs font-medium text-surface-400 mb-1">Name</label>
-            <input type="text" className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="env-demo" required />
+            <input type="text" className={`input ${isEdit ? 'opacity-60 cursor-not-allowed' : ''}`} value={name} onChange={(e) => setName(e.target.value)} placeholder="env-demo" readOnly={isEdit} required />
           </div>
         </div>
         <label className="flex items-center gap-2 text-sm text-surface-300">
@@ -184,8 +231,19 @@ export default function EnvironmentNew() {
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
               <div>
-                <label className="block text-xs font-medium text-surface-400 mb-1">Node ID</label>
-                <input type="text" className="input py-2 text-sm" value={node.nodeID} onChange={(e) => updateNode(i, { nodeID: e.target.value })} required />
+                <label className="block text-xs font-medium text-surface-400 mb-1 flex items-center gap-1">
+                  Node ID
+                  {node._locked && <Lock className="w-3 h-3 text-surface-500" title="nodeID is immutable on existing nodes (keys the libp2p Secret)" />}
+                </label>
+                <input
+                  type="text"
+                  className={`input py-2 text-sm ${node._locked ? 'opacity-60 cursor-not-allowed' : ''}`}
+                  value={node.nodeID}
+                  onChange={(e) => updateNode(i, { nodeID: e.target.value })}
+                  readOnly={!!node._locked}
+                  required
+                  title={node._locked ? 'nodeID cannot be changed on an existing node (keys libp2p Secret)' : ''}
+                />
               </div>
               <div>
                 <label className="block text-xs font-medium text-surface-400 mb-1">IP Address</label>
@@ -339,8 +397,10 @@ export default function EnvironmentNew() {
 
       <div className="flex items-center justify-end gap-3">
         <Link to="/" className="btn-secondary">Cancel</Link>
-        <button type="submit" disabled={submitting} className="btn-primary">
-          {submitting ? <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />Creating...</> : <><Save className="w-4 h-4" />Create Environment</>}
+        <button type="submit" disabled={submitting || loadingEnv} className="btn-primary">
+          {submitting
+            ? <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />{isEdit ? 'Patching...' : 'Creating...'}</>
+            : <><Save className="w-4 h-4" />{isEdit ? 'Save Changes' : 'Create Environment'}</>}
         </button>
       </div>
     </form>

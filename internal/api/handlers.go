@@ -12,6 +12,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	yamlv3 "gopkg.in/yaml.v3"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -37,6 +38,7 @@ func (h *Handler) RegisterRoutes(r *gin.Engine) {
 		api.GET("/environments/:namespace/:name", h.GetEnvironment)
 		api.GET("/environments/:namespace/:name/yaml", h.GetEnvironmentYAML)
 		api.POST("/environments", h.CreateEnvironment)
+		api.PATCH("/environments/:namespace/:name", h.UpdateEnvironment)
 		api.DELETE("/environments/:namespace/:name", h.DeleteEnvironment)
 
 		api.GET("/loadtests", h.ListLoadTests)
@@ -91,41 +93,9 @@ func (h *Handler) CreateEnvironment(c *gin.Context) {
 		return
 	}
 
-	for i, n := range req.Nodes {
-		if n.NodeID == "" || n.IpAddress == "" || n.Role == "" || n.Capacity == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("node[%d]: nodeID, ipAddress, role, capacity required", i)})
-			return
-		}
-		if n.Role != "dfaas-worker" && n.Role != "k6-load-generator" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("node[%d]: role must be dfaas-worker or k6-load-generator", i)})
-			return
-		}
-		switch n.Capacity {
-		case "LOW", "MEDIUM", "HIGH":
-		default:
-			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("node[%d]: capacity must be LOW|MEDIUM|HIGH", i)})
-			return
-		}
-		if n.Role == "k6-load-generator" {
-			if n.BalancingStrategy != "" {
-				c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("node[%d]: balancingStrategy must be empty for k6-load-generator", i)})
-				return
-			}
-			if len(n.Functions) > 0 {
-				c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("node[%d]: functions not allowed on k6-load-generator", i)})
-				return
-			}
-		}
-		if n.Role == "dfaas-worker" {
-			if n.BalancingStrategy != "" {
-				switch n.BalancingStrategy {
-				case "staticstrategy", "nodemarginstrategy", "recalcstrategy", "alllocalstrategy", "rlagentstrategy":
-				default:
-					c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("node[%d]: balancingStrategy must be one of staticstrategy|nodemarginstrategy|recalcstrategy|alllocalstrategy|rlagentstrategy", i)})
-					return
-				}
-			}
-		}
+	if err := validateEnvNodes(req.Nodes); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
 	}
 
 	obj := buildEnvironmentUnstructured(req)
@@ -140,6 +110,101 @@ func (h *Handler) CreateEnvironment(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusCreated, mapEnvDetail(*created))
+}
+
+// UpdateEnvironment applies a merge-patch to Environment.spec.
+// 202 on success, 400/404/409/500 otherwise.
+// Server forwards the user-supplied {"spec":{...}} payload verbatim as
+// application/merge-patch+json. nodeID immutability for existing nodes is
+// enforced UI-side (form renders nodeID readOnly on existing nodes); the gateway
+// validates the node array shape (enum/required-fields/duplicates) only.
+func (h *Handler) UpdateEnvironment(c *gin.Context) {
+	namespace := c.Param("namespace")
+	name := c.Param("name")
+
+	var req UpdateEnvironmentRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("invalid body: %v", err)})
+		return
+	}
+
+	if req.Spec.Nodes != nil {
+		if err := validateEnvNodes(req.Spec.Nodes); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+	}
+
+	patchBytes, err := json.Marshal(req)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("marshal patch: %v", err)})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 15*time.Second)
+	defer cancel()
+
+	patched, err := h.client.Resource(EnvironmentGVR).Namespace(namespace).Patch(ctx, name, types.MergePatchType, patchBytes, metav1.PatchOptions{})
+	if err != nil {
+		switch {
+		case apierrors.IsNotFound(err):
+			c.JSON(http.StatusNotFound, gin.H{"error": fmt.Sprintf("environment '%s/%s' not found", namespace, name)})
+		case apierrors.IsConflict(err):
+			c.JSON(http.StatusConflict, gin.H{"error": fmt.Sprintf("concurrent edit on '%s/%s': %v", namespace, name, err)})
+		case apierrors.IsInvalid(err) || apierrors.IsBadRequest(err):
+			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("invalid patch: %v", err)})
+		default:
+			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("patch environment: %v", err)})
+		}
+		return
+	}
+
+	observedGen, _, _ := unstructured.NestedInt64(patched.Object, "status", "observedGeneration")
+	c.JSON(http.StatusAccepted, gin.H{
+		"name":               patched.GetName(),
+		"namespace":          patched.GetNamespace(),
+		"generation":         patched.GetGeneration(),
+		"observedGeneration": observedGen,
+	})
+}
+
+// validateEnvNodes runs the same per-node shape checks Create uses,
+// shared with the PATCH path.
+func validateEnvNodes(nodes []NodeInfo) error {
+	seen := map[string]struct{}{}
+	for i, n := range nodes {
+		if n.NodeID == "" || n.IpAddress == "" || n.Role == "" || n.Capacity == "" {
+			return fmt.Errorf("node[%d]: nodeID, ipAddress, role, capacity required", i)
+		}
+		if _, dup := seen[n.NodeID]; dup {
+			return fmt.Errorf("node[%d]: duplicate nodeID '%s'", i, n.NodeID)
+		}
+		seen[n.NodeID] = struct{}{}
+		if n.Role != "dfaas-worker" && n.Role != "k6-load-generator" {
+			return fmt.Errorf("node[%d]: role must be dfaas-worker or k6-load-generator", i)
+		}
+		switch n.Capacity {
+		case "LOW", "MEDIUM", "HIGH":
+		default:
+			return fmt.Errorf("node[%d]: capacity must be LOW|MEDIUM|HIGH", i)
+		}
+		if n.Role == "k6-load-generator" {
+			if n.BalancingStrategy != "" {
+				return fmt.Errorf("node[%d]: balancingStrategy must be empty for k6-load-generator", i)
+			}
+			if len(n.Functions) > 0 {
+				return fmt.Errorf("node[%d]: functions not allowed on k6-load-generator", i)
+			}
+		}
+		if n.Role == "dfaas-worker" && n.BalancingStrategy != "" {
+			switch n.BalancingStrategy {
+			case "staticstrategy", "nodemarginstrategy", "recalcstrategy", "alllocalstrategy", "rlagentstrategy":
+			default:
+				return fmt.Errorf("node[%d]: balancingStrategy must be one of staticstrategy|nodemarginstrategy|recalcstrategy|alllocalstrategy|rlagentstrategy", i)
+			}
+		}
+	}
+	return nil
 }
 
 func (h *Handler) DeleteEnvironment(c *gin.Context) {
@@ -505,12 +570,15 @@ func buildEnvironmentUnstructured(req CreateEnvironmentRequest) *unstructured.Un
 // --- Mappers ---
 
 func mapEnvSummary(item unstructured.Unstructured) EnvironmentSummary {
+	observedGen, _, _ := unstructured.NestedInt64(item.Object, "status", "observedGeneration")
 	s := EnvironmentSummary{
-		Name:              item.GetName(),
-		Namespace:         item.GetNamespace(),
-		Phase:             getNestedString(item.Object, "status", "phase"),
-		Message:           getNestedString(item.Object, "status", "message"),
-		CreationTimestamp: item.GetCreationTimestamp().Time,
+		Name:               item.GetName(),
+		Namespace:          item.GetNamespace(),
+		Phase:              getNestedString(item.Object, "status", "phase"),
+		Message:            getNestedString(item.Object, "status", "message"),
+		CreationTimestamp:  item.GetCreationTimestamp().Time,
+		Generation:         item.GetGeneration(),
+		ObservedGeneration: observedGen,
 	}
 
 	nodes, _, _ := unstructured.NestedSlice(item.Object, "spec", "nodes")
@@ -532,12 +600,15 @@ func mapEnvSummary(item unstructured.Unstructured) EnvironmentSummary {
 }
 
 func mapEnvDetail(item unstructured.Unstructured) EnvironmentDetail {
+	observedGen, _, _ := unstructured.NestedInt64(item.Object, "status", "observedGeneration")
 	d := EnvironmentDetail{
-		Name:              item.GetName(),
-		Namespace:         item.GetNamespace(),
-		Phase:             getNestedString(item.Object, "status", "phase"),
-		Message:           getNestedString(item.Object, "status", "message"),
-		CreationTimestamp: item.GetCreationTimestamp().Time,
+		Name:               item.GetName(),
+		Namespace:          item.GetNamespace(),
+		Phase:              getNestedString(item.Object, "status", "phase"),
+		Message:            getNestedString(item.Object, "status", "message"),
+		CreationTimestamp:  item.GetCreationTimestamp().Time,
+		Generation:         item.GetGeneration(),
+		ObservedGeneration: observedGen,
 	}
 
 	d.CleanupOnDelete, _, _ = unstructured.NestedBool(item.Object, "spec", "cleanupOnDelete")
