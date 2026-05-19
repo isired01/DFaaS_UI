@@ -111,10 +111,19 @@ export default function EnvironmentDetail() {
 
       {environment.phase === 'ProvisioningInfra' && (
         <div className="glass-card p-5" id="provisioning-infra-progress">
-          <h2 className="text-sm font-semibold text-surface-300 uppercase tracking-wider mb-3">Infrastructure Provisioning</h2>
+          <h2 className="text-sm font-semibold text-surface-300 uppercase tracking-wider mb-3">Infrastructure Provisioning (parallel)</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <ConditionRow conditions={environment.conditions} type="K6Ready" label="k6 Ansible" />
-            <ConditionRow conditions={environment.conditions} type="MonitoringReady" label="Monitoring (Helm)" />
+            <ConditionRow conditions={environment.conditions} type="DfaasWorkersReady" label="dFaaS Workers (Ansible)" />
+            <ConditionRow conditions={environment.conditions} type="K6Ready" label="k6 Generators (Ansible)" />
+          </div>
+        </div>
+      )}
+
+      {environment.phase === 'ProvisioningMonitoring' && (
+        <div className="glass-card p-5" id="provisioning-monitoring-progress">
+          <h2 className="text-sm font-semibold text-surface-300 uppercase tracking-wider mb-3">Monitoring Stack</h2>
+          <div className="grid grid-cols-1 gap-3">
+            <ConditionRow conditions={environment.conditions} type="MonitoringReady" label="Prometheus + Grafana (Helm)" />
           </div>
         </div>
       )}

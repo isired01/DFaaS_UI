@@ -1,15 +1,16 @@
 import {
-  Circle, Server, Activity,
+  Circle, Server, Activity, Download,
   CheckCircle, Play, CheckCheck, XCircle, LineChart, Clock,
 } from 'lucide-react';
 
 const ENV_PHASE = {
-  '':                  { badge: 'badge-idle',         icon: Circle,      label: 'Initializing' },
-  'Idle':              { badge: 'badge-idle',         icon: Circle,      label: 'Idle' },
-  'ProvisioningVMs':   { badge: 'badge-provisioning', icon: Server,      label: 'Provisioning VMs',                       spin: true },
-  'ProvisioningInfra': { badge: 'badge-monitoring',   icon: Activity,    label: 'Provisioning k6 + monitoring (parallel)', spin: true },
-  'Ready':             { badge: 'badge-ready',        icon: CheckCircle, label: 'Ready' },
-  'Failed':            { badge: 'badge-failed',       icon: XCircle,     label: 'Failed' },
+  '':                       { badge: 'badge-idle',         icon: Circle,      label: 'Initializing' },
+  'Idle':                   { badge: 'badge-idle',         icon: Circle,      label: 'Idle' },
+  'ProvisioningVMs':        { badge: 'badge-idle',         icon: Server,      label: 'Preparing VMs (skipped — pre-existing)' },
+  'ProvisioningInfra':      { badge: 'badge-provisioning', icon: Activity,    label: 'Provisioning workers + k6 (parallel)', spin: true },
+  'ProvisioningMonitoring': { badge: 'badge-monitoring',   icon: Download,    label: 'Installing monitoring stack',          spin: true },
+  'Ready':                  { badge: 'badge-ready',        icon: CheckCircle, label: 'Ready' },
+  'Failed':                 { badge: 'badge-failed',       icon: XCircle,     label: 'Failed' },
 };
 
 const LT_PHASE = {

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams, Link } from 'react-router-dom';
-import { ArrowLeft, Play, AlertTriangle, Plus, Trash2, Upload, Wand2, FileCode, Server, BarChart3 } from 'lucide-react';
+import { ArrowLeft, Play, Info, Plus, Trash2, Upload, Wand2, FileCode, Server, BarChart3 } from 'lucide-react';
 import { createLoadTest, fetchEnvironment } from '../api/client';
 import K6ScenariosEditor, { newScenario } from '../components/K6ScenariosEditor';
 import { generateK6Script } from '../lib/k6Generator';
@@ -42,7 +42,6 @@ export default function LoadTestNew() {
   const [driveSecretRef, setDriveSecretRef] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [cooldown, setCooldown] = useState(false);
-  const [saveAsDraft, setSaveAsDraft] = useState(false);
 
   useEffect(() => {
     fetchEnvironment(namespace, envName)
@@ -106,9 +105,6 @@ export default function LoadTestNew() {
     setSubmitting(true);
     setError(null);
     try {
-      if (!saveAsDraft && environment?.phase !== 'Ready') {
-        throw new Error('Environment is not Ready');
-      }
       const cleanQueries = queries.map(q => q.trim()).filter(Boolean);
       if (cleanQueries.length === 0) throw new Error('At least one metrics query is required');
 
@@ -161,7 +157,7 @@ export default function LoadTestNew() {
         perNodeLoad,
         metricsExport,
       };
-      if (saveAsDraft) payload.suspended = true;
+      payload.suspended = true;
 
       const created = await createLoadTest(payload);
       setCooldown(true);
@@ -186,7 +182,6 @@ export default function LoadTestNew() {
     </div>
   );
 
-  const isReady = environment.phase === 'Ready';
   const k6Statuses = environment.k6Nodes && environment.k6Nodes.length > 0
     ? environment.k6Nodes
     : (environment.nodes || []).filter(n => n.role === 'k6-load-generator');
@@ -201,14 +196,12 @@ export default function LoadTestNew() {
         <p className="text-sm text-surface-400 mt-1">Target environment: <span className="font-mono text-dfaas-400">{namespace}/{envName}</span></p>
       </div>
 
-      {!isReady && (
-        <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center gap-3">
-          <AlertTriangle className="w-5 h-5 text-amber-400 flex-shrink-0" />
-          <span className="text-sm text-amber-300">
-            Environment phase is <strong>{environment.phase || 'Unknown'}</strong>. Load tests require <strong>Ready</strong>.
-          </span>
-        </div>
-      )}
+      <div className="p-4 rounded-xl bg-surface-800/50 border border-surface-700/50 flex items-center gap-3">
+        <Info className="w-5 h-5 text-surface-400 flex-shrink-0" />
+        <span className="text-sm text-surface-300">
+          Load tests are created as <strong>drafts</strong>. Click <strong>Start</strong> on the load test detail page once the environment is <strong>Ready</strong> to dispatch k6.
+        </span>
+      </div>
 
       {k6Statuses.length === 0 ? (
         <div className="glass-card p-6 text-center text-surface-400">
@@ -338,20 +331,13 @@ export default function LoadTestNew() {
 
       {error && <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-sm">{error}</div>}
 
-      <div className="flex items-center justify-between gap-3 flex-wrap">
-        <label className="flex items-center gap-2 text-sm text-surface-300 cursor-pointer" title="Save the LoadTest as a draft. It will not run until you click Start from its detail page.">
-          <input type="checkbox" checked={saveAsDraft} onChange={(e) => setSaveAsDraft(e.target.checked)} />
-          Save as Draft <span className="text-[10px] text-surface-500">(skip Ready gate, start manually later)</span>
-        </label>
-        <div className="flex items-center gap-3">
-          <Link to={`/environments/${namespace}/${envName}`} className="btn-secondary">Cancel</Link>
-          <button type="submit" disabled={(!saveAsDraft && !isReady) || submitting || cooldown} className="btn-primary">
-            {submitting ? <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />{saveAsDraft ? 'Saving...' : 'Launching...'}</>
-              : cooldown ? <>Cooling down...</>
-              : saveAsDraft ? <><Play className="w-4 h-4" />Save as Draft</>
-              : <><Play className="w-4 h-4" />Launch Load Test</>}
-          </button>
-        </div>
+      <div className="flex items-center justify-end gap-3">
+        <Link to={`/environments/${namespace}/${envName}`} className="btn-secondary">Cancel</Link>
+        <button type="submit" disabled={submitting || cooldown} className="btn-primary">
+          {submitting ? <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />Saving...</>
+            : cooldown ? <>Cooling down...</>
+            : <><Play className="w-4 h-4" />Save as Draft</>}
+        </button>
       </div>
     </form>
   );
