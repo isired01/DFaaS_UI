@@ -97,6 +97,27 @@ export const fetchEnvironmentYAML = (namespace, name) =>
 export const fetchLoadTestYAML = (namespace, name) =>
   fetchText(`/loadtests/${namespace}/${name}/yaml`);
 
+// --- YAML apply (kubectl apply -f equivalent) ---
+
+async function postYAML(path, yamlText) {
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/yaml' },
+    body: yamlText,
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error(err.error || `Request failed: ${res.status}`);
+  }
+  return res.json();
+}
+
+export const createEnvironmentFromYAML = (yamlText) =>
+  postYAML('/environments/yaml', yamlText);
+
+export const createLoadTestFromYAML = (yamlText) =>
+  postYAML('/loadtests/yaml', yamlText);
+
 export function downloadTextAsFile(text, filename, mime = 'text/plain') {
   const blob = new Blob([text], { type: mime });
   const url = URL.createObjectURL(blob);

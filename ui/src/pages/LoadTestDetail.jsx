@@ -30,6 +30,13 @@ export default function LoadTestDetail() {
   const [showSpec, setShowSpec] = useState(false);
   const [activating, setActivating] = useState(false);
   const [aborting, setAborting] = useState(false);
+  const [nowMs, setNowMs] = useState(() => Date.now());
+
+  useEffect(() => {
+    if (!loadtest?.startAt) return undefined;
+    const id = setInterval(() => setNowMs(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [loadtest?.startAt]);
 
   useEffect(() => {
     const load = async () => {
@@ -88,7 +95,7 @@ export default function LoadTestDetail() {
     setDeleting(true);
     try {
       await deleteLoadTest(namespace, name);
-      navigate(`/environments/${namespace}/${loadtest.targetEnvironment}`);
+      navigate('/loadtests');
     } catch (err) {
       setError(err.message);
       setDeleting(false);
@@ -191,7 +198,7 @@ export default function LoadTestDetail() {
               onClick={handleDelete}
               disabled={deleting || isRunning}
               className="btn-secondary text-red-400 hover:text-red-300 disabled:opacity-40 disabled:hover:text-red-400"
-              title={isRunning ? 'Cannot delete while Running — Abort first' : ''}
+              title="Delete will abort and clean up remote runs automatically."
             >
               <Trash2 className="w-4 h-4" />
               {deleting ? 'Deleting...' : 'Delete'}
@@ -205,7 +212,7 @@ export default function LoadTestDetail() {
         )}
       </div>
 
-      <div className="grid grid-cols-3 gap-4">
+      <div className={`grid gap-4 ${loadtest.startAt ? 'grid-cols-4' : 'grid-cols-3'}`}>
         <div className="glass-card p-4">
           <p className="text-xs text-surface-500 uppercase tracking-wider">Started</p>
           <p className="text-sm text-white mt-1">{loadtest.startTime ? new Date(loadtest.startTime).toLocaleString('en-GB') : '—'}</p>
@@ -218,7 +225,45 @@ export default function LoadTestDetail() {
           <p className="text-xs text-surface-500 uppercase tracking-wider">Exporter Job</p>
           <p className="text-sm font-mono text-white mt-1 truncate">{loadtest.exporterJob || '—'}</p>
         </div>
+        {loadtest.startAt && (() => {
+          const fireMs = new Date(loadtest.startAt).getTime();
+          const remaining = Math.max(0, fireMs - nowMs);
+          let countdown;
+          if (remaining === 0) {
+            countdown = 'fired';
+          } else {
+            const totalSec = Math.floor(remaining / 1000);
+            const m = Math.floor(totalSec / 60);
+            const s = totalSec % 60;
+            countdown = `${m}m ${s}s`;
+          }
+          return (
+            <div className="glass-card p-4">
+              <p className="text-xs text-surface-500 uppercase tracking-wider">Scheduled start</p>
+              <p className="text-sm text-white mt-1">{new Date(loadtest.startAt).toLocaleString('en-GB')}</p>
+              <p className="text-xs font-mono text-dfaas-400 mt-1">{countdown}</p>
+            </div>
+          );
+        })()}
       </div>
+
+      {loadtest.phase === 'Pending' && (() => {
+        const c = (loadtest.conditions || []).find(
+          (x) => x.type === 'Ready' && ['Scheduled', 'ScheduledDelayedEnvNotReady', 'ScheduledFired'].includes(x.reason)
+        );
+        if (!c) return null;
+        const tone = c.reason === 'ScheduledDelayedEnvNotReady'
+          ? 'bg-amber-500/10 border-amber-500/30 text-amber-300'
+          : c.reason === 'ScheduledFired'
+            ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
+            : 'bg-violet-500/10 border-violet-500/30 text-violet-300';
+        return (
+          <div className={`p-3 rounded-xl border text-sm flex items-start gap-2 ${tone}`}>
+            <Info className="w-4 h-4 mt-0.5 flex-shrink-0" />
+            <span><strong>{c.reason}</strong> — {c.message}</span>
+          </div>
+        );
+      })()}
 
       {loadtest.conditions && loadtest.conditions.length > 0 && (
         <div className="glass-card p-5">

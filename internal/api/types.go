@@ -122,6 +122,7 @@ type LoadTestSummary struct {
 	TargetEnvironment string     `json:"targetEnvironment"`
 	Phase             string     `json:"phase"`
 	Suspended         bool       `json:"suspended,omitempty"`
+	StartAt           *time.Time `json:"startAt,omitempty"`
 	Stop              bool       `json:"stop,omitempty"`
 	Message           string     `json:"message,omitempty"`
 	StartTime         *time.Time `json:"startTime,omitempty"`
@@ -185,6 +186,7 @@ type CreateLoadTestRequest struct {
 	Name              string              `json:"name,omitempty"`
 	TargetEnvironment string              `json:"targetEnvironment" binding:"required"`
 	Suspended         bool                `json:"suspended,omitempty"`
+	StartAt           *time.Time          `json:"startAt,omitempty"`
 	PerNodeLoad       []CreatePerNodeLoad `json:"perNodeLoad" binding:"required,min=1"`
 	MetricsExport     CreateMetricsExport `json:"metricsExport"`
 }

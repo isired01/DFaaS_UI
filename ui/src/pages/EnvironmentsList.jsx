@@ -1,7 +1,7 @@
-import { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
-import { FlaskConical, RefreshCw, Search, Server, ChevronRight, Plus } from 'lucide-react';
-import { fetchEnvironments } from '../api/client';
+import { useState, useEffect, useRef } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import { FlaskConical, RefreshCw, Search, Server, ChevronRight, Plus, Download, Upload } from 'lucide-react';
+import { fetchEnvironments, fetchEnvironmentYAML, downloadTextAsFile, createEnvironmentFromYAML } from '../api/client';
 import PhaseBadge from '../components/PhaseBadge';
 
 const PROVISIONING_PHASES = new Set(['ProvisioningVMs', 'ProvisioningInfra', 'ProvisioningMonitoring']);
@@ -11,6 +11,9 @@ export default function EnvironmentsList() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [search, setSearch] = useState('');
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef(null);
+  const navigate = useNavigate();
 
   const load = async () => {
     try {
@@ -22,6 +25,35 @@ export default function EnvironmentsList() {
   };
 
   useEffect(() => { load(); const interval = setInterval(load, 5000); return () => clearInterval(interval); }, []);
+
+  const handleDownloadYAML = async (e, env) => {
+    e.preventDefault();
+    e.stopPropagation();
+    try {
+      const yaml = await fetchEnvironmentYAML(env.namespace, env.name);
+      downloadTextAsFile(yaml, `environment-${env.namespace}-${env.name}.yaml`, 'application/yaml');
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  const handleUploadYAML = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    try {
+      setError(null);
+      const text = await file.text();
+      const summary = await createEnvironmentFromYAML(text);
+      await load();
+      navigate(`/environments/${summary.namespace}/${summary.name}`);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setUploading(false);
+      e.target.value = '';
+    }
+  };
 
   const filtered = environments.filter(env =>
     env.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -45,6 +77,24 @@ export default function EnvironmentsList() {
           <button onClick={() => { setLoading(true); load(); }} className="btn-secondary" id="refresh-btn">
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
             Refresh
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".yaml,.yml,application/yaml,application/x-yaml,text/yaml"
+            onChange={handleUploadYAML}
+            className="hidden"
+          />
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            className="btn-secondary"
+            disabled={uploading}
+            id="upload-environment-yaml-btn"
+            title="Create Environment from a CR YAML file"
+          >
+            <Upload className="w-4 h-4" />
+            {uploading ? 'Uploading…' : 'Upload YAML'}
           </button>
           <Link to="/environments/new" className="btn-primary" id="new-environment-btn">
             <Plus className="w-4 h-4" />
@@ -89,7 +139,7 @@ export default function EnvironmentsList() {
                 <th className="text-left py-3.5 px-5 text-xs font-semibold text-surface-400 uppercase tracking-wider">Phase</th>
                 <th className="text-left py-3.5 px-5 text-xs font-semibold text-surface-400 uppercase tracking-wider">Nodes</th>
                 <th className="text-left py-3.5 px-5 text-xs font-semibold text-surface-400 uppercase tracking-wider">Created</th>
-                <th className="w-12"></th>
+                <th className="w-24"></th>
               </tr>
             </thead>
             <tbody>
@@ -122,7 +172,20 @@ export default function EnvironmentsList() {
                     </span>
                   </td>
                   <td className="py-3.5 px-5"><span className="text-sm text-surface-400">{new Date(env.creationTimestamp).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</span></td>
-                  <td className="py-3.5 px-2"><Link to={`/environments/${env.namespace}/${env.name}`} className="opacity-0 group-hover:opacity-100 transition-opacity"><ChevronRight className="w-5 h-5 text-surface-500" /></Link></td>
+                  <td className="py-3.5 px-2">
+                    <div className="flex items-center justify-end gap-1">
+                      <button
+                        type="button"
+                        onClick={(e) => handleDownloadYAML(e, env)}
+                        title="Download CR YAML"
+                        aria-label="Download CR YAML"
+                        className="p-1.5 rounded-lg text-surface-400 hover:text-dfaas-400 hover:bg-surface-800/60 transition-colors"
+                      >
+                        <Download className="w-4 h-4" />
+                      </button>
+                      <Link to={`/environments/${env.namespace}/${env.name}`} className="opacity-0 group-hover:opacity-100 transition-opacity"><ChevronRight className="w-5 h-5 text-surface-500" /></Link>
+                    </div>
+                  </td>
                 </tr>
               ))}
             </tbody>

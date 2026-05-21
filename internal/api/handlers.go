@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"regexp"
 	"sort"
@@ -38,6 +39,7 @@ func (h *Handler) RegisterRoutes(r *gin.Engine) {
 		api.GET("/environments/:namespace/:name", h.GetEnvironment)
 		api.GET("/environments/:namespace/:name/yaml", h.GetEnvironmentYAML)
 		api.POST("/environments", h.CreateEnvironment)
+		api.POST("/environments/yaml", h.CreateEnvironmentFromYAML)
 		api.PATCH("/environments/:namespace/:name", h.UpdateEnvironment)
 		api.DELETE("/environments/:namespace/:name", h.DeleteEnvironment)
 
@@ -45,6 +47,7 @@ func (h *Handler) RegisterRoutes(r *gin.Engine) {
 		api.GET("/loadtests/:namespace/:name", h.GetLoadTest)
 		api.GET("/loadtests/:namespace/:name/yaml", h.GetLoadTestYAML)
 		api.POST("/loadtests", h.CreateLoadTest)
+		api.POST("/loadtests/yaml", h.CreateLoadTestFromYAML)
 		api.POST("/loadtests/:namespace/:name/activate", h.ActivateLoadTest)
 		api.PATCH("/loadtests/:namespace/:name/abort", h.AbortLoadTest)
 		api.DELETE("/loadtests/:namespace/:name", h.DeleteLoadTest)
@@ -284,6 +287,11 @@ func (h *Handler) CreateLoadTest(c *gin.Context) {
 		return
 	}
 
+	if req.StartAt != nil && !req.Suspended {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "startAt requires suspended=true"})
+		return
+	}
+
 	for i, pn := range req.PerNodeLoad {
 		if pn.Script == "" && pn.ScriptConfigMap == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("perNodeLoad[%d]: script or scriptConfigMap required", i)})
@@ -305,7 +313,7 @@ func (h *Handler) CreateLoadTest(c *gin.Context) {
 	}
 
 	phase := getNestedString(envObj.Object, "status", "phase")
-	if !req.Suspended && phase != "Ready" {
+	if !req.Suspended && req.StartAt == nil && phase != "Ready" {
 		c.JSON(http.StatusConflict, gin.H{"error": fmt.Sprintf("environment '%s' is not Ready (current phase: %s)", req.TargetEnvironment, phase)})
 		return
 	}
@@ -454,6 +462,10 @@ func (h *Handler) CreateLoadTest(c *gin.Context) {
 	if req.Suspended {
 		spec := lt.Object["spec"].(map[string]interface{})
 		spec["suspended"] = true
+	}
+	if req.StartAt != nil {
+		spec := lt.Object["spec"].(map[string]interface{})
+		spec["startAt"] = req.StartAt.UTC().Format(time.RFC3339)
 	}
 
 	created, err := h.client.Resource(LoadTestGVR).Namespace(req.Namespace).Create(ctx, lt, metav1.CreateOptions{})
@@ -732,6 +744,11 @@ func mapLoadTestSummary(item unstructured.Unstructured) LoadTestSummary {
 	}
 	if t, ok := parseStatusTime(item.Object, "endTime"); ok {
 		s.EndTime = &t
+	}
+	if startAtStr, ok, _ := unstructured.NestedString(item.Object, "spec", "startAt"); ok && startAtStr != "" {
+		if t, err := time.Parse(time.RFC3339, startAtStr); err == nil {
+			s.StartAt = &t
+		}
 	}
 
 	return s
@@ -1083,4 +1100,99 @@ func cleanForApply(obj map[string]interface{}) {
 	} {
 		delete(md, k)
 	}
+}
+
+// --- YAML apply handlers ---
+
+// CreateEnvironmentFromYAML accepts a raw CR YAML body and creates an
+// Environment, mirroring `kubectl apply -f` UX.
+func (h *Handler) CreateEnvironmentFromYAML(c *gin.Context) {
+	h.applyResourceYAML(c, EnvironmentGVR, "Environment", "dfaas.dfaas.io/v1")
+}
+
+// CreateLoadTestFromYAML accepts a raw CR YAML body and creates a LoadTest,
+// mirroring `kubectl apply -f` UX.
+func (h *Handler) CreateLoadTestFromYAML(c *gin.Context) {
+	h.applyResourceYAML(c, LoadTestGVR, "LoadTest", "dfaas.dfaas.io/v1")
+}
+
+// applyResourceYAML reads a YAML CR body, validates apiVersion+kind, scrubs
+// server-managed fields, defaults namespace to "default", and creates the
+// resource via the dynamic client. Bypasses the typed DTO entirely so a user
+// can round-trip a downloaded YAML (possibly with an edited metadata.name).
+func (h *Handler) applyResourceYAML(c *gin.Context, gvr schema.GroupVersionResource, expectedKind string, expectedAPIVersion string) {
+	body, err := io.ReadAll(io.LimitReader(c.Request.Body, 1<<20))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("read body: %v", err)})
+		return
+	}
+	if len(body) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "empty body"})
+		return
+	}
+
+	var obj map[string]interface{}
+	if err := yamlv3.Unmarshal(body, &obj); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("parse yaml: %v", err)})
+		return
+	}
+	if obj == nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "yaml body did not decode to an object"})
+		return
+	}
+
+	gotAPIVersion := getStringFromMap(obj, "apiVersion")
+	gotKind := getStringFromMap(obj, "kind")
+	if gotAPIVersion != expectedAPIVersion {
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("invalid apiVersion: expected %s got %s", expectedAPIVersion, gotAPIVersion)})
+		return
+	}
+	if gotKind != expectedKind {
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("invalid kind: expected %s got %s", expectedKind, gotKind)})
+		return
+	}
+
+	// Strip server-managed metadata + status so the create is accepted by the API server.
+	cleanForApply(obj)
+
+	md, _ := obj["metadata"].(map[string]interface{})
+	if md == nil {
+		md = map[string]interface{}{}
+		obj["metadata"] = md
+	}
+	namespace := getStringFromMap(md, "namespace")
+	if namespace == "" {
+		namespace = "default"
+		md["namespace"] = namespace
+	}
+	name := getStringFromMap(md, "name")
+	if name == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "metadata.name required"})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 15*time.Second)
+	defer cancel()
+
+	u := &unstructured.Unstructured{Object: obj}
+	created, err := h.client.Resource(gvr).Namespace(namespace).Create(ctx, u, metav1.CreateOptions{})
+	if err != nil {
+		switch {
+		case apierrors.IsAlreadyExists(err):
+			c.JSON(http.StatusConflict, gin.H{"error": fmt.Sprintf("%s '%s/%s' already exists", expectedKind, namespace, name)})
+		case apierrors.IsInvalid(err) || apierrors.IsBadRequest(err):
+			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("invalid %s: %v", expectedKind, err)})
+		case apierrors.IsNotFound(err):
+			c.JSON(http.StatusNotFound, gin.H{"error": fmt.Sprintf("not found while creating %s: %v", expectedKind, err)})
+		default:
+			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("create %s: %v", expectedKind, err)})
+		}
+		return
+	}
+
+	c.JSON(http.StatusCreated, gin.H{
+		"namespace": created.GetNamespace(),
+		"name":      created.GetName(),
+		"kind":      expectedKind,
+	})
 }

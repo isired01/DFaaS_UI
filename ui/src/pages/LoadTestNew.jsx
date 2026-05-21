@@ -51,6 +51,8 @@ export default function LoadTestNew() {
   const [driveSecretRef, setDriveSecretRef] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [cooldown, setCooldown] = useState(false);
+  const [startAt, setStartAt] = useState('');
+  const [submitMode, setSubmitMode] = useState('draft');
 
   useEffect(() => {
     fetchEnvironment(namespace, envName)
@@ -197,6 +199,14 @@ export default function LoadTestNew() {
         metricsExport,
       };
       payload.suspended = true;
+
+      if (submitMode === 'schedule') {
+        if (!startAt) throw new Error('Pick a start time or switch to Save as Draft');
+        const d = new Date(startAt);
+        if (isNaN(d.getTime())) throw new Error('startAt is not a valid timestamp');
+        if (d.getTime() < Date.now()) throw new Error('startAt must be in the future');
+        payload.startAt = d.toISOString();
+      }
 
       const created = await createLoadTest(payload);
       setCooldown(true);
@@ -431,13 +441,43 @@ export default function LoadTestNew() {
 
       {error && <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-sm">{error}</div>}
 
-      <div className="flex items-center justify-end gap-3">
-        <Link to={`/environments/${namespace}/${envName}`} className="btn-secondary">Cancel</Link>
-        <button type="submit" disabled={submitting || cooldown} className="btn-primary">
-          {submitting ? <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />Saving...</>
-            : cooldown ? <>Cooling down...</>
-            : <><Play className="w-4 h-4" />Save as Draft</>}
-        </button>
+      <div className="flex flex-col gap-3">
+        {submitMode === 'schedule' && (
+          <div className="glass-card p-4 space-y-2">
+            <label className="block text-xs font-medium text-surface-400">Start at</label>
+            <input
+              type="datetime-local"
+              value={startAt}
+              onChange={(e) => setStartAt(e.target.value)}
+              className="input py-2 text-sm w-fit"
+              required
+            />
+            <p className="text-xs text-surface-400">
+              Time is sent as UTC. Will only fire while the load test is saved as draft.
+            </p>
+          </div>
+        )}
+        <div className="flex items-center justify-end gap-3">
+          <Link to={`/environments/${namespace}/${envName}`} className="btn-secondary">Cancel</Link>
+          <select
+            value={submitMode}
+            onChange={(e) => {
+              const v = e.target.value;
+              setSubmitMode(v);
+              if (v === 'draft') setStartAt('');
+            }}
+            className="input py-2 text-sm w-44"
+            disabled={submitting || cooldown}
+          >
+            <option value="draft">Save as Draft</option>
+            <option value="schedule">Schedule start</option>
+          </select>
+          <button type="submit" disabled={submitting || cooldown} className="btn-primary">
+            {submitting ? <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />Saving...</>
+              : cooldown ? <>Cooling down...</>
+              : <><Play className="w-4 h-4" />Confirm</>}
+          </button>
+        </div>
       </div>
     </form>
   );
