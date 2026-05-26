@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { ArrowLeft, TestTube2, Trash2, AlertTriangle, Info, ChevronDown, ChevronUp, Server, BarChart3, FileCode, Download, Play, FileEdit, Ban, Loader2 } from 'lucide-react';
-import { fetchLoadTest, deleteLoadTest, fetchLoadTestYAML, downloadTextAsFile, activateLoadTest, abortLoadTest } from '../api/client';
+import { fetchLoadTest, deleteLoadTest, fetchLoadTestYAML, downloadTextAsFile, activateLoadTest, abortLoadTest, fetchEnvironment } from '../api/client';
 import PhaseBadge from '../components/PhaseBadge';
 
 const ACTIVE_PHASES = new Set(['Pending', 'Running', 'Exporting', '']);
@@ -23,6 +23,7 @@ export default function LoadTestDetail() {
   const { namespace, name } = useParams();
   const navigate = useNavigate();
   const [loadtest, setLoadtest] = useState(null);
+  const [environment, setEnvironment] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [deleting, setDeleting] = useState(false);
@@ -44,6 +45,11 @@ export default function LoadTestDetail() {
         setError(null);
         const data = await fetchLoadTest(namespace, name);
         setLoadtest(data);
+        if (data?.targetEnvironment) {
+          fetchEnvironment(namespace, data.targetEnvironment)
+            .then(setEnvironment)
+            .catch(() => { /* non-fatal — hint just hidden */ });
+        }
       } catch (err) { setError(err.message); }
       finally { setLoading(false); }
     };
@@ -389,11 +395,19 @@ export default function LoadTestDetail() {
           <div>
             <p className="text-surface-500 uppercase tracking-wider mb-1">Step</p>
             <p className="font-mono text-surface-200">{loadtest.metricsExport?.step || '15s'}</p>
-            {loadtest.metricsExport?.googleDrive && (
-              <>
-                <p className="text-surface-500 uppercase tracking-wider mt-3 mb-1">Google Drive</p>
-                <pre className="code-block text-[10px] max-h-32 overflow-y-auto">{JSON.stringify(loadtest.metricsExport.googleDrive, null, 2)}</pre>
-              </>
+            <p className="text-surface-500 uppercase tracking-wider mt-3 mb-1">Destination</p>
+            {environment?.s3ConfigRef ? (
+              <p className="text-xs text-surface-300">
+                S3 config{' '}
+                <Link to={`/s3-configs/${environment.s3ConfigRef.name}`} className="font-mono text-dfaas-400 hover:text-dfaas-300 hover:underline">
+                  {environment.s3ConfigRef.name}
+                </Link>
+                <span className="text-surface-500"> (inherited from environment)</span>
+              </p>
+            ) : (
+              <p className="text-xs text-surface-500">
+                No S3 config on environment → exporter pod stdout.
+              </p>
             )}
           </div>
         </div>

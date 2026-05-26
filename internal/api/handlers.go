@@ -43,6 +43,11 @@ func (h *Handler) RegisterRoutes(r *gin.Engine) {
 		api.PATCH("/environments/:namespace/:name", h.UpdateEnvironment)
 		api.DELETE("/environments/:namespace/:name", h.DeleteEnvironment)
 
+		api.GET("/s3-configs", h.ListS3Configs)
+		api.GET("/s3-configs/:name", h.GetS3Config)
+		api.POST("/s3-configs", h.CreateS3Config)
+		api.DELETE("/s3-configs/:name", h.DeleteS3Config)
+
 		api.GET("/loadtests", h.ListLoadTests)
 		api.GET("/loadtests/:namespace/:name", h.GetLoadTest)
 		api.GET("/loadtests/:namespace/:name/yaml", h.GetLoadTestYAML)
@@ -437,12 +442,6 @@ func (h *Handler) CreateLoadTest(c *gin.Context) {
 		"metrics": metrics,
 		"step":    step,
 	}
-	if req.MetricsExport.GoogleDrive != nil {
-		metricsExport["googleDrive"] = map[string]interface{}{
-			"folderId":             req.MetricsExport.GoogleDrive.FolderID,
-			"credentialsSecretRef": req.MetricsExport.GoogleDrive.CredentialsSecretRef,
-		}
-	}
 
 	lt := &unstructured.Unstructured{
 		Object: map[string]interface{}{
@@ -580,6 +579,9 @@ func buildEnvironmentUnstructured(req CreateEnvironmentRequest) *unstructured.Un
 	}
 	if len(links) > 0 {
 		spec["topology"] = map[string]interface{}{"links": links}
+	}
+	if req.S3ConfigRef != nil && req.S3ConfigRef.Name != "" {
+		spec["s3ConfigRef"] = map[string]interface{}{"name": req.S3ConfigRef.Name}
 	}
 
 	return &unstructured.Unstructured{
@@ -722,6 +724,12 @@ func mapEnvDetail(item unstructured.Unstructured) EnvironmentDetail {
 		}
 	}
 
+	if ref, _, _ := unstructured.NestedMap(item.Object, "spec", "s3ConfigRef"); ref != nil {
+		if name := getStringFromMap(ref, "name"); name != "" {
+			d.S3ConfigRef = &S3ConfigRefView{Name: name}
+		}
+	}
+
 	return d
 }
 
@@ -789,12 +797,6 @@ func mapLoadTestDetail(item unstructured.Unstructured) LoadTestDetail {
 		})
 	}
 	d.MetricsExport.Step = getNestedString(item.Object, "spec", "metricsExport", "step")
-	if gd, _, _ := unstructured.NestedMap(item.Object, "spec", "metricsExport", "googleDrive"); gd != nil {
-		d.MetricsExport.GoogleDrive = &GoogleDriveConfigView{
-			FolderID:             getStringFromMap(gd, "folderId"),
-			CredentialsSecretRef: getStringFromMap(gd, "credentialsSecretRef"),
-		}
-	}
 
 	testRuns, _, _ := unstructured.NestedSlice(item.Object, "status", "testRuns")
 	for _, tr := range testRuns {
@@ -1003,11 +1005,12 @@ func (h *Handler) exportResourceYAML(c *gin.Context, gvr schema.GroupVersionReso
 var envKeyOrder = map[string][]string{
 	"root":                          {"apiVersion", "kind", "metadata", "spec"},
 	"root.metadata":                 {"name", "namespace", "labels", "annotations"},
-	"root.spec":                     {"cleanupOnDelete", "nodes", "topology"},
+	"root.spec":                     {"cleanupOnDelete", "nodes", "topology", "s3ConfigRef"},
 	"root.spec.nodes[]":             {"nodeID", "ipAddress", "role", "capacity", "username", "password", "balancingStrategy", "functions"},
 	"root.spec.nodes[].functions[]": {"name", "image", "execTimeout", "maxInflight", "timeoutMs", "maxRate"},
 	"root.spec.topology":            {"links"},
 	"root.spec.topology.links[]":    {"nodeA", "nodeB", "latencyMs"},
+	"root.spec.s3ConfigRef":         {"name"},
 }
 
 var loadtestKeyOrder = map[string][]string{
@@ -1016,9 +1019,8 @@ var loadtestKeyOrder = map[string][]string{
 	"root.spec":               {"targetEnvironment", "perNodeLoad", "metricsExport"},
 	"root.spec.perNodeLoad[]": {"nodeID", "vus", "duration", "scriptConfigMap", "script"},
 	"root.spec.perNodeLoad[].scriptConfigMap": {"name"},
-	"root.spec.metricsExport":                 {"metrics", "step", "googleDrive"},
+	"root.spec.metricsExport":                 {"metrics", "step"},
 	"root.spec.metricsExport.metrics[]":       {"type", "metricName", "query", "comment"},
-	"root.spec.metricsExport.googleDrive":     {"folderId", "credentialsSecretRef"},
 }
 
 func marshalOrderedYAML(obj map[string]interface{}, kind string) ([]byte, error) {

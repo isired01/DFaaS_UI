@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Network, Zap, TestTube2, AlertTriangle, Info, Plus, Trash2, Server, Cpu, CheckCircle2, Loader2, XCircle, Download, Pencil, RefreshCw } from 'lucide-react';
+import { ArrowLeft, Network, Zap, TestTube2, AlertTriangle, Info, Plus, Trash2, Server, Cpu, CheckCircle2, Loader2, XCircle, Download, Pencil, RefreshCw, Database } from 'lucide-react';
 import { fetchEnvironment, fetchLoadTests, deleteEnvironment, fetchEnvironmentYAML, downloadTextAsFile } from '../api/client';
 import PhaseBadge from '../components/PhaseBadge';
 import NodeCard from '../components/NodeCard';
@@ -200,6 +200,25 @@ export default function EnvironmentDetail() {
           </div>
         )}
       </div>
+
+      {environment.s3ConfigRef && (
+        <div className="glass-card p-5" id="s3-config-ref-block">
+          <h2 className="text-sm font-semibold text-surface-300 uppercase tracking-wider mb-3 flex items-center gap-2">
+            <Database className="w-4 h-4 text-dfaas-400" />Metrics S3 Config
+          </h2>
+          <div className="flex items-center gap-3">
+            <Link
+              to={`/s3-configs/${environment.s3ConfigRef.name}`}
+              className="text-sm font-mono text-dfaas-400 hover:text-dfaas-300 hover:underline"
+            >
+              {environment.s3ConfigRef.name}
+            </Link>
+            <span className="text-xs text-surface-500">
+              every LoadTest export lands in <code>s3://{environment.name}-&lt;uid&gt;/metrics/...</code>
+            </span>
+          </div>
+        </div>
+      )}
 
       {environment.topology?.links?.length > 0 && (
         <div className="glass-card p-5">

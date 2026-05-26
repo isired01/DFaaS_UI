@@ -21,19 +21,20 @@ type EnvironmentSummary struct {
 
 // EnvironmentDetail is returned by GET /api/environments/:namespace/:name.
 type EnvironmentDetail struct {
-	Name               string          `json:"name"`
-	Namespace          string          `json:"namespace"`
-	Phase              string          `json:"phase"`
-	Message            string          `json:"message,omitempty"`
-	CreationTimestamp  time.Time       `json:"creationTimestamp"`
-	Generation         int64           `json:"generation"`
-	ObservedGeneration int64           `json:"observedGeneration"`
-	Conditions         []ConditionInfo `json:"conditions,omitempty"`
-	Nodes              []NodeInfo      `json:"nodes"`
-	Topology           TopologyInfo    `json:"topology"`
-	CleanupOnDelete    bool            `json:"cleanupOnDelete"`
-	K6Nodes            []K6NodeStatus  `json:"k6Nodes,omitempty"`
-	DfaasNodes         []string        `json:"dfaasNodes,omitempty"`
+	Name               string           `json:"name"`
+	Namespace          string           `json:"namespace"`
+	Phase              string           `json:"phase"`
+	Message            string           `json:"message,omitempty"`
+	CreationTimestamp  time.Time        `json:"creationTimestamp"`
+	Generation         int64            `json:"generation"`
+	ObservedGeneration int64            `json:"observedGeneration"`
+	Conditions         []ConditionInfo  `json:"conditions,omitempty"`
+	Nodes              []NodeInfo       `json:"nodes"`
+	Topology           TopologyInfo     `json:"topology"`
+	CleanupOnDelete    bool             `json:"cleanupOnDelete"`
+	K6Nodes            []K6NodeStatus   `json:"k6Nodes,omitempty"`
+	DfaasNodes         []string         `json:"dfaasNodes,omitempty"`
+	S3ConfigRef        *S3ConfigRefView `json:"s3ConfigRef,omitempty"`
 }
 
 // ConditionInfo mirrors metav1.Condition.
@@ -89,11 +90,12 @@ type K6NodeStatus struct {
 
 // CreateEnvironmentRequest is the body for POST /api/environments.
 type CreateEnvironmentRequest struct {
-	Namespace       string       `json:"namespace" binding:"required"`
-	Name            string       `json:"name" binding:"required"`
-	Nodes           []NodeInfo   `json:"nodes" binding:"required,min=1"`
-	Topology        TopologyInfo `json:"topology"`
-	CleanupOnDelete bool         `json:"cleanupOnDelete"`
+	Namespace       string           `json:"namespace" binding:"required"`
+	Name            string           `json:"name" binding:"required"`
+	Nodes           []NodeInfo       `json:"nodes" binding:"required,min=1"`
+	Topology        TopologyInfo     `json:"topology"`
+	CleanupOnDelete bool             `json:"cleanupOnDelete"`
+	S3ConfigRef     *S3ConfigRefView `json:"s3ConfigRef,omitempty"`
 }
 
 // UpdateEnvironmentRequest is the body for PATCH /api/environments/:ns/:name.
@@ -107,9 +109,10 @@ type UpdateEnvironmentRequest struct {
 // UpdateEnvironmentSpec carries the subset of Environment.spec the client wants
 // to merge-patch. Any field left nil/omitted is preserved on the cluster object.
 type UpdateEnvironmentSpec struct {
-	CleanupOnDelete *bool         `json:"cleanupOnDelete,omitempty"`
-	Nodes           []NodeInfo    `json:"nodes,omitempty"`
-	Topology        *TopologyInfo `json:"topology,omitempty"`
+	CleanupOnDelete *bool            `json:"cleanupOnDelete,omitempty"`
+	Nodes           []NodeInfo       `json:"nodes,omitempty"`
+	Topology        *TopologyInfo    `json:"topology,omitempty"`
+	S3ConfigRef     *S3ConfigRefView `json:"s3ConfigRef,omitempty"`
 }
 
 // --- LoadTest DTOs ---
@@ -150,10 +153,11 @@ type PerNodeLoadView struct {
 }
 
 // MetricsExportView mirrors LoadTest.spec.metricsExport.
+// S3 export is configured per-Environment via spec.s3ConfigRef (see EnvironmentDetail);
+// LoadTest no longer carries any export-destination fields.
 type MetricsExportView struct {
-	Metrics     []MetricEntryView      `json:"metrics"`
-	Step        string                 `json:"step,omitempty"`
-	GoogleDrive *GoogleDriveConfigView `json:"googleDrive,omitempty"`
+	Metrics []MetricEntryView `json:"metrics"`
+	Step    string            `json:"step,omitempty"`
 }
 
 // MetricEntryView mirrors LoadTest.spec.metricsExport.metrics[].
@@ -164,12 +168,6 @@ type MetricEntryView struct {
 	MetricName string `json:"metricName,omitempty"`
 	Query      string `json:"query"`
 	Comment    string `json:"comment,omitempty"`
-}
-
-// GoogleDriveConfigView mirrors LoadTest.spec.metricsExport.googleDrive.
-type GoogleDriveConfigView struct {
-	FolderID             string `json:"folderId"`
-	CredentialsSecretRef string `json:"credentialsSecretRef"`
 }
 
 // TestRunRefView mirrors LoadTest.status.testRuns[].
@@ -201,10 +199,10 @@ type CreatePerNodeLoad struct {
 }
 
 // CreateMetricsExport: server defaults Step to "15s" when empty.
+// S3 export destination lives on the Environment, not on LoadTest.
 type CreateMetricsExport struct {
-	Metrics     []CreateMetricEntry      `json:"metrics" binding:"required,min=1"`
-	Step        string                   `json:"step,omitempty"`
-	GoogleDrive *CreateGoogleDriveConfig `json:"googleDrive,omitempty"`
+	Metrics []CreateMetricEntry `json:"metrics" binding:"required,min=1"`
+	Step    string              `json:"step,omitempty"`
 }
 
 // CreateMetricEntry: each row in metricsExport.metrics.
@@ -216,8 +214,40 @@ type CreateMetricEntry struct {
 	Comment    string `json:"comment,omitempty"`
 }
 
-// CreateGoogleDriveConfig: both fields required when present.
-type CreateGoogleDriveConfig struct {
-	FolderID             string `json:"folderId" binding:"required"`
-	CredentialsSecretRef string `json:"credentialsSecretRef" binding:"required"`
+// --- S3 server-config DTOs ---
+// One Secret per config lives in the cluster-scoped registry namespace
+// `dfaas-s3`, labeled `dfaas.io/s3-config=true`. The Environment references
+// a config by name via `spec.s3ConfigRef.name`.
+
+// S3ConfigRefView is the pointer carried on Environment.spec.s3ConfigRef.
+type S3ConfigRefView struct {
+	Name string `json:"name"`
+}
+
+// S3ConfigSummary is returned by GET /api/s3-configs (list).
+// Key fields are never returned; the underlying Secret holds them.
+type S3ConfigSummary struct {
+	Name      string    `json:"name"`
+	Endpoint  string    `json:"endpoint"`
+	Region    string    `json:"region"`
+	CreatedAt time.Time `json:"createdAt"`
+}
+
+// S3ConfigDetail is returned by GET /api/s3-configs/:name.
+// Same redaction rule applies: access/secret keys are never echoed.
+type S3ConfigDetail struct {
+	S3ConfigSummary
+	ForcePathStyle bool `json:"forcePathStyle"`
+}
+
+// CreateS3Config is the body for POST /api/s3-configs.
+// Name must be DNS-1123 (validated explicitly in the handler on top of the
+// binding tags below — the validator only enforces length here).
+type CreateS3Config struct {
+	Name            string `json:"name"            binding:"required,min=1,max=63"`
+	Endpoint        string `json:"endpoint"`
+	Region          string `json:"region"          binding:"required,min=1"`
+	AccessKeyId     string `json:"accessKeyId"     binding:"required,min=1"`
+	SecretAccessKey string `json:"secretAccessKey" binding:"required,min=1"`
+	ForcePathStyle  bool   `json:"forcePathStyle"`
 }

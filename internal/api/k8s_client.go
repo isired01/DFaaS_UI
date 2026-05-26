@@ -32,6 +32,21 @@ var ConfigMapGVR = schema.GroupVersionResource{
 	Resource: "configmaps",
 }
 
+// SecretGVR is the GVR for core/v1 Secrets, used to store S3 server configs
+// in the cluster-scoped registry namespace.
+var SecretGVR = schema.GroupVersionResource{
+	Group:    "",
+	Version:  "v1",
+	Resource: "secrets",
+}
+
+// S3ConfigNamespace is the cluster-scoped registry namespace for S3 server configs.
+const S3ConfigNamespace = "dfaas-s3"
+
+// S3ConfigLabel is the label set on every Secret managed by the S3-config tab.
+// Value is always "true" — used as a selector by list/cleanup queries.
+const S3ConfigLabel = "dfaas.io/s3-config"
+
 // NewK8sClient builds a dynamic Kubernetes client.
 // In-cluster config first, then KUBECONFIG env, then ~/.kube/config.
 func NewK8sClient() (dynamic.Interface, error) {

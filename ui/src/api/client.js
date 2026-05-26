@@ -80,6 +80,28 @@ export async function abortLoadTest(namespace, name) {
   return request(`/loadtests/${namespace}/${name}/abort`, { method: 'PATCH' });
 }
 
+// --- S3 server configurations ---
+
+export async function listS3Configs() {
+  const data = await request('/s3-configs');
+  return data.s3Configs || [];
+}
+
+export async function fetchS3Config(name) {
+  return request(`/s3-configs/${encodeURIComponent(name)}`);
+}
+
+export async function createS3Config(payload) {
+  return request('/s3-configs', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function deleteS3Config(name) {
+  return request(`/s3-configs/${encodeURIComponent(name)}`, { method: 'DELETE' });
+}
+
 // --- YAML exports ---
 
 async function fetchText(path) {

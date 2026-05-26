@@ -46,9 +46,6 @@ export default function LoadTestNew() {
   const [perNode, setPerNode] = useState({});
   const [metrics, setMetrics] = useState(DEFAULT_METRICS);
   const [step, setStep] = useState('15s');
-  const [driveEnabled, setDriveEnabled] = useState(false);
-  const [driveFolderID, setDriveFolderID] = useState('');
-  const [driveSecretRef, setDriveSecretRef] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [cooldown, setCooldown] = useState(false);
   const [startAt, setStartAt] = useState('');
@@ -184,13 +181,6 @@ export default function LoadTestNew() {
         }),
         step: step || '15s',
       };
-      if (driveEnabled) {
-        const folderId = driveFolderID.trim();
-        const credentialsSecretRef = driveSecretRef.trim();
-        if (!folderId) throw new Error('Google Drive folderId is required');
-        if (!credentialsSecretRef) throw new Error('Google Drive credentialsSecretRef is required');
-        metricsExport.googleDrive = { folderId, credentialsSecretRef };
-      }
 
       const payload = {
         namespace,
@@ -419,22 +409,15 @@ export default function LoadTestNew() {
         </div>
 
         <div className="border-t border-surface-700/50 pt-4">
-          <label className="flex items-center gap-2 text-sm text-surface-300">
-            <input type="checkbox" checked={driveEnabled} onChange={(e) => setDriveEnabled(e.target.checked)} />
-            Export to Google Drive
-          </label>
-          {driveEnabled && (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
-              <div>
-                <label className="block text-xs font-medium text-surface-400 mb-1">Folder ID</label>
-                <input type="text" className="input py-2 text-sm" value={driveFolderID} onChange={(e) => setDriveFolderID(e.target.value)} placeholder="1AbCdEf..." required />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-surface-400 mb-1">Credentials Secret</label>
-                <input type="text" className="input py-2 text-sm" value={driveSecretRef} onChange={(e) => setDriveSecretRef(e.target.value)} placeholder="gdrive-credentials" required />
-                <p className="text-[10px] text-surface-500 mt-1">Name of a Secret (key: <code>credentials.json</code>) in the same namespace.</p>
-              </div>
-            </div>
+          <p className="text-xs font-medium text-surface-400 uppercase tracking-wider mb-1">Export destination</p>
+          {environment?.s3ConfigRef ? (
+            <p className="text-xs text-surface-400">
+              Metrics export → S3 config <code className="text-dfaas-400">{environment.s3ConfigRef.name}</code> (inherited from environment).
+            </p>
+          ) : (
+            <p className="text-xs text-surface-500">
+              No S3 config on environment → metrics will be dumped to exporter pod stdout.
+            </p>
           )}
         </div>
       </div>

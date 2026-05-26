@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, Plus, Trash2, Server, Network, Save, Lock } from 'lucide-react';
-import { createEnvironment, fetchEnvironment, updateEnvironment } from '../api/client';
+import { ArrowLeft, Plus, Trash2, Server, Network, Save, Lock, Database } from 'lucide-react';
+import { createEnvironment, fetchEnvironment, updateEnvironment, listS3Configs } from '../api/client';
 
 const BALANCING_STRATEGIES = [
   { value: 'staticstrategy',     label: 'Static — fixed routing weights' },
@@ -48,15 +48,24 @@ export default function EnvironmentNew({ mode = 'create' }) {
   const [cleanupOnDelete, setCleanupOnDelete] = useState(false);
   const [nodes, setNodes] = useState([emptyNode()]);
   const [links, setLinks] = useState([]);
+  const [s3ConfigName, setS3ConfigName] = useState('');
+  const [availableConfigs, setAvailableConfigs] = useState([]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
   const [loadingEnv, setLoadingEnv] = useState(isEdit);
+
+  useEffect(() => {
+    listS3Configs()
+      .then(setAvailableConfigs)
+      .catch(() => setAvailableConfigs([]));
+  }, []);
 
   useEffect(() => {
     if (!isEdit) return;
     fetchEnvironment(params.namespace, params.name)
       .then(env => {
         setCleanupOnDelete(!!env.cleanupOnDelete);
+        setS3ConfigName(env.s3ConfigRef?.name || '');
         const prefilledNodes = (env.nodes || []).map(n => ({
           nodeID: n.nodeID || '',
           ipAddress: n.ipAddress || '',
@@ -162,13 +171,21 @@ export default function EnvironmentNew({ mode = 'create' }) {
           })),
         },
       };
+      const trimmedS3 = (s3ConfigName || '').trim();
+      if (trimmedS3) {
+        payload.s3ConfigRef = { name: trimmedS3 };
+      }
 
       if (isEdit) {
-        await updateEnvironment(namespace, name, {
+        const patch = {
           cleanupOnDelete: payload.cleanupOnDelete,
           nodes: payload.nodes,
           topology: payload.topology,
-        });
+        };
+        if (trimmedS3) {
+          patch.s3ConfigRef = { name: trimmedS3 };
+        }
+        await updateEnvironment(namespace, name, patch);
       } else {
         await createEnvironment(payload);
       }
@@ -347,6 +364,35 @@ export default function EnvironmentNew({ mode = 'create' }) {
           <button type="button" onClick={addNode} className="btn-secondary text-xs px-3 py-1.5">
             <Plus className="w-3.5 h-3.5" />Add Node
           </button>
+        </div>
+
+        <div className="border-t border-surface-700/50 pt-4">
+          <label className="block text-xs font-medium text-surface-400 mb-1 flex items-center gap-1.5">
+            <Database className="w-3.5 h-3.5 text-dfaas-400" />
+            S3 Configuration (optional)
+          </label>
+          <select
+            value={s3ConfigName}
+            onChange={(e) => setS3ConfigName(e.target.value)}
+            className="input py-2 text-sm"
+            id="s3-config-select"
+          >
+            <option value="">— none (CSV → stdout) —</option>
+            {availableConfigs.map(cfg => (
+              <option key={cfg.name} value={cfg.name}>
+                {cfg.name} ({cfg.endpoint || 'AWS default'} / {cfg.region})
+              </option>
+            ))}
+            {s3ConfigName && !availableConfigs.some(c => c.name === s3ConfigName) && (
+              <option value={s3ConfigName}>{s3ConfigName} (current, not in registry)</option>
+            )}
+          </select>
+          <p className="text-[10px] text-surface-500 mt-1">
+            Every LoadTest in this environment exports its CSV to <code>s3://&lt;env-name&gt;-&lt;uid&gt;/metrics/...</code> using the chosen config.{' '}
+            <Link to="/s3-configs/new" target="_blank" rel="noopener" className="text-dfaas-400 hover:text-dfaas-300">
+              Create new S3 config
+            </Link>
+          </p>
         </div>
       </div>
 

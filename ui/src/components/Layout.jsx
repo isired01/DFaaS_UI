@@ -1,10 +1,11 @@
 import { Outlet, Link, useLocation } from 'react-router-dom';
-import { FlaskConical, LayoutDashboard, TestTube2 } from 'lucide-react';
+import { FlaskConical, LayoutDashboard, TestTube2, Database } from 'lucide-react';
 
 export default function Layout() {
   const location = useLocation();
   const pathname = location.pathname;
-  const isEnvironments = pathname === '/' || pathname.startsWith('/environments');
+  const isS3Configs = pathname.startsWith('/s3-configs');
+  const isEnvironments = (pathname === '/' || pathname.startsWith('/environments')) && !isS3Configs;
   const isLoadTests = pathname.startsWith('/loadtests');
 
   return (
@@ -31,6 +32,7 @@ export default function Layout() {
           <nav className="flex items-center gap-2">
             <NavLink to="/" active={isEnvironments && !isLoadTests} icon={LayoutDashboard} label="Environments" id="nav-environments" />
             <NavLink to="/loadtests" active={isLoadTests} icon={TestTube2} label="Load Tests" id="nav-loadtests" />
+            <NavLink to="/s3-configs" active={isS3Configs} icon={Database} label="S3 Configurations" id="nav-s3-configs" />
           </nav>
 
           <div className="flex items-center gap-3">
