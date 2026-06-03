@@ -4,19 +4,21 @@ Questo progetto è l'interfaccia di controllo per il sistema **dFaaS** (distribu
 
 ## Install via Helm
 
-UI viene rilasciata insieme all'operator come parte di un chart unico. Install:
+UI è impacchettata nello stesso chart unico dell'operator. Procedura:
 
-```bash
+
+# 1. Chart (operator + UI)
 helm install dfaas oci://ghcr.io/isired01/charts/dfaas \
   --version 1.0.0 \
   --create-namespace \
   --namespace dfaas-operator-system
 
+# 2. Apri la UI
 kubectl -n dfaas-ui port-forward svc/dfaas-ui 8082:8082
 open http://localhost:8082
 ```
 
-Documentazione completa: [DFaaSOperator README](https://github.com/isired01/DFaaSOperator#install-via-helm).
+Esempi di Custom Resource (Environment + LoadTest) + configurazione IP delle VM: vedi [DFaaSOperator README](https://github.com/isired01/DFaaSOperator#install-via-helm).
 
 ## 🚀 Architettura
 Il sistema è composto da due parti principali:
