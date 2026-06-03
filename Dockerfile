@@ -11,7 +11,7 @@ RUN npm run build
 # ============================================
 # Stage 2: Build Backend (Go + Gin) — multi-arch
 # ============================================
-FROM --platform=$BUILDPLATFORM golang:1.24-alpine AS backend
+FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS backend
 ARG TARGETOS
 ARG TARGETARCH
 WORKDIR /app
