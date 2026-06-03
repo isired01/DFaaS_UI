@@ -9,15 +9,18 @@ COPY ui/ .
 RUN npm run build
 
 # ============================================
-# Stage 2: Build Backend (Go + Gin)
+# Stage 2: Build Backend (Go + Gin) — multi-arch
 # ============================================
-FROM golang:1.24-alpine AS backend
+FROM --platform=$BUILDPLATFORM golang:1.24-alpine AS backend
+ARG TARGETOS
+ARG TARGETARCH
 WORKDIR /app
 COPY go.mod go.sum ./
 RUN go mod download
 COPY cmd/ cmd/
 COPY internal/ internal/
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /server ./cmd/server
+RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH:-amd64} \
+    go build -ldflags="-s -w" -o /server ./cmd/server
 
 # ============================================
 # Stage 3: Runtime (immagine finale minimale)

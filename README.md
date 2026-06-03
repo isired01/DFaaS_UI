@@ -2,6 +2,22 @@
 
 Questo progetto è l'interfaccia di controllo per il sistema **dFaaS** (distributed Function-as-a-Service). Permette di monitorare gli esperimenti, configurare i test di carico con k6 e visualizzare lo stato della federazione edge/cloud.
 
+## Install via Helm
+
+UI viene rilasciata insieme all'operator come parte di un chart unico. Install:
+
+```bash
+helm install dfaas oci://ghcr.io/isired01/charts/dfaas \
+  --version 1.0.0 \
+  --create-namespace \
+  --namespace dfaas-operator-system
+
+kubectl -n dfaas-ui port-forward svc/dfaas-ui 8082:8082
+open http://localhost:8082
+```
+
+Documentazione completa: [DFaaSOperator README](https://github.com/isired01/DFaaSOperator#install-via-helm).
+
 ## 🚀 Architettura
 Il sistema è composto da due parti principali:
 1. **Frontend (React + Vite)**: Un'interfaccia moderna e reattiva costruita con Tailwind CSS.

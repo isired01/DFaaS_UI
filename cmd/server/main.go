@@ -25,13 +25,23 @@ func main() {
 	// 2. Setup Gin
 	r := gin.Default()
 
-	// 3. CORS per lo sviluppo locale (Vite gira su :5173)
-	r.Use(cors.New(cors.Config{
-		AllowOrigins:     []string{"http://localhost:5173", "http://localhost:3000"},
-		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization"},
-		AllowCredentials: true,
-	}))
+	// Healthz endpoint — used by K8s liveness/readiness probes.
+	r.GET("/healthz", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"status": "ok"})
+	})
+
+	// 3. CORS: configurabile via env CORS_ORIGINS (csv).
+	// Empty = same-origin only (in-cluster Helm install).
+	// Defaults to localhost dev origins when env is unset for local `go run`.
+	corsOrigins := parseCORSOrigins()
+	if len(corsOrigins) > 0 {
+		r.Use(cors.New(cors.Config{
+			AllowOrigins:     corsOrigins,
+			AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+			AllowHeaders:     []string{"Origin", "Content-Type", "Authorization"},
+			AllowCredentials: true,
+		}))
+	}
 
 	// 4. Registra le API routes
 	if k8sClient != nil {
@@ -78,6 +88,28 @@ func main() {
 	if err := r.Run(":" + port); err != nil {
 		log.Fatalf("Errore avvio server: %v", err)
 	}
+}
+
+// parseCORSOrigins reads the CORS_ORIGINS env (csv).
+// Unset → dev defaults (Vite + CRA).
+// Explicit empty (CORS_ORIGINS="") → no CORS middleware (same-origin only).
+func parseCORSOrigins() []string {
+	v, set := os.LookupEnv("CORS_ORIGINS")
+	if !set {
+		return []string{"http://localhost:5173", "http://localhost:3000"}
+	}
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return nil
+	}
+	parts := strings.Split(v, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if s := strings.TrimSpace(p); s != "" {
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 // getUIDistPath determina il path della build frontend.
