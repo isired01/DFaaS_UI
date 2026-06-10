@@ -36,6 +36,17 @@
     background-color: rgba(59, 88, 248, 0.3);
     color: white;
   }
+
+  /* Hide native number-input spinner arrows (numeric fields use plain text
+     boxes via NumberInput; this guards any remaining type=number input). */
+  input[type='number'] {
+    -moz-appearance: textfield;
+  }
+  input[type='number']::-webkit-outer-spin-button,
+  input[type='number']::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
 }
 
 /* === Glass Components === */

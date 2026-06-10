@@ -180,8 +180,12 @@ type TestRunRefView struct {
 
 // CreateLoadTestRequest is the body for POST /api/loadtests.
 type CreateLoadTestRequest struct {
-	Namespace         string              `json:"namespace" binding:"required"`
-	Name              string              `json:"name,omitempty"`
+	Namespace string `json:"namespace" binding:"required"`
+	Name      string `json:"name,omitempty"`
+	// NameSuffix is an optional user-supplied suffix appended to the
+	// auto-generated name (lt-<env>-<timestamp>-<suffix>). Ignored when Name
+	// is set (full override). Sanitized to DNS-1123 server-side.
+	NameSuffix        string              `json:"nameSuffix,omitempty"`
 	TargetEnvironment string              `json:"targetEnvironment" binding:"required"`
 	Suspended         bool                `json:"suspended,omitempty"`
 	StartAt           *time.Time          `json:"startAt,omitempty"`

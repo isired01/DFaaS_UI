@@ -7,9 +7,9 @@ export default {
   theme: {
     extend: {
       colors: {
-        // Custom color palette for dFaaS
+        // Custom color palette for DFaaS
         dfaas: {
-          50:  '#eef2ff',
+          50: '#eef2ff',
           100: '#dbe4ff',
           200: '#bfcfff',
           300: '#93adfe',
@@ -22,7 +22,7 @@ export default {
           950: '#161554',
         },
         surface: {
-          50:  '#f8fafc',
+          50: '#f8fafc',
           100: '#f1f5f9',
           200: '#e2e8f0',
           300: '#cbd5e1',

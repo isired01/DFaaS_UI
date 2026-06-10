@@ -5,6 +5,7 @@ import { createLoadTest, fetchEnvironment } from '../api/client';
 import { newScenario } from '../components/K6ScenariosEditor';
 import { generateK6Script } from '../lib/k6Generator';
 import MetricsEditor, { DEFAULT_METRICS, emptyMetric } from '../components/MetricsEditor';
+import { parseMetricsCsv } from '../lib/metricsCsv';
 import NodeLoadConfig, { SOURCE_GENERATE, SOURCE_RAW } from '../components/NodeLoadConfig';
 
 function defaultPerNode() {
@@ -31,6 +32,7 @@ export default function LoadTestNew() {
   const [perNode, setPerNode] = useState({});
   const [metrics, setMetrics] = useState(DEFAULT_METRICS);
   const [step, setStep] = useState('15s');
+  const [nameSuffix, setNameSuffix] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [cooldown, setCooldown] = useState(false);
   const [startAt, setStartAt] = useState('');
@@ -92,6 +94,16 @@ export default function LoadTestNew() {
   const addMetric = () => setMetrics([...metrics, emptyMetric()]);
   const removeMetric = (i) => setMetrics(metrics.filter((_, idx) => idx !== i));
   const updateMetric = (i, patch) => setMetrics(metrics.map((m, idx) => idx === i ? { ...m, ...patch } : m));
+  const handleImportMetricsCsv = async (file) => {
+    try {
+      const { metrics: parsed, errors } = parseMetricsCsv(await file.text());
+      if (errors.length) { setError(`CSV import failed:\n${errors.join('\n')}`); return; }
+      setMetrics(parsed); // replace the current rows with the file contents
+      setError(null);
+    } catch (e) {
+      setError(`Could not read CSV: ${e.message}`);
+    }
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -173,6 +185,7 @@ export default function LoadTestNew() {
         perNodeLoad,
         metricsExport,
       };
+      if (nameSuffix.trim()) payload.nameSuffix = nameSuffix.trim();
       payload.suspended = true;
 
       if (submitMode === 'schedule') {
@@ -220,6 +233,20 @@ export default function LoadTestNew() {
         <p className="text-sm text-surface-400 mt-1">Target environment: <span className="font-mono text-dfaas-400">{namespace}/{envName}</span></p>
       </div>
 
+      <div>
+        <label className="block text-xs font-medium text-surface-400 mb-1">Name suffix (optional)</label>
+        <input
+          type="text"
+          className="input py-2 text-sm md:w-1/2"
+          value={nameSuffix}
+          onChange={(e) => setNameSuffix(e.target.value)}
+          placeholder="e.g. baseline, run-2"
+        />
+        <p className="text-[10px] text-surface-500 mt-1">
+          Name: <code className="text-surface-400">lt-{envName}-&lt;timestamp&gt;{nameSuffix.trim() ? `-${nameSuffix.trim()}` : ''}</code> (sanitized to lowercase DNS-1123)
+        </p>
+      </div>
+
       <div className="p-4 rounded-xl bg-surface-800/50 border border-surface-700/50 flex items-center gap-3">
         <Info className="w-5 h-5 text-surface-400 flex-shrink-0" />
         <span className="text-sm text-surface-300">
@@ -247,12 +274,13 @@ export default function LoadTestNew() {
         onAdd={addMetric}
         onRemove={removeMetric}
         onUpdate={updateMetric}
+        onImportCsv={handleImportMetricsCsv}
         step={step}
         onStepChange={setStep}
         environment={environment}
       />
 
-      {error && <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-sm">{error}</div>}
+      {error && <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-sm whitespace-pre-line">{error}</div>}
 
       <div className="flex flex-col gap-3">
         {submitMode === 'schedule' && (

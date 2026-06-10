@@ -138,7 +138,7 @@ export default function EnvironmentDetail() {
         <div className="glass-card p-5" id="provisioning-infra-progress">
           <h2 className="text-sm font-semibold text-surface-300 uppercase tracking-wider mb-3">Infrastructure Provisioning (parallel)</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <ProvisioningConditionRow conditions={environment.conditions} type="DfaasWorkersReady" label="dFaaS Workers (Ansible)" />
+            <ProvisioningConditionRow conditions={environment.conditions} type="DfaasWorkersReady" label="DFaaS Workers (Ansible)" />
             <ProvisioningConditionRow conditions={environment.conditions} type="K6Ready" label="k6 Generators (Ansible)" />
           </div>
         </div>
@@ -157,11 +157,11 @@ export default function EnvironmentDetail() {
 
       <div>
         <h2 className="text-lg font-semibold text-white flex items-center gap-2 mb-4" id="dfaas-nodes-section">
-          <Cpu className="w-5 h-5 text-dfaas-400" />dFaaS Workers
+          <Cpu className="w-5 h-5 text-dfaas-400" />DFaaS Workers
           <span className="text-sm font-normal text-surface-500">({dfaasNodes.length})</span>
         </h2>
         {dfaasNodes.length === 0 ? (
-          <p className="text-sm text-surface-500 glass-card p-4">No dFaaS worker nodes in this environment.</p>
+          <p className="text-sm text-surface-500 glass-card p-4">No DFaaS worker nodes in this environment.</p>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
             {dfaasNodes.map((node, i) => (

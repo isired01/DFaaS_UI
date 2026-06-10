@@ -84,7 +84,7 @@ func main() {
 		port = "8082"
 	}
 
-	log.Printf("🚀 dFaaS Control Plane avviato su http://localhost:%s", port)
+	log.Printf("🚀 DFaaS Control Plane avviato su http://localhost:%s", port)
 	if err := r.Run(":" + port); err != nil {
 		log.Fatalf("Errore avvio server: %v", err)
 	}

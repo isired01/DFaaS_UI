@@ -2,13 +2,13 @@ import { Server, Cpu, Zap, Box, Clock, Layers, Key, Play } from 'lucide-react';
 import { STRATEGY_LABELS } from '../lib/constants';
 
 const CAPACITY_STYLES = {
-  LOW:    { border: 'border-blue-500/40',  bg: 'bg-blue-500/10',  text: 'text-blue-400',  label: 'Low' },
+  LOW: { border: 'border-blue-500/40', bg: 'bg-blue-500/10', text: 'text-blue-400', label: 'Low' },
   MEDIUM: { border: 'border-amber-500/40', bg: 'bg-amber-500/10', text: 'text-amber-400', label: 'Medium' },
-  HIGH:   { border: 'border-red-500/40',   bg: 'bg-red-500/10',   text: 'text-red-400',   label: 'High' },
+  HIGH: { border: 'border-red-500/40', bg: 'bg-red-500/10', text: 'text-red-400', label: 'High' },
 };
 
 const ROLE_LABEL = {
-  'dfaas-worker':      'dFaaS Worker',
+  'dfaas-worker': 'DFaaS Worker',
   'k6-load-generator': 'k6 Generator',
 };
 

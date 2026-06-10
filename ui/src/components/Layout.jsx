@@ -21,7 +21,7 @@ export default function Layout() {
             </div>
             <div>
               <h1 className="text-lg font-bold tracking-tight bg-gradient-to-r from-white to-surface-300 bg-clip-text text-transparent">
-                dFaaS
+                DFaaS
               </h1>
               <p className="text-[10px] text-surface-500 -mt-1 tracking-widest uppercase">
                 Control Plane
@@ -51,7 +51,7 @@ export default function Layout() {
       <footer className="border-t border-surface-800/50 py-4">
         <div className="max-w-[1600px] mx-auto px-6 flex items-center justify-between">
           <p className="text-xs text-surface-600">
-            dFaaS Control Plane — Tesi Magistrale
+            DFaaS Control Plane — Tesi Magistrale
           </p>
           <p className="text-xs text-surface-600">
             Kubernetes Operator + React UI
@@ -70,8 +70,8 @@ function NavLink({ to, active, icon: Icon, label, id }) {
       className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium
                   transition-all duration-200
                   ${active
-                    ? 'bg-dfaas-600/20 text-dfaas-400 border border-dfaas-500/30'
-                    : 'text-surface-400 hover:text-white hover:bg-surface-800/50'}`}
+          ? 'bg-dfaas-600/20 text-dfaas-400 border border-dfaas-500/30'
+          : 'text-surface-400 hover:text-white hover:bg-surface-800/50'}`}
     >
       <Icon className="w-4 h-4" />
       {label}

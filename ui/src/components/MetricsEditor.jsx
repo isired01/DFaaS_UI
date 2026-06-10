@@ -1,8 +1,19 @@
-import { Plus, Trash2, BarChart3 } from 'lucide-react';
+import { useRef } from 'react';
+import { Plus, Trash2, BarChart3, Upload } from 'lucide-react';
+import { metricsCsvTemplate } from '../lib/metricsCsv';
+
+function downloadCsvTemplate() {
+  const url = URL.createObjectURL(new Blob([metricsCsvTemplate()], { type: 'text/csv' }));
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'metrics-template.csv';
+  a.click();
+  URL.revokeObjectURL(url);
+}
 
 // Metric `type` values are protocol enums sent to the operator — do not translate.
 export const METRIC_TYPES = [
-  { value: 'raw',           label: 'Raw metric' },
+  { value: 'raw', label: 'Raw metric' },
   { value: 'custom-promql', label: 'Custom PromQL query' },
 ];
 
@@ -11,19 +22,41 @@ export function emptyMetric() {
 }
 
 export const DEFAULT_METRICS = [
-  { type: 'custom-promql', metricName: 'cpu_dfaas_pods',    query: 'sum(rate(container_cpu_usage_seconds_total{pod=~"dfaas-node-.*"}[1m])) by (pod)', comment: 'CPU rate per dFaaS pod' },
-  { type: 'custom-promql', metricName: 'memory_dfaas_pods', query: 'sum(container_memory_working_set_bytes{pod=~"dfaas-node-.*"}) by (pod)',          comment: 'Working set memory per dFaaS pod' },
+  { type: 'custom-promql', metricName: 'cpu_dfaas_pods', query: 'sum(rate(container_cpu_usage_seconds_total{pod=~"dfaas-node-.*"}[1m])) by (pod)', comment: 'CPU rate per DFaaS pod' },
+  { type: 'custom-promql', metricName: 'memory_dfaas_pods', query: 'sum(container_memory_working_set_bytes{pod=~"dfaas-node-.*"}) by (pod)', comment: 'Working set memory per DFaaS pod' },
 ];
 
 // MetricsEditor renders the metrics-export table editor plus the step input and
 // inherited-destination hint. State lives in the parent (LoadTestNew).
-export default function MetricsEditor({ metrics, onAdd, onRemove, onUpdate, step, onStepChange, environment }) {
+export default function MetricsEditor({ metrics, onAdd, onRemove, onUpdate, onImportCsv, step, onStepChange, environment }) {
+  const fileInputRef = useRef(null);
+
   return (
     <div className="glass-card p-5 space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex items-start justify-between gap-3">
         <h2 className="text-sm font-semibold text-surface-300 uppercase tracking-wider flex items-center gap-2">
           <BarChart3 className="w-4 h-4" />Metrics Export
         </h2>
+        {onImportCsv && (
+          <div className="flex flex-col items-end gap-1">
+            <div className="flex items-center gap-2">
+              <button type="button" onClick={() => fileInputRef.current?.click()} className="btn-secondary text-xs px-3 py-1.5">
+                <Upload className="w-3.5 h-3.5" />Import CSV
+              </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".csv,text/csv"
+                className="hidden"
+                onChange={(e) => { if (e.target.files[0]) onImportCsv(e.target.files[0]); e.target.value = ''; }}
+              />
+            </div>
+            <p className="text-[10px] text-surface-500">
+              Columns: <code>type(metric|query) ; query ; metric_name ; comment</code>{' · '}
+              <button type="button" onClick={downloadCsvTemplate} className="text-dfaas-400 hover:text-dfaas-300 underline">example</button>
+            </p>
+          </div>
+        )}
       </div>
 
       <div className="overflow-x-auto">

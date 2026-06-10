@@ -337,6 +337,9 @@ func (h *Handler) CreateLoadTest(c *gin.Context) {
 	ltName := req.Name
 	if ltName == "" {
 		ltName = sanitizeDNS1123(fmt.Sprintf("lt-%s-%s", req.TargetEnvironment, time.Now().Format("20060102-150405")))
+		if req.NameSuffix != "" {
+			ltName = sanitizeDNS1123(ltName + "-" + req.NameSuffix)
+		}
 	}
 
 	// cleanup best-effort deletes the script ConfigMaps already created, used to

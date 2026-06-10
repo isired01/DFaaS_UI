@@ -1,5 +1,6 @@
 import { Upload, Wand2, FileCode, Server } from 'lucide-react';
 import K6ScenariosEditor from './K6ScenariosEditor';
+import NumberInput from './NumberInput';
 
 export const SOURCE_GENERATE = 'generate';
 export const SOURCE_RAW = 'raw';
@@ -35,7 +36,7 @@ export default function NodeLoadConfig({ node, draft, onUpdate, onFile, availabl
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-medium text-surface-400 mb-1">VUs</label>
-              <input type="number" min="1" className="input py-2 text-sm" value={draft.vus} onChange={(e) => update({ vus: parseInt(e.target.value) || 0 })} required />
+              <NumberInput className="input py-2 text-sm" value={draft.vus} onChange={(v) => update({ vus: v })} required />
             </div>
             <div>
               <label className="block text-xs font-medium text-surface-400 mb-1">Duration (e.g. 30s, 5m)</label>

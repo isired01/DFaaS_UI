@@ -1,5 +1,7 @@
 import { Plus, Trash2, ChevronDown, ChevronUp } from 'lucide-react';
 import { useState } from 'react';
+import NumberInput from './NumberInput';
+import InfoTooltip from './InfoTooltip';
 
 const DEFAULT_STAGE = { duration: '10s', target: 10 };
 
@@ -79,7 +81,10 @@ export default function K6ScenariosEditor({ scenarios, onChange, availableUrls =
                     <input type="text" className="input py-1.5 text-xs" value={scen.name} onChange={(e) => updateScenario(sIdx, { name: e.target.value })} required />
                   </div>
                   <div>
-                    <label className="block text-[10px] text-surface-400 mb-1">Executor</label>
+                    <label className="flex items-center gap-1 text-[10px] text-surface-400 mb-1">
+                      Executor
+                      <InfoTooltip text="k6 execution model. Arrival-rate executors hold a target requests/sec (open model); VU executors hold a target number of virtual users (closed model). 'ramping-*' vary the target across stages; 'constant-*' hold it fixed." />
+                    </label>
                     <select className="input py-1.5 text-xs" value={scen.executor} onChange={(e) => updateScenario(sIdx, { executor: e.target.value })}>
                       <option value="shared-iterations">Shared iterations</option>
                       <option value="per-vu-iterations">Per VU iterations</option>
@@ -115,12 +120,18 @@ export default function K6ScenariosEditor({ scenarios, onChange, availableUrls =
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-[10px] text-surface-400 mb-1">PreAllocated VUs</label>
-                    <input type="number" min="1" className="input py-1.5 text-xs" value={scen.preAllocatedVUs} onChange={(e) => updateScenario(sIdx, { preAllocatedVUs: parseInt(e.target.value) || 0 })} required />
+                    <label className="flex items-center gap-1 text-[10px] text-surface-400 mb-1">
+                      PreAllocated VUs
+                      <InfoTooltip text="Virtual users k6 spins up before the test starts. For arrival-rate executors these serve the request rate — too few and k6 can't reach the target." />
+                    </label>
+                    <NumberInput className="input py-1.5 text-xs" value={scen.preAllocatedVUs} onChange={(v) => updateScenario(sIdx, { preAllocatedVUs: v })} required />
                   </div>
                   <div>
-                    <label className="block text-[10px] text-surface-400 mb-1">Max VUs</label>
-                    <input type="number" min="1" className="input py-1.5 text-xs" value={scen.maxVUs} onChange={(e) => updateScenario(sIdx, { maxVUs: parseInt(e.target.value) || 0 })} required />
+                    <label className="flex items-center gap-1 text-[10px] text-surface-400 mb-1">
+                      Max VUs
+                      <InfoTooltip text="Upper bound on VUs k6 may allocate if the pre-allocated pool can't sustain the target rate." />
+                    </label>
+                    <NumberInput className="input py-1.5 text-xs" value={scen.maxVUs} onChange={(v) => updateScenario(sIdx, { maxVUs: v })} required />
                   </div>
                 </div>
 
@@ -137,13 +148,16 @@ export default function K6ScenariosEditor({ scenarios, onChange, availableUrls =
 
                 <div>
                   <div className="flex items-center justify-between mb-1">
-                    <label className="block text-[10px] text-surface-400">Stages (Arrival Rate)</label>
+                    <label className="flex items-center gap-1 text-[10px] text-surface-400">
+                      Stages
+                      <InfoTooltip text="Each stage ramps toward 'target' over its 'duration' (e.g. 30s), in order. target = requests/sec for arrival-rate executors, VU count for vus executors. A final stage with target 0 ramps down." />
+                    </label>
                   </div>
                   <div className="space-y-1.5">
                     {scen.stages.map((stage, stIdx) => (
                       <div key={stIdx} className="flex items-center gap-2">
                         <input type="text" placeholder="Duration" className="input py-1 text-xs flex-1" value={stage.duration} onChange={(e) => updateStage(sIdx, stIdx, { duration: e.target.value })} required />
-                        <input type="number" placeholder="Target RPS" className="input py-1 text-xs flex-1" value={stage.target} onChange={(e) => updateStage(sIdx, stIdx, { target: parseInt(e.target.value) || 0 })} required />
+                        <NumberInput placeholder="Target" className="input py-1 text-xs flex-1" value={stage.target} onChange={(v) => updateStage(sIdx, stIdx, { target: v })} required />
                         <button type="button" onClick={() => removeStage(sIdx, stIdx)} disabled={scen.stages.length === 1} className="p-1.5 text-surface-500 hover:text-red-400 disabled:opacity-30">
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>

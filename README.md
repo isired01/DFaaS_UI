@@ -1,6 +1,6 @@
-# dFaaS Control Plane — UI & API Gateway
+# DFaaS Control Plane — UI & API Gateway
 
-Web control plane for the **dFaaS** (distributed Function-as-a-Service) system. It drives the
+Web control plane for the **DFaaS** (distributed Function-as-a-Service) system. It drives the
 [dfaas-operator](https://github.com/isired01/DFaaSOperator)'s two CRDs (`dfaas.dfaas.io/v1`):
 create and monitor `Environment` federations, configure and launch k6 `LoadTest`s, and view the
 state of the edge/cloud federation.

@@ -6,8 +6,8 @@ const CAPACITIES = ['LOW', 'MEDIUM', 'HIGH'];
 
 // Role `value`s are kebab-case protocol enums consumed by the operator CRD.
 const ROLES = [
-  { value: '',                  label: '— select role —' },
-  { value: 'dfaas-worker',      label: 'dFaaS Worker' },
+  { value: '', label: '— select role —' },
+  { value: 'dfaas-worker', label: 'DFaaS Worker' },
   { value: 'k6-load-generator', label: 'k6 Load Generator' },
 ];
 

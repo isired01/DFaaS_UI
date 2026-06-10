@@ -119,7 +119,7 @@ export default function EnvironmentsList() {
   return (
     <ResourceTable
       title="Environments"
-      subtitle="dFaaS infrastructure federations across all namespaces"
+      subtitle="DFaaS infrastructure federations across all namespaces"
       titleIcon={FlaskConical}
       titleId="environments-title"
       onRefresh={() => { setLoading(true); load(); }}
