@@ -1,4 +1,5 @@
 import { Server, Cpu, Zap, Box, Clock, Layers, Key, Play } from 'lucide-react';
+import { STRATEGY_LABELS } from '../lib/constants';
 
 const CAPACITY_STYLES = {
   LOW:    { border: 'border-blue-500/40',  bg: 'bg-blue-500/10',  text: 'text-blue-400',  label: 'Low' },
@@ -118,12 +119,5 @@ function FunctionRow({ fn }) {
 }
 
 function formatStrategy(strategy) {
-  const map = {
-    staticstrategy: 'Static',
-    nodemarginstrategy: 'Node Margin',
-    recalcstrategy: 'Recalc',
-    alllocalstrategy: 'All Local',
-    rlagentstrategy: 'RL Agent',
-  };
-  return map[strategy] || strategy || '—';
+  return STRATEGY_LABELS[strategy] || strategy || '—';
 }

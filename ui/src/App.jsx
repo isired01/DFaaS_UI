@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import Layout from './components/Layout';
+import { RouteErrorBoundary as ErrorBoundary } from './components/ErrorBoundary';
 import EnvironmentsList from './pages/EnvironmentsList';
 import EnvironmentNew from './pages/EnvironmentNew';
 import EnvironmentDetail from './pages/EnvironmentDetail';
@@ -14,15 +15,15 @@ export default function App() {
     <BrowserRouter>
       <Routes>
         <Route path="/" element={<Layout />}>
-          <Route index element={<EnvironmentsList />} />
-          <Route path="environments/new" element={<EnvironmentNew />} />
-          <Route path="environments/:namespace/:name/edit" element={<EnvironmentNew mode="edit" />} />
-          <Route path="environments/:namespace/:name" element={<EnvironmentDetail />} />
-          <Route path="environments/:namespace/:name/loadtests/new" element={<LoadTestNew />} />
-          <Route path="loadtests" element={<LoadTestsList />} />
-          <Route path="loadtests/:namespace/:name" element={<LoadTestDetail />} />
-          <Route path="s3-configs" element={<S3ConfigsList />} />
-          <Route path="s3-configs/new" element={<S3ConfigNew />} />
+          <Route index element={<ErrorBoundary><EnvironmentsList /></ErrorBoundary>} />
+          <Route path="environments/new" element={<ErrorBoundary><EnvironmentNew /></ErrorBoundary>} />
+          <Route path="environments/:namespace/:name/edit" element={<ErrorBoundary><EnvironmentNew mode="edit" /></ErrorBoundary>} />
+          <Route path="environments/:namespace/:name" element={<ErrorBoundary><EnvironmentDetail /></ErrorBoundary>} />
+          <Route path="environments/:namespace/:name/loadtests/new" element={<ErrorBoundary><LoadTestNew /></ErrorBoundary>} />
+          <Route path="loadtests" element={<ErrorBoundary><LoadTestsList /></ErrorBoundary>} />
+          <Route path="loadtests/:namespace/:name" element={<ErrorBoundary><LoadTestDetail /></ErrorBoundary>} />
+          <Route path="s3-configs" element={<ErrorBoundary><S3ConfigsList /></ErrorBoundary>} />
+          <Route path="s3-configs/new" element={<ErrorBoundary><S3ConfigNew /></ErrorBoundary>} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
       </Routes>

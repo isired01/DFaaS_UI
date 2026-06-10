@@ -3,21 +3,10 @@ import { useParams, Link, useNavigate } from 'react-router-dom';
 import { ArrowLeft, TestTube2, Trash2, AlertTriangle, Info, ChevronDown, ChevronUp, Server, BarChart3, FileCode, Download, Play, FileEdit, Ban, Loader2 } from 'lucide-react';
 import { fetchLoadTest, deleteLoadTest, fetchLoadTestYAML, downloadTextAsFile, activateLoadTest, abortLoadTest, fetchEnvironment } from '../api/client';
 import PhaseBadge from '../components/PhaseBadge';
-
-const ACTIVE_PHASES = new Set(['Pending', 'Running', 'Exporting', '']);
-
-const TR_PHASE_STYLE = {
-  created:  'bg-surface-700/40 text-surface-300 border-surface-600/40',
-  started:  'bg-amber-500/15 text-amber-400 border-amber-500/30',
-  finished: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30',
-  stopped:  'bg-emerald-500/15 text-emerald-400 border-emerald-500/30',
-  error:    'bg-red-500/15 text-red-400 border-red-500/30',
-};
-
-function TestRunBadge({ phase }) {
-  const cls = TR_PHASE_STYLE[phase] || TR_PHASE_STYLE.created;
-  return <span className={`badge text-[10px] px-2 py-0.5 border ${cls}`}>{phase || '—'}</span>;
-}
+import TestRunBadge from '../components/TestRunBadge';
+import ScheduledStartCard from '../components/ScheduledStartCard';
+import ConditionsList from '../components/ConditionsList';
+import { ACTIVE_PHASES } from '../lib/constants';
 
 export default function LoadTestDetail() {
   const { namespace, name } = useParams();
@@ -231,26 +220,7 @@ export default function LoadTestDetail() {
           <p className="text-xs text-surface-500 uppercase tracking-wider">Exporter Job</p>
           <p className="text-sm font-mono text-white mt-1 truncate">{loadtest.exporterJob || '—'}</p>
         </div>
-        {loadtest.startAt && (() => {
-          const fireMs = new Date(loadtest.startAt).getTime();
-          const remaining = Math.max(0, fireMs - nowMs);
-          let countdown;
-          if (remaining === 0) {
-            countdown = 'fired';
-          } else {
-            const totalSec = Math.floor(remaining / 1000);
-            const m = Math.floor(totalSec / 60);
-            const s = totalSec % 60;
-            countdown = `${m}m ${s}s`;
-          }
-          return (
-            <div className="glass-card p-4">
-              <p className="text-xs text-surface-500 uppercase tracking-wider">Scheduled start</p>
-              <p className="text-sm text-white mt-1">{new Date(loadtest.startAt).toLocaleString('en-GB')}</p>
-              <p className="text-xs font-mono text-dfaas-400 mt-1">{countdown}</p>
-            </div>
-          );
-        })()}
+        {loadtest.startAt && <ScheduledStartCard startAt={loadtest.startAt} nowMs={nowMs} />}
       </div>
 
       {loadtest.phase === 'Pending' && (() => {
@@ -271,23 +241,7 @@ export default function LoadTestDetail() {
         );
       })()}
 
-      {loadtest.conditions && loadtest.conditions.length > 0 && (
-        <div className="glass-card p-5">
-          <h2 className="text-sm font-semibold text-surface-300 uppercase tracking-wider mb-3">Conditions</h2>
-          <div className="space-y-2">
-            {loadtest.conditions.map((c, i) => (
-              <div key={i} className="flex items-center justify-between p-3 rounded-xl bg-surface-900/50 border border-surface-700/30">
-                <div className="flex items-center gap-3">
-                  <div className={`w-2 h-2 rounded-full ${c.status === 'True' ? 'bg-emerald-400' : 'bg-amber-400'}`} />
-                  <span className="text-sm font-medium text-white">{c.type}</span>
-                  <span className="text-xs text-surface-500">{c.reason}</span>
-                </div>
-                <span className="text-xs text-surface-400">{c.message}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+      <ConditionsList conditions={loadtest.conditions} />
 
       <div className="glass-card p-5">
         <h2 className="text-lg font-semibold text-white flex items-center gap-2 mb-4">
@@ -371,10 +325,10 @@ export default function LoadTestDetail() {
                   <table className="w-full text-[11px]">
                     <thead>
                       <tr className="text-left text-[10px] text-surface-500 uppercase tracking-wider border-b border-surface-700/40">
-                        <th className="py-1.5 px-2">Tipo</th>
-                        <th className="py-1.5 px-2">Nome metrica</th>
-                        <th className="py-1.5 px-2">Query PromQL</th>
-                        <th className="py-1.5 px-2">Commento</th>
+                        <th className="py-1.5 px-2">Type</th>
+                        <th className="py-1.5 px-2">Metric name</th>
+                        <th className="py-1.5 px-2">PromQL query</th>
+                        <th className="py-1.5 px-2">Comment</th>
                       </tr>
                     </thead>
                     <tbody>

@@ -1,0 +1,64 @@
+// Shared literals and phase maps used across pages and components.
+// Values here are load-bearing protocol strings and Tailwind classnames —
+// keep them byte-for-byte identical to what they replaced.
+
+import {
+  Circle, Server, Activity, Download,
+  CheckCircle, Play, CheckCheck, XCircle, LineChart, Clock, Ban,
+} from 'lucide-react';
+
+// dfaas-worker balancing strategies, used by the EnvironmentNew form.
+// Strategy `value`s are protocol enums consumed by the operator CRD.
+export const BALANCING_STRATEGIES = [
+  { value: 'staticstrategy',     label: 'Static — fixed routing weights' },
+  { value: 'recalcstrategy',     label: 'Recalc — rate-based (requires maxRate per fn)' },
+  { value: 'alllocalstrategy',   label: 'All Local — keep traffic local' },
+  { value: 'nodemarginstrategy', label: 'Node Margin (experimental)' },
+  { value: 'rlagentstrategy',    label: 'RL Agent (experimental)' },
+];
+
+// Short labels for the same strategies, used by NodeCard.
+export const STRATEGY_LABELS = {
+  staticstrategy: 'Static',
+  nodemarginstrategy: 'Node Margin',
+  recalcstrategy: 'Recalc',
+  alllocalstrategy: 'All Local',
+  rlagentstrategy: 'RL Agent',
+};
+
+// LoadTest phases that warrant continued polling on the detail page.
+export const ACTIVE_PHASES = new Set(['Pending', 'Running', 'Exporting', '']);
+
+// Environment phases that count as "provisioning" for the list stats.
+export const PROVISIONING_PHASES = new Set(['ProvisioningVMs', 'ProvisioningInfra', 'ProvisioningMonitoring']);
+
+// Remote k6 TestRun phase → badge classnames (LoadTestDetail).
+export const TR_PHASE_STYLE = {
+  created:  'bg-surface-700/40 text-surface-300 border-surface-600/40',
+  started:  'bg-amber-500/15 text-amber-400 border-amber-500/30',
+  finished: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30',
+  stopped:  'bg-emerald-500/15 text-emerald-400 border-emerald-500/30',
+  error:    'bg-red-500/15 text-red-400 border-red-500/30',
+};
+
+// Environment phase → badge style / icon / label (PhaseBadge kind="env").
+export const ENV_PHASE = {
+  '':                       { badge: 'badge-idle',         icon: Circle,      label: 'Initializing' },
+  'Idle':                   { badge: 'badge-idle',         icon: Circle,      label: 'Idle' },
+  'ProvisioningVMs':        { badge: 'badge-idle',         icon: Server,      label: 'Preparing VMs (skipped — pre-existing)' },
+  'ProvisioningInfra':      { badge: 'badge-provisioning', icon: Activity,    label: 'Provisioning workers + k6 (parallel)', spin: true },
+  'ProvisioningMonitoring': { badge: 'badge-monitoring',   icon: Download,    label: 'Installing monitoring stack',          spin: true },
+  'Ready':                  { badge: 'badge-ready',        icon: CheckCircle, label: 'Ready' },
+  'Failed':                 { badge: 'badge-failed',       icon: XCircle,     label: 'Failed' },
+};
+
+// LoadTest phase → badge style / icon / label (PhaseBadge kind="loadtest").
+export const LT_PHASE = {
+  '':           { badge: 'badge-idle',       icon: Clock,      label: 'Pending' },
+  'Pending':    { badge: 'badge-idle',       icon: Clock,      label: 'Pending' },
+  'Running':    { badge: 'badge-running',    icon: Play,       label: 'Running',   spin: true },
+  'Exporting':  { badge: 'badge-monitoring', icon: LineChart,  label: 'Exporting', spin: true },
+  'Completed':  { badge: 'badge-completed',  icon: CheckCheck, label: 'Completed' },
+  'Failed':     { badge: 'badge-failed',     icon: XCircle,    label: 'Failed' },
+  'Aborted':    { badge: 'badge-aborted',    icon: Ban,        label: 'Aborted' },
+};
