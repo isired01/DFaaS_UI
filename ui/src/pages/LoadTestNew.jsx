@@ -1,26 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams, Link } from 'react-router-dom';
-import { ArrowLeft, Play, Info, Plus, Trash2, Upload, Wand2, FileCode, Server, BarChart3 } from 'lucide-react';
+import { ArrowLeft, Play, Info } from 'lucide-react';
 import { createLoadTest, fetchEnvironment } from '../api/client';
-import K6ScenariosEditor, { newScenario } from '../components/K6ScenariosEditor';
+import { newScenario } from '../components/K6ScenariosEditor';
 import { generateK6Script } from '../lib/k6Generator';
-
-const SOURCE_GENERATE = 'generate';
-const SOURCE_RAW = 'raw';
-
-const METRIC_TYPES = [
-  { value: 'raw',           label: 'Metrica Grezza' },
-  { value: 'custom-promql', label: 'Query PromQL Custom' },
-];
-
-function emptyMetric() {
-  return { type: 'custom-promql', metricName: '', query: '', comment: '' };
-}
-
-const DEFAULT_METRICS = [
-  { type: 'custom-promql', metricName: 'cpu_dfaas_pods',    query: 'sum(rate(container_cpu_usage_seconds_total{pod=~"dfaas-node-.*"}[1m])) by (pod)', comment: 'CPU rate per dFaaS pod' },
-  { type: 'custom-promql', metricName: 'memory_dfaas_pods', query: 'sum(container_memory_working_set_bytes{pod=~"dfaas-node-.*"}) by (pod)',          comment: 'Working set memory per dFaaS pod' },
-];
+import MetricsEditor, { DEFAULT_METRICS, emptyMetric } from '../components/MetricsEditor';
+import NodeLoadConfig, { SOURCE_GENERATE, SOURCE_RAW } from '../components/NodeLoadConfig';
 
 function defaultPerNode() {
   return {
@@ -128,7 +113,7 @@ export default function LoadTestNew() {
         }
         if (!m.query) throw new Error(`metrics[${i}]: query is required`);
         if (m.type === 'custom-promql' && !m.metricName) {
-          throw new Error(`metrics[${i}]: metric name is required for 'Query PromQL Custom'`);
+          throw new Error(`metrics[${i}]: metric name is required for 'Custom PromQL query'`);
         }
       });
       const nameCounts = cleanMetrics.reduce((acc, m) => {
@@ -246,181 +231,26 @@ export default function LoadTestNew() {
         <div className="glass-card p-6 text-center text-surface-400">
           No k6 generators on this environment. Add a node with role <code>k6-load-generator</code> to launch load tests.
         </div>
-      ) : k6Statuses.map((node, idx) => {
-        const draft = perNode[node.nodeID] || defaultPerNode();
-        return (
-          <div key={node.nodeID} className="glass-card p-5 space-y-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <Server className="w-5 h-5 text-amber-400" />
-                <div>
-                  <h2 className="text-sm font-semibold text-white">{node.nodeID}</h2>
-                  <p className="text-xs text-surface-500 font-mono">{node.ipAddress}</p>
-                </div>
-              </div>
-              <label className="flex items-center gap-2 text-sm text-surface-300">
-                <input
-                  type="checkbox"
-                  checked={draft.enabled}
-                  onChange={(e) => updateNode(node.nodeID, { enabled: e.target.checked })}
-                />
-                Enable
-              </label>
-            </div>
+      ) : k6Statuses.map((node) => (
+        <NodeLoadConfig
+          key={node.nodeID}
+          node={node}
+          draft={perNode[node.nodeID] || defaultPerNode()}
+          onUpdate={updateNode}
+          onFile={handleFile}
+          availableUrls={availableUrls}
+        />
+      ))}
 
-            {draft.enabled && (
-              <>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs font-medium text-surface-400 mb-1">VUs</label>
-                    <input type="number" min="1" className="input py-2 text-sm" value={draft.vus} onChange={(e) => updateNode(node.nodeID, { vus: parseInt(e.target.value) || 0 })} required />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-surface-400 mb-1">Duration (e.g. 30s, 5m)</label>
-                    <input type="text" className="input py-2 text-sm" value={draft.duration} onChange={(e) => updateNode(node.nodeID, { duration: e.target.value })} required />
-                  </div>
-                </div>
-
-                <div className="flex gap-1 p-1 bg-surface-900/50 rounded-xl w-fit">
-                  <button type="button" onClick={() => updateNode(node.nodeID, { source: SOURCE_GENERATE })} className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${draft.source === SOURCE_GENERATE ? 'bg-dfaas-600/30 text-dfaas-400 border border-dfaas-500/30' : 'text-surface-400 hover:text-white'}`}>
-                    <Wand2 className="w-3.5 h-3.5" />Generate from scenarios
-                  </button>
-                  <button type="button" onClick={() => updateNode(node.nodeID, { source: SOURCE_RAW })} className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${draft.source === SOURCE_RAW ? 'bg-dfaas-600/30 text-dfaas-400 border border-dfaas-500/30' : 'text-surface-400 hover:text-white'}`}>
-                    <FileCode className="w-3.5 h-3.5" />Paste raw JS
-                  </button>
-                </div>
-
-                {draft.source === SOURCE_GENERATE ? (
-                  <K6ScenariosEditor
-                    scenarios={draft.scenarios}
-                    onChange={(scenarios) => updateNode(node.nodeID, { scenarios })}
-                    availableUrls={availableUrls}
-                  />
-                ) : (
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-2">
-                      <label htmlFor={`raw-file-${node.nodeID}`} className="btn-secondary text-xs px-3 py-1.5 cursor-pointer">
-                        <Upload className="w-3.5 h-3.5" />Upload .js
-                      </label>
-                      <input id={`raw-file-${node.nodeID}`} type="file" accept=".js" className="hidden" onChange={(e) => e.target.files[0] && handleFile(node.nodeID, e.target.files[0])} />
-                      <span className="text-[10px] text-surface-500">or paste below</span>
-                    </div>
-                    <textarea
-                      className="input py-2 text-xs font-mono h-48"
-                      value={draft.rawScript}
-                      onChange={(e) => updateNode(node.nodeID, { rawScript: e.target.value })}
-                      placeholder="import http from 'k6/http';&#10;export default function() { http.get('...'); }"
-                    />
-                  </div>
-                )}
-              </>
-            )}
-          </div>
-        );
-      })}
-
-      <div className="glass-card p-5 space-y-4">
-        <div className="flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-surface-300 uppercase tracking-wider flex items-center gap-2">
-            <BarChart3 className="w-4 h-4" />Metrics Export
-          </h2>
-        </div>
-
-        <div className="overflow-x-auto">
-          <table className="w-full text-xs">
-            <thead>
-              <tr className="text-left text-[10px] text-surface-500 uppercase tracking-wider">
-                <th className="py-1.5 px-2 w-[18%]">Tipo</th>
-                <th className="py-1.5 px-2 w-[22%]">Nome metrica</th>
-                <th className="py-1.5 px-2 w-[40%]">Query PromQL</th>
-                <th className="py-1.5 px-2 w-[18%]">Commento</th>
-                <th className="py-1.5 px-2 w-[2%]"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {metrics.map((m, i) => {
-                const isCustom = m.type === 'custom-promql';
-                return (
-                  <tr key={i} className="align-top">
-                    <td className="py-1 px-2">
-                      <select
-                        className="input py-1.5 text-xs"
-                        value={m.type}
-                        onChange={(e) => updateMetric(i, { type: e.target.value })}
-                      >
-                        {METRIC_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
-                      </select>
-                    </td>
-                    <td className="py-1 px-2">
-                      <input
-                        type="text"
-                        className="input py-1.5 text-xs"
-                        value={m.metricName}
-                        onChange={(e) => updateMetric(i, { metricName: e.target.value })}
-                        placeholder={isCustom ? 'required' : '(defaults to query value)'}
-                        required={isCustom}
-                      />
-                    </td>
-                    <td className="py-1 px-2">
-                      <input
-                        type="text"
-                        className="input py-1.5 text-xs font-mono"
-                        value={m.query}
-                        onChange={(e) => updateMetric(i, { query: e.target.value })}
-                        placeholder={isCustom ? 'sum(rate(...))' : 'haproxy_backend_http_requests_total'}
-                        required
-                      />
-                    </td>
-                    <td className="py-1 px-2">
-                      <input
-                        type="text"
-                        className="input py-1.5 text-xs"
-                        value={m.comment}
-                        onChange={(e) => updateMetric(i, { comment: e.target.value })}
-                        placeholder="optional"
-                      />
-                    </td>
-                    <td className="py-1 px-2">
-                      <button
-                        type="button"
-                        onClick={() => removeMetric(i)}
-                        disabled={metrics.length === 1}
-                        className="p-1.5 text-surface-500 hover:text-red-400 disabled:opacity-30"
-                        title={metrics.length === 1 ? 'At least one metric required' : 'Remove row'}
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-          <div className="flex justify-end mt-2">
-            <button type="button" onClick={addMetric} className="btn-secondary text-xs px-3 py-1.5">
-              <Plus className="w-3.5 h-3.5" />Aggiungi Riga
-            </button>
-          </div>
-        </div>
-
-        <div>
-          <label className="block text-xs font-medium text-surface-400 mb-1">Step</label>
-          <input type="text" className="input py-2 text-sm w-32" value={step} onChange={(e) => setStep(e.target.value)} placeholder="15s" />
-        </div>
-
-        <div className="border-t border-surface-700/50 pt-4">
-          <p className="text-xs font-medium text-surface-400 uppercase tracking-wider mb-1">Export destination</p>
-          {environment?.s3ConfigRef ? (
-            <p className="text-xs text-surface-400">
-              Metrics export → S3 config <code className="text-dfaas-400">{environment.s3ConfigRef.name}</code> (inherited from environment).
-            </p>
-          ) : (
-            <p className="text-xs text-surface-500">
-              No S3 config on environment → metrics will be dumped to exporter pod stdout.
-            </p>
-          )}
-        </div>
-      </div>
+      <MetricsEditor
+        metrics={metrics}
+        onAdd={addMetric}
+        onRemove={removeMetric}
+        onUpdate={updateMetric}
+        step={step}
+        onStepChange={setStep}
+        environment={environment}
+      />
 
       {error && <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-sm">{error}</div>}
 

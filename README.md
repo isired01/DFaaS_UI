@@ -1,84 +1,104 @@
 # dFaaS Control Plane — UI & API Gateway
 
-Questo progetto è l'interfaccia di controllo per il sistema **dFaaS** (distributed Function-as-a-Service). Permette di monitorare gli esperimenti, configurare i test di carico con k6 e visualizzare lo stato della federazione edge/cloud.
+Web control plane for the **dFaaS** (distributed Function-as-a-Service) system. It drives the
+[dfaas-operator](https://github.com/isired01/DFaaSOperator)'s two CRDs (`dfaas.dfaas.io/v1`):
+create and monitor `Environment` federations, configure and launch k6 `LoadTest`s, and view the
+state of the edge/cloud federation.
+
+## Architecture
+
+Two parts shipped as **one Go binary** in production:
+
+1. **Frontend (React 19 + Vite + Tailwind)** — a reactive SPA. In production it is compiled to
+   static assets and served by the backend; unknown paths fall through to `index.html` for
+   client-side routing.
+2. **Backend (Go + Gin)** — a stateless API gateway that talks to the Kubernetes cluster through
+   the **dynamic client** (unstructured). No informers, no schema dependency on the operator's
+   typed Go types, no persistence — every read is a live cluster call.
+
+What the UI manages: Environments (create/edit/delete, live phase + per-node status), LoadTests
+(structured create, **save-as-draft** via `spec.suspended`, **scheduled start** via `spec.startAt`,
+**abort** via `spec.stop`, delete), S3 export configurations, and raw-YAML import/export of both
+CRs.
 
 ## Install via Helm
 
-UI è impacchettata nello stesso chart unico dell'operator. Procedura:
+The UI is packaged in the **same unified chart** as the operator:
 
-
-# 1. Chart (operator + UI)
+```bash
+# 1. Install the chart (operator + UI)
 helm install dfaas oci://ghcr.io/isired01/charts/dfaas \
   --version 1.0.0 \
   --create-namespace \
   --namespace dfaas-operator-system
 
-# 2. Apri la UI
+# 2. Open the UI
 kubectl -n dfaas-ui port-forward svc/dfaas-ui 8082:8082
 open http://localhost:8082
 ```
 
-Esempi di Custom Resource (Environment + LoadTest) + configurazione IP delle VM: vedi [DFaaSOperator README](https://github.com/isired01/DFaaSOperator#install-via-helm).
+Custom Resource examples (`Environment` + `LoadTest`) and VM IP configuration: see the
+[DFaaSOperator README](https://github.com/isired01/DFaaSOperator#install-via-helm).
 
-## 🚀 Architettura
-Il sistema è composto da due parti principali:
-1. **Frontend (React + Vite)**: Un'interfaccia moderna e reattiva costruita con Tailwind CSS.
-2. **Backend (Go + Gin)**: Un'API Gateway stateless che comunica direttamente con il cluster Kubernetes tramite il `dynamic client`.
+## Prerequisites (development)
 
----
+- **Go** ≥ 1.26
+- **Node.js** ≥ 20 and **npm**
+- **kubectl** configured for access to a Kubernetes cluster
 
-## 🛠️ Prerequisiti
-Assicurati di avere installato:
-*   **Go** (1.21 o superiore)
-*   **Node.js** (v18 o superiore) e **npm**
-*   **kubectl** configurato per l'accesso a un cluster Kubernetes
+## Development setup
 
----
+For development, run the frontend and backend separately to get Hot Module Replacement (HMR).
 
-## 📦 Installazione e Avvio (Sviluppo)
+### 1. Frontend
 
-Per lo sviluppo, è consigliato lanciare il frontend e il backend separatamente per sfruttare l'Hot Module Replacement (HMR).
-
-### 1. Avvio del Frontend
 ```bash
 cd ui
 npm install
-npm run dev
+npm run dev        # http://localhost:5173 — Vite proxies /api → :8082
 ```
-La UI sarà disponibile su `http://localhost:5173`.
 
-### 2. Avvio del Backend
-In un altro terminale, dalla root del progetto:
+### 2. Backend
+
+In another terminal, from the repo root:
+
 ```bash
-go run ./cmd/server/main.go
+go run ./cmd/server        # http://localhost:8082
 ```
-Il server partirà su `http://localhost:8082`.
 
----
+The backend serves the API and (in production) the compiled SPA. In dev, the Vite server proxies
+`/api/*` to the backend, so use the `:5173` URL.
 
-## ☸️ Connessione al Cluster Kubernetes
+## Cluster connection
 
-Il backend deve potersi connettere al cluster per leggere gli `Esperimenti` e lanciare i `Test di carico`.
+The backend resolves Kubernetes credentials in this order (see
+[`internal/api/k8s_client.go`](internal/api/k8s_client.go)):
 
-### Modalità Locale (Sviluppo)
-Se lanci il backend dal tuo PC, cercherà la configurazione di Kubernetes in quest'ordine:
-1.  Variabile d'ambiente `KUBECONFIG` (punta al path del tuo file `.yaml` di config).
-2.  Percorso di default `~/.kube/config`.
+1. **In-cluster** ServiceAccount (when running as a Pod).
+2. `KUBECONFIG` environment variable.
+3. `~/.kube/config`.
 
-**Esempio se hai un file config specifico:**
+If the cluster connection fails, the server still starts but every `/api/*` request returns `503`.
+
 ```bash
-export KUBECONFIG=/path/to/your/cluster-config.yaml
-go run ./cmd/server/main.go
+# Local run against a specific kubeconfig:
+export KUBECONFIG=/path/to/cluster-config.yaml
+go run ./cmd/server
 ```
 
-### Modalità In-Cluster (Produzione)
-Se il backend gira come un Pod dentro Kubernetes, userà automaticamente il **ServiceAccount** associato al Pod per autenticarsi.
+## Configuration
 
----
+The server reads environment variables directly (no `.env` file is loaded):
 
-## ⚙️ Configurazione (.env)
-Puoi creare un file `.env` nella root per personalizzare il comportamento:
-*   `PORT`: La porta su cui gira il server (default: 8082).
-*   `GIN_MODE`: Imposta a `release` in produzione.
+- `PORT` — port the server listens on (default `8082`).
+- `GIN_MODE` — set to `release` in production.
+- `KUBECONFIG` — kubeconfig path for local (out-of-cluster) runs.
 
----
+## Verification
+
+```bash
+go build ./...                 # gateway compiles
+cd ui && npm install && npm run build   # SPA builds
+```
+
+There is no automated test suite; `go build` + `npm run build` are the verification gates.

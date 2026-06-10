@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Network, Zap, TestTube2, AlertTriangle, Info, Plus, Trash2, Server, Cpu, CheckCircle2, Loader2, XCircle, Download, Pencil, RefreshCw, Database } from 'lucide-react';
+import { ArrowLeft, Network, Zap, TestTube2, AlertTriangle, Info, Plus, Trash2, Server, Cpu, Download, Pencil, RefreshCw, Database } from 'lucide-react';
 import { fetchEnvironment, fetchLoadTests, deleteEnvironment, fetchEnvironmentYAML, downloadTextAsFile } from '../api/client';
 import PhaseBadge from '../components/PhaseBadge';
 import NodeCard from '../components/NodeCard';
+import ConditionsList from '../components/ConditionsList';
+import ProvisioningConditionRow from '../components/ProvisioningConditionRow';
 
 export default function EnvironmentDetail() {
   const { namespace, name } = useParams();
@@ -136,8 +138,8 @@ export default function EnvironmentDetail() {
         <div className="glass-card p-5" id="provisioning-infra-progress">
           <h2 className="text-sm font-semibold text-surface-300 uppercase tracking-wider mb-3">Infrastructure Provisioning (parallel)</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <ConditionRow conditions={environment.conditions} type="DfaasWorkersReady" label="dFaaS Workers (Ansible)" />
-            <ConditionRow conditions={environment.conditions} type="K6Ready" label="k6 Generators (Ansible)" />
+            <ProvisioningConditionRow conditions={environment.conditions} type="DfaasWorkersReady" label="dFaaS Workers (Ansible)" />
+            <ProvisioningConditionRow conditions={environment.conditions} type="K6Ready" label="k6 Generators (Ansible)" />
           </div>
         </div>
       )}
@@ -146,28 +148,12 @@ export default function EnvironmentDetail() {
         <div className="glass-card p-5" id="provisioning-monitoring-progress">
           <h2 className="text-sm font-semibold text-surface-300 uppercase tracking-wider mb-3">Monitoring Stack</h2>
           <div className="grid grid-cols-1 gap-3">
-            <ConditionRow conditions={environment.conditions} type="MonitoringReady" label="Prometheus + Grafana (Helm)" />
+            <ProvisioningConditionRow conditions={environment.conditions} type="MonitoringReady" label="Prometheus + Grafana (Helm)" />
           </div>
         </div>
       )}
 
-      {environment.conditions && environment.conditions.length > 0 && (
-        <div className="glass-card p-5">
-          <h2 className="text-sm font-semibold text-surface-300 uppercase tracking-wider mb-3">Conditions</h2>
-          <div className="space-y-2">
-            {environment.conditions.map((c, i) => (
-              <div key={i} className="flex items-center justify-between p-3 rounded-xl bg-surface-900/50 border border-surface-700/30">
-                <div className="flex items-center gap-3">
-                  <div className={`w-2 h-2 rounded-full ${c.status === 'True' ? 'bg-emerald-400' : 'bg-amber-400'}`} />
-                  <span className="text-sm font-medium text-white">{c.type}</span>
-                  <span className="text-xs text-surface-500">{c.reason}</span>
-                </div>
-                <span className="text-xs text-surface-400">{c.message}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+      <ConditionsList conditions={environment.conditions} />
 
       <div>
         <h2 className="text-lg font-semibold text-white flex items-center gap-2 mb-4" id="dfaas-nodes-section">
@@ -306,39 +292,6 @@ export default function EnvironmentDetail() {
             </tbody>
           </table>
         )}
-      </div>
-    </div>
-  );
-}
-
-function ConditionRow({ conditions, type, label }) {
-  const c = (conditions || []).find(x => x.type === type);
-  const status = c?.status || 'Unknown';
-  const reason = c?.reason || '';
-  const message = c?.message || '';
-
-  let Icon = Loader2;
-  let iconClass = 'text-amber-400 animate-spin';
-  let bgClass = 'bg-amber-500/10 border-amber-500/30';
-  if (status === 'True') {
-    Icon = CheckCircle2;
-    iconClass = 'text-emerald-400';
-    bgClass = 'bg-emerald-500/10 border-emerald-500/30';
-  } else if (reason === 'AnsibleFailed' || reason === 'HelmFailed') {
-    Icon = XCircle;
-    iconClass = 'text-red-400';
-    bgClass = 'bg-red-500/10 border-red-500/30';
-  }
-
-  return (
-    <div className={`p-3 rounded-xl border flex items-start gap-3 ${bgClass}`} id={`condition-${type}`}>
-      <Icon className={`w-5 h-5 flex-shrink-0 mt-0.5 ${iconClass}`} />
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-semibold text-white">{label}</span>
-          {reason && <span className="text-[10px] text-surface-400 uppercase tracking-wider">{reason}</span>}
-        </div>
-        {message && <p className="text-xs text-surface-300 mt-1 truncate">{message}</p>}
       </div>
     </div>
   );

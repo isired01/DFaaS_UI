@@ -2,6 +2,7 @@ import { useState, useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Save, Database, Info } from 'lucide-react';
 import { createS3Config } from '../api/client';
+import FormField from '../components/FormField';
 
 // DNS-1123: lowercase alphanumeric and '-', start/end alphanumeric, max 63.
 const DNS1123_RE = /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/;
@@ -72,8 +73,10 @@ export default function S3ConfigNew() {
 
       <div className="glass-card p-5 space-y-4">
         <h2 className="text-sm font-semibold text-surface-300 uppercase tracking-wider">Identity</h2>
-        <div>
-          <label className="block text-xs font-medium text-surface-400 mb-1">Name</label>
+        <FormField
+          label="Name"
+          hint={<>DNS-1123: lowercase letters, digits and <code>-</code>. Max 63 characters. Immutable once created (delete + recreate to rename).</>}
+        >
           <input
             type="text"
             className="input"
@@ -83,16 +86,12 @@ export default function S3ConfigNew() {
             required
             maxLength={63}
           />
-          <p className="text-[10px] text-surface-500 mt-1">
-            DNS-1123: lowercase letters, digits and <code>-</code>. Max 63 characters. Immutable once created (delete + recreate to rename).
-          </p>
-        </div>
+        </FormField>
       </div>
 
       <div className="glass-card p-5 space-y-4">
         <h2 className="text-sm font-semibold text-surface-300 uppercase tracking-wider">Endpoint</h2>
-        <div>
-          <label className="block text-xs font-medium text-surface-400 mb-1">S3 endpoint (optional)</label>
+        <FormField label="S3 endpoint (optional)" hint="Leave empty to use the AWS default for the chosen region.">
           <input
             type="text"
             className="input"
@@ -100,12 +99,8 @@ export default function S3ConfigNew() {
             onChange={(e) => setEndpoint(e.target.value)}
             placeholder="https://s3.amazonaws.com or http://minio.minio.svc:9000"
           />
-          <p className="text-[10px] text-surface-500 mt-1">
-            Leave empty to use the AWS default for the chosen region.
-          </p>
-        </div>
-        <div>
-          <label className="block text-xs font-medium text-surface-400 mb-1">Region</label>
+        </FormField>
+        <FormField label="Region">
           <input
             type="text"
             className="input"
@@ -114,7 +109,7 @@ export default function S3ConfigNew() {
             placeholder="eu-west-1"
             required
           />
-        </div>
+        </FormField>
         <div>
           <label className="flex items-center gap-2 text-sm text-surface-300">
             <input
@@ -143,8 +138,7 @@ export default function S3ConfigNew() {
         <p className="text-xs text-surface-500">
           Stored verbatim in the Secret. The gateway never echoes these values back on read.
         </p>
-        <div>
-          <label className="block text-xs font-medium text-surface-400 mb-1">Access Key ID</label>
+        <FormField label="Access Key ID">
           <input
             type="password"
             className="input"
@@ -153,9 +147,8 @@ export default function S3ConfigNew() {
             autoComplete="off"
             required
           />
-        </div>
-        <div>
-          <label className="block text-xs font-medium text-surface-400 mb-1">Secret Access Key</label>
+        </FormField>
+        <FormField label="Secret Access Key">
           <input
             type="password"
             className="input"
@@ -164,7 +157,7 @@ export default function S3ConfigNew() {
             autoComplete="off"
             required
           />
-        </div>
+        </FormField>
       </div>
 
       {error && <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-sm">{error}</div>}

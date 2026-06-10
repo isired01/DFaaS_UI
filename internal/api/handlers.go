@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"regexp"
 	"sort"
@@ -285,6 +284,12 @@ func (h *Handler) GetLoadTest(c *gin.Context) {
 	c.JSON(http.StatusOK, detail)
 }
 
+// CreateLoadTest is the only write path that materializes child resources.
+// It validates the request, ensures the target Environment is Ready (unless the
+// test is a draft/scheduled), materializes one script ConfigMap per inline
+// script, creates the LoadTest, then best-effort patches ownerReferences so the
+// cluster GC reaps the ConfigMaps when the LoadTest is deleted. Any failure
+// after ConfigMaps are created rolls them back.
 func (h *Handler) CreateLoadTest(c *gin.Context) {
 	var req CreateLoadTestRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -297,15 +302,9 @@ func (h *Handler) CreateLoadTest(c *gin.Context) {
 		return
 	}
 
-	for i, pn := range req.PerNodeLoad {
-		if pn.Script == "" && pn.ScriptConfigMap == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("perNodeLoad[%d]: script or scriptConfigMap required", i)})
-			return
-		}
-		if pn.Script != "" && pn.ScriptConfigMap != "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("perNodeLoad[%d]: only one of script or scriptConfigMap allowed", i)})
-			return
-		}
+	if status, msg, ok := validatePerNodeLoad(req.PerNodeLoad); !ok {
+		c.JSON(status, gin.H{"error": msg})
+		return
 	}
 
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
@@ -323,28 +322,7 @@ func (h *Handler) CreateLoadTest(c *gin.Context) {
 		return
 	}
 
-	k6IDs := map[string]struct{}{}
-	k6Status, _, _ := unstructured.NestedSlice(envObj.Object, "status", "k6Nodes")
-	for _, kn := range k6Status {
-		if m, ok := kn.(map[string]interface{}); ok {
-			if id := getStringFromMap(m, "nodeID"); id != "" {
-				k6IDs[id] = struct{}{}
-			}
-		}
-	}
-	if len(k6IDs) == 0 {
-		nodes, _, _ := unstructured.NestedSlice(envObj.Object, "spec", "nodes")
-		for _, n := range nodes {
-			if m, ok := n.(map[string]interface{}); ok {
-				if getStringFromMap(m, "role") == "k6-load-generator" {
-					if id := getStringFromMap(m, "nodeID"); id != "" {
-						k6IDs[id] = struct{}{}
-					}
-				}
-			}
-		}
-	}
-
+	k6IDs := buildK6NodeIndex(envObj)
 	for i, pn := range req.PerNodeLoad {
 		if _, ok := k6IDs[pn.NodeID]; !ok {
 			valid := make([]string, 0, len(k6IDs))
@@ -361,6 +339,8 @@ func (h *Handler) CreateLoadTest(c *gin.Context) {
 		ltName = sanitizeDNS1123(fmt.Sprintf("lt-%s-%s", req.TargetEnvironment, time.Now().Format("20060102-150405")))
 	}
 
+	// cleanup best-effort deletes the script ConfigMaps already created, used to
+	// roll back when a later step in the sequence fails.
 	createdCMs := make([]string, 0, len(req.PerNodeLoad))
 	cleanup := func() {
 		for _, cmName := range createdCMs {
@@ -368,6 +348,85 @@ func (h *Handler) CreateLoadTest(c *gin.Context) {
 		}
 	}
 
+	createdCMs, err = h.createScriptConfigMaps(ctx, ltName, &req)
+	if err != nil {
+		cleanup()
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	lt, status, msg, ok := buildLoadTestUnstructured(ltName, &req)
+	if !ok {
+		cleanup()
+		c.JSON(status, gin.H{"error": msg})
+		return
+	}
+
+	created, err := h.client.Resource(LoadTestGVR).Namespace(req.Namespace).Create(ctx, lt, metav1.CreateOptions{})
+	if err != nil {
+		cleanup()
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("create loadtest: %v", err)})
+		return
+	}
+
+	h.patchConfigMapOwnerRefs(ctx, req.Namespace, createdCMs, created)
+
+	detail := mapLoadTestDetail(*created)
+	h.inlineScripts(ctx, req.Namespace, &detail)
+
+	c.JSON(http.StatusCreated, detail)
+}
+
+// validatePerNodeLoad enforces that each entry carries exactly one of an inline
+// script or a ConfigMap reference. On failure it returns the HTTP status and
+// message the handler should send; ok is false in that case.
+func validatePerNodeLoad(perNodeLoad []CreatePerNodeLoad) (status int, msg string, ok bool) {
+	for i, pn := range perNodeLoad {
+		if pn.Script == "" && pn.ScriptConfigMap == "" {
+			return http.StatusBadRequest, fmt.Sprintf("perNodeLoad[%d]: script or scriptConfigMap required", i), false
+		}
+		if pn.Script != "" && pn.ScriptConfigMap != "" {
+			return http.StatusBadRequest, fmt.Sprintf("perNodeLoad[%d]: only one of script or scriptConfigMap allowed", i), false
+		}
+	}
+	return 0, "", true
+}
+
+// buildK6NodeIndex returns the set of valid k6 nodeIDs for the environment,
+// taken from status.k6Nodes[] and falling back to spec.nodes[] entries with
+// role == "k6-load-generator" when status is still empty.
+func buildK6NodeIndex(env *unstructured.Unstructured) map[string]struct{} {
+	k6IDs := map[string]struct{}{}
+	k6Status, _, _ := unstructured.NestedSlice(env.Object, "status", "k6Nodes")
+	for _, raw := range k6Status {
+		if k6Node, ok := raw.(map[string]interface{}); ok {
+			if id := getStringFromMap(k6Node, "nodeID"); id != "" {
+				k6IDs[id] = struct{}{}
+			}
+		}
+	}
+	if len(k6IDs) == 0 {
+		nodes, _, _ := unstructured.NestedSlice(env.Object, "spec", "nodes")
+		for _, raw := range nodes {
+			if node, ok := raw.(map[string]interface{}); ok {
+				if getStringFromMap(node, "role") == "k6-load-generator" {
+					if id := getStringFromMap(node, "nodeID"); id != "" {
+						k6IDs[id] = struct{}{}
+					}
+				}
+			}
+		}
+	}
+	return k6IDs
+}
+
+// createScriptConfigMaps materializes one ConfigMap per perNodeLoad entry that
+// carries an inline script, naming each "<ltName>-<nodeID>-script" with the body
+// under data["script.js"]. It mutates each entry's ScriptConfigMap to point at
+// the created ConfigMap and returns the names created so the caller can roll
+// them back on a later failure.
+func (h *Handler) createScriptConfigMaps(ctx context.Context, ltName string, req *CreateLoadTestRequest) ([]string, error) {
+	createdCMs := make([]string, 0, len(req.PerNodeLoad))
 	for i := range req.PerNodeLoad {
 		pn := &req.PerNodeLoad[i]
 		if pn.Script == "" {
@@ -393,14 +452,19 @@ func (h *Handler) CreateLoadTest(c *gin.Context) {
 			},
 		}
 		if _, err := h.client.Resource(ConfigMapGVR).Namespace(req.Namespace).Create(ctx, cm, metav1.CreateOptions{}); err != nil {
-			cleanup()
-			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("create script configmap '%s': %v", cmName, err)})
-			return
+			return createdCMs, fmt.Errorf("create script configmap '%s': %v", cmName, err)
 		}
 		createdCMs = append(createdCMs, cmName)
 		pn.ScriptConfigMap = cmName
 	}
+	return createdCMs, nil
+}
 
+// buildLoadTestUnstructured assembles the LoadTest object from the request,
+// defaulting metricsExport.step to "15s" and validating that custom-promql
+// metrics carry a metricName. On a metric validation failure it returns the
+// HTTP status and message the handler should send; ok is false in that case.
+func buildLoadTestUnstructured(ltName string, req *CreateLoadTestRequest) (lt *unstructured.Unstructured, status int, msg string, ok bool) {
 	step := req.MetricsExport.Step
 	if step == "" {
 		step = "15s"
@@ -421,9 +485,7 @@ func (h *Handler) CreateLoadTest(c *gin.Context) {
 	metrics := make([]interface{}, 0, len(req.MetricsExport.Metrics))
 	for i, m := range req.MetricsExport.Metrics {
 		if m.Type == "custom-promql" && m.MetricName == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("metricsExport.metrics[%d]: metricName required when type='custom-promql'", i)})
-			cleanup()
-			return
+			return nil, http.StatusBadRequest, fmt.Sprintf("metricsExport.metrics[%d]: metricName required when type='custom-promql'", i), false
 		}
 		entry := map[string]interface{}{
 			"type":  m.Type,
@@ -443,7 +505,19 @@ func (h *Handler) CreateLoadTest(c *gin.Context) {
 		"step":    step,
 	}
 
-	lt := &unstructured.Unstructured{
+	spec := map[string]interface{}{
+		"targetEnvironment": req.TargetEnvironment,
+		"perNodeLoad":       perNodeSpec,
+		"metricsExport":     metricsExport,
+	}
+	if req.Suspended {
+		spec["suspended"] = true
+	}
+	if req.StartAt != nil {
+		spec["startAt"] = req.StartAt.UTC().Format(time.RFC3339)
+	}
+
+	lt = &unstructured.Unstructured{
 		Object: map[string]interface{}{
 			"apiVersion": "dfaas.dfaas.io/v1",
 			"kind":       "LoadTest",
@@ -451,52 +525,35 @@ func (h *Handler) CreateLoadTest(c *gin.Context) {
 				"name":      ltName,
 				"namespace": req.Namespace,
 			},
-			"spec": map[string]interface{}{
-				"targetEnvironment": req.TargetEnvironment,
-				"perNodeLoad":       perNodeSpec,
-				"metricsExport":     metricsExport,
-			},
+			"spec": spec,
 		},
 	}
-	if req.Suspended {
-		spec := lt.Object["spec"].(map[string]interface{})
-		spec["suspended"] = true
-	}
-	if req.StartAt != nil {
-		spec := lt.Object["spec"].(map[string]interface{})
-		spec["startAt"] = req.StartAt.UTC().Format(time.RFC3339)
-	}
+	return lt, 0, "", true
+}
 
-	created, err := h.client.Resource(LoadTestGVR).Namespace(req.Namespace).Create(ctx, lt, metav1.CreateOptions{})
-	if err != nil {
-		cleanup()
-		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("create loadtest: %v", err)})
+// patchConfigMapOwnerRefs best-effort patches each script ConfigMap's
+// ownerReferences to point at the freshly created LoadTest so the cluster GC
+// reaps them when the LoadTest is deleted. Errors are ignored by design.
+func (h *Handler) patchConfigMapOwnerRefs(ctx context.Context, namespace string, cmNames []string, owner *unstructured.Unstructured) {
+	if len(cmNames) == 0 {
 		return
 	}
-
-	if len(createdCMs) > 0 {
-		ownerRef := map[string]interface{}{
-			"apiVersion":         "dfaas.dfaas.io/v1",
-			"kind":               "LoadTest",
-			"name":               created.GetName(),
-			"uid":                string(created.GetUID()),
-			"controller":         true,
-			"blockOwnerDeletion": true,
-		}
-		patch, _ := json.Marshal(map[string]interface{}{
-			"metadata": map[string]interface{}{
-				"ownerReferences": []interface{}{ownerRef},
-			},
-		})
-		for _, cmName := range createdCMs {
-			_, _ = h.client.Resource(ConfigMapGVR).Namespace(req.Namespace).Patch(ctx, cmName, types.MergePatchType, patch, metav1.PatchOptions{})
-		}
+	ownerRef := map[string]interface{}{
+		"apiVersion":         "dfaas.dfaas.io/v1",
+		"kind":               "LoadTest",
+		"name":               owner.GetName(),
+		"uid":                string(owner.GetUID()),
+		"controller":         true,
+		"blockOwnerDeletion": true,
 	}
-
-	detail := mapLoadTestDetail(*created)
-	h.inlineScripts(ctx, req.Namespace, &detail)
-
-	c.JSON(http.StatusCreated, detail)
+	patch, _ := json.Marshal(map[string]interface{}{
+		"metadata": map[string]interface{}{
+			"ownerReferences": []interface{}{ownerRef},
+		},
+	})
+	for _, cmName := range cmNames {
+		_, _ = h.client.Resource(ConfigMapGVR).Namespace(namespace).Patch(ctx, cmName, types.MergePatchType, patch, metav1.PatchOptions{})
+	}
 }
 
 func (h *Handler) DeleteLoadTest(c *gin.Context) {
@@ -527,73 +584,6 @@ func (h *Handler) inlineScripts(ctx context.Context, namespace string, detail *L
 			continue
 		}
 		detail.PerNodeLoad[i].Script = getNestedString(cm.Object, "data", "script.js")
-	}
-}
-
-func buildEnvironmentUnstructured(req CreateEnvironmentRequest) *unstructured.Unstructured {
-	nodes := make([]interface{}, 0, len(req.Nodes))
-	for _, n := range req.Nodes {
-		node := map[string]interface{}{
-			"nodeID":    n.NodeID,
-			"ipAddress": n.IpAddress,
-			"role":      n.Role,
-			"capacity":  n.Capacity,
-			"username":  n.Username,
-			"password":  n.Password,
-		}
-		if n.BalancingStrategy != "" {
-			node["balancingStrategy"] = n.BalancingStrategy
-		}
-		if len(n.Functions) > 0 {
-			funcs := make([]interface{}, 0, len(n.Functions))
-			for _, f := range n.Functions {
-				fn := map[string]interface{}{
-					"name":        f.Name,
-					"image":       f.Image,
-					"execTimeout": int64(f.ExecTimeout),
-					"maxInflight": int64(f.MaxInflight),
-					"timeoutMs":   int64(f.TimeoutMs),
-				}
-				if f.MaxRate > 0 {
-					fn["maxRate"] = int64(f.MaxRate)
-				}
-				funcs = append(funcs, fn)
-			}
-			node["functions"] = funcs
-		}
-		nodes = append(nodes, node)
-	}
-
-	links := make([]interface{}, 0, len(req.Topology.Links))
-	for _, l := range req.Topology.Links {
-		links = append(links, map[string]interface{}{
-			"nodeA":     l.NodeA,
-			"nodeB":     l.NodeB,
-			"latencyMs": int64(l.LatencyMs),
-		})
-	}
-
-	spec := map[string]interface{}{
-		"nodes":           nodes,
-		"cleanupOnDelete": req.CleanupOnDelete,
-	}
-	if len(links) > 0 {
-		spec["topology"] = map[string]interface{}{"links": links}
-	}
-	if req.S3ConfigRef != nil && req.S3ConfigRef.Name != "" {
-		spec["s3ConfigRef"] = map[string]interface{}{"name": req.S3ConfigRef.Name}
-	}
-
-	return &unstructured.Unstructured{
-		Object: map[string]interface{}{
-			"apiVersion": "dfaas.dfaas.io/v1",
-			"kind":       "Environment",
-			"metadata": map[string]interface{}{
-				"name":      req.Name,
-				"namespace": req.Namespace,
-			},
-			"spec": spec,
-		},
 	}
 }
 
@@ -1102,99 +1092,4 @@ func cleanForApply(obj map[string]interface{}) {
 	} {
 		delete(md, k)
 	}
-}
-
-// --- YAML apply handlers ---
-
-// CreateEnvironmentFromYAML accepts a raw CR YAML body and creates an
-// Environment, mirroring `kubectl apply -f` UX.
-func (h *Handler) CreateEnvironmentFromYAML(c *gin.Context) {
-	h.applyResourceYAML(c, EnvironmentGVR, "Environment", "dfaas.dfaas.io/v1")
-}
-
-// CreateLoadTestFromYAML accepts a raw CR YAML body and creates a LoadTest,
-// mirroring `kubectl apply -f` UX.
-func (h *Handler) CreateLoadTestFromYAML(c *gin.Context) {
-	h.applyResourceYAML(c, LoadTestGVR, "LoadTest", "dfaas.dfaas.io/v1")
-}
-
-// applyResourceYAML reads a YAML CR body, validates apiVersion+kind, scrubs
-// server-managed fields, defaults namespace to "default", and creates the
-// resource via the dynamic client. Bypasses the typed DTO entirely so a user
-// can round-trip a downloaded YAML (possibly with an edited metadata.name).
-func (h *Handler) applyResourceYAML(c *gin.Context, gvr schema.GroupVersionResource, expectedKind string, expectedAPIVersion string) {
-	body, err := io.ReadAll(io.LimitReader(c.Request.Body, 1<<20))
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("read body: %v", err)})
-		return
-	}
-	if len(body) == 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "empty body"})
-		return
-	}
-
-	var obj map[string]interface{}
-	if err := yamlv3.Unmarshal(body, &obj); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("parse yaml: %v", err)})
-		return
-	}
-	if obj == nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "yaml body did not decode to an object"})
-		return
-	}
-
-	gotAPIVersion := getStringFromMap(obj, "apiVersion")
-	gotKind := getStringFromMap(obj, "kind")
-	if gotAPIVersion != expectedAPIVersion {
-		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("invalid apiVersion: expected %s got %s", expectedAPIVersion, gotAPIVersion)})
-		return
-	}
-	if gotKind != expectedKind {
-		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("invalid kind: expected %s got %s", expectedKind, gotKind)})
-		return
-	}
-
-	// Strip server-managed metadata + status so the create is accepted by the API server.
-	cleanForApply(obj)
-
-	md, _ := obj["metadata"].(map[string]interface{})
-	if md == nil {
-		md = map[string]interface{}{}
-		obj["metadata"] = md
-	}
-	namespace := getStringFromMap(md, "namespace")
-	if namespace == "" {
-		namespace = "default"
-		md["namespace"] = namespace
-	}
-	name := getStringFromMap(md, "name")
-	if name == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "metadata.name required"})
-		return
-	}
-
-	ctx, cancel := context.WithTimeout(c.Request.Context(), 15*time.Second)
-	defer cancel()
-
-	u := &unstructured.Unstructured{Object: obj}
-	created, err := h.client.Resource(gvr).Namespace(namespace).Create(ctx, u, metav1.CreateOptions{})
-	if err != nil {
-		switch {
-		case apierrors.IsAlreadyExists(err):
-			c.JSON(http.StatusConflict, gin.H{"error": fmt.Sprintf("%s '%s/%s' already exists", expectedKind, namespace, name)})
-		case apierrors.IsInvalid(err) || apierrors.IsBadRequest(err):
-			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("invalid %s: %v", expectedKind, err)})
-		case apierrors.IsNotFound(err):
-			c.JSON(http.StatusNotFound, gin.H{"error": fmt.Sprintf("not found while creating %s: %v", expectedKind, err)})
-		default:
-			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("create %s: %v", expectedKind, err)})
-		}
-		return
-	}
-
-	c.JSON(http.StatusCreated, gin.H{
-		"namespace": created.GetNamespace(),
-		"name":      created.GetName(),
-		"kind":      expectedKind,
-	})
 }
