@@ -266,6 +266,8 @@ export default function LoadTestNew() {
           onUpdate={updateNode}
           onFile={handleFile}
           availableUrls={availableUrls}
+          envNs={namespace}
+          envName={envName}
         />
       ))}
 

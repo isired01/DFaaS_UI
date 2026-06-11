@@ -72,6 +72,27 @@ export async function deleteLoadTest(namespace, name) {
   return request(`/loadtests/${namespace}/${name}`, { method: 'DELETE' });
 }
 
+// uploadLoadTestAsset uploads a file (k6 request payload, e.g. an image) to the
+// environment's S3 bucket and returns { url, contentType, filename }. The URL is
+// embedded by the client-side k6 generator as the request body. Multipart, so we
+// must NOT set Content-Type — the browser sets the boundary itself.
+export async function uploadLoadTestAsset(namespace, environment, file) {
+  const form = new FormData();
+  form.append('namespace', namespace);
+  form.append('environment', environment);
+  form.append('file', file);
+
+  const res = await fetch(`${API_BASE}/loadtests/assets`, {
+    method: 'POST',
+    body: form,
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error(err.error || `Request failed: ${res.status}`);
+  }
+  return res.json();
+}
+
 export async function activateLoadTest(namespace, name) {
   return request(`/loadtests/${namespace}/${name}/activate`, { method: 'POST' });
 }

@@ -1,7 +1,8 @@
-import { Plus, Trash2, ChevronDown, ChevronUp } from 'lucide-react';
+import { Plus, Trash2, ChevronDown, ChevronUp, Image, X } from 'lucide-react';
 import { useState } from 'react';
 import NumberInput from './NumberInput';
 import InfoTooltip from './InfoTooltip';
+import { uploadLoadTestAsset } from '../api/client';
 
 const DEFAULT_STAGE = { duration: '10s', target: 10 };
 
@@ -24,8 +25,10 @@ export function newScenario(idx = 0) {
   };
 }
 
-export default function K6ScenariosEditor({ scenarios, onChange, availableUrls = [] }) {
+export default function K6ScenariosEditor({ scenarios, onChange, availableUrls = [], envNs, envName }) {
   const [expanded, setExpanded] = useState(scenarios.length > 0 ? [0] : []);
+  // Per-scenario index → { uploading, error } for the image picker.
+  const [uploads, setUploads] = useState({});
 
   const toggle = (i) => setExpanded(expanded.includes(i) ? expanded.filter(x => x !== i) : [...expanded, i]);
 
@@ -49,6 +52,25 @@ export default function K6ScenariosEditor({ scenarios, onChange, availableUrls =
   const updateStage = (i, stIdx, patch) => updateScenario(i, {
     stages: scenarios[i].stages.map((st, x) => x === stIdx ? { ...st, ...patch } : st),
   });
+
+  const setUploadState = (i, patch) => setUploads(prev => ({ ...prev, [i]: { ...prev[i], ...patch } }));
+
+  const handleImageSelect = async (i, file) => {
+    if (!file) return;
+    setUploadState(i, { uploading: true, error: null });
+    try {
+      const { url, contentType, filename } = await uploadLoadTestAsset(envNs, envName, file);
+      updateScenario(i, { payloadImageURL: url, payloadContentType: contentType, payloadFilename: filename });
+      setUploadState(i, { uploading: false, error: null });
+    } catch (err) {
+      setUploadState(i, { uploading: false, error: err.message });
+    }
+  };
+
+  const removeImage = (i) => {
+    updateScenario(i, { payloadImageURL: undefined, payloadContentType: undefined, payloadFilename: undefined });
+    setUploadState(i, { error: null });
+  };
 
   return (
     <div className="space-y-3">
@@ -141,8 +163,50 @@ export default function K6ScenariosEditor({ scenarios, onChange, availableUrls =
                     <textarea className="input py-1.5 text-[11px] font-mono h-20" value={scen.headers} onChange={(e) => updateScenario(sIdx, { headers: e.target.value })} />
                   </div>
                   <div>
-                    <label className="block text-[10px] text-surface-400 mb-1">Body / Payload</label>
-                    <textarea className="input py-1.5 text-[11px] font-mono h-20" value={scen.body} onChange={(e) => updateScenario(sIdx, { body: e.target.value })} />
+                    <label className="flex items-center gap-1 text-[10px] text-surface-400 mb-1">
+                      Body / Payload
+                      <InfoTooltip text="Free-text request body. Attach an image/file below to send binary bytes instead — the attachment then becomes the body and this field is disabled." />
+                    </label>
+                    {scen.payloadImageURL ? (
+                      <div className="flex items-center gap-2 p-2 h-20 rounded-lg border border-surface-700/50 bg-surface-900/50">
+                        <Image className="w-4 h-4 text-dfaas-400 flex-shrink-0" />
+                        <div className="min-w-0 flex-1">
+                          <p className="text-[11px] text-white truncate">{scen.payloadFilename || 'attachment'}</p>
+                          <p className="text-[10px] text-surface-500 font-mono truncate">{scen.payloadContentType}</p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => removeImage(sIdx)}
+                          title="Remove attachment"
+                          aria-label="Remove attachment"
+                          className="p-1 rounded-md text-surface-400 hover:text-red-400 hover:bg-surface-800/60"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ) : (
+                      <textarea className="input py-1.5 text-[11px] font-mono h-20" value={scen.body} onChange={(e) => updateScenario(sIdx, { body: e.target.value })} />
+                    )}
+                    <div className="mt-1.5 flex items-center gap-2">
+                      <label
+                        htmlFor={`img-${sIdx}`}
+                        className={`btn-secondary text-[10px] px-2.5 py-1 cursor-pointer ${uploads[sIdx]?.uploading ? 'opacity-50 pointer-events-none' : ''}`}
+                      >
+                        {uploads[sIdx]?.uploading
+                          ? <><span className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />Uploading…</>
+                          : <><Image className="w-3.5 h-3.5" />{scen.payloadImageURL ? 'Replace attachment' : 'Attach image / file'}</>}
+                      </label>
+                      <input
+                        id={`img-${sIdx}`}
+                        type="file"
+                        accept="image/*,*/*"
+                        className="hidden"
+                        onChange={(e) => { const f = e.target.files[0]; e.target.value = ''; handleImageSelect(sIdx, f); }}
+                      />
+                    </div>
+                    {uploads[sIdx]?.error && (
+                      <p className="mt-1 text-[10px] text-red-400">{uploads[sIdx].error}</p>
+                    )}
                   </div>
                 </div>
 

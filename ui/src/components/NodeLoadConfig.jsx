@@ -8,7 +8,7 @@ export const SOURCE_RAW = 'raw';
 // NodeLoadConfig renders one k6 node's load configuration: enable toggle, VUs /
 // duration, the script-source switch, and either the scenarios editor or the
 // raw-JS textarea. The draft state lives in the parent (LoadTestNew).
-export default function NodeLoadConfig({ node, draft, onUpdate, onFile, availableUrls }) {
+export default function NodeLoadConfig({ node, draft, onUpdate, onFile, availableUrls, envNs, envName }) {
   const update = (patch) => onUpdate(node.nodeID, patch);
 
   return (
@@ -58,6 +58,8 @@ export default function NodeLoadConfig({ node, draft, onUpdate, onFile, availabl
               scenarios={draft.scenarios}
               onChange={(scenarios) => update({ scenarios })}
               availableUrls={availableUrls}
+              envNs={envNs}
+              envName={envName}
             />
           ) : (
             <div className="space-y-2">

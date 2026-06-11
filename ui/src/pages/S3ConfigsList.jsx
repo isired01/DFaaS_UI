@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { Database, RefreshCw, Search, ChevronRight, Plus, Trash2, Cloud, Server } from 'lucide-react';
+import { Database, RefreshCw, Search, ChevronRight, Plus, Trash2, Cloud, Server, Info } from 'lucide-react';
 import { listS3Configs, deleteS3Config } from '../api/client';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+// Built-in S3 config the operator provisions at startup for the in-cluster MinIO.
+const DEFAULT_S3_CONFIG = 'minio-default';
 
 export default function S3ConfigsList() {
   const [configs, setConfigs] = useState([]);
@@ -112,6 +114,13 @@ export default function S3ConfigsList() {
       )}
 
       {!error && (
+        <p className="flex items-center gap-2 text-xs text-surface-400">
+          <Info className="w-3.5 h-3.5 text-dfaas-400 flex-shrink-0" />
+          When an Environment sets no S3 config, exports and k6 payloads use the in-cluster MinIO (<code>minio-default</code>).
+        </p>
+      )}
+
+      {!error && (
         <div className="glass-card overflow-hidden">
           <table className="w-full" id="s3-configs-table">
             <thead>
@@ -140,6 +149,7 @@ export default function S3ConfigsList() {
                 </td></tr>
               ) : filtered.map((cfg, i) => {
                 const isAWS = !cfg.endpoint;
+                const isDefault = cfg.name === DEFAULT_S3_CONFIG;
                 return (
                   <tr
                     key={cfg.name}
@@ -147,8 +157,15 @@ export default function S3ConfigsList() {
                     style={{ animationDelay: `${i * 40}ms` }}
                   >
                     <td className="py-3.5 px-5">
-                      <span className="font-semibold text-white group-hover:text-dfaas-400 transition-colors">
-                        {cfg.name}
+                      <span className="inline-flex items-center gap-2">
+                        <span className="font-semibold text-white group-hover:text-dfaas-400 transition-colors">
+                          {cfg.name}
+                        </span>
+                        {isDefault && (
+                          <span className="text-[10px] font-medium px-2 py-0.5 rounded-md bg-dfaas-500/15 text-dfaas-300 border border-dfaas-500/30">
+                            built-in default
+                          </span>
+                        )}
                       </span>
                     </td>
                     <td className="py-3.5 px-5">
@@ -172,16 +189,18 @@ export default function S3ConfigsList() {
                     </td>
                     <td className="py-3.5 px-2">
                       <div className="flex items-center justify-end gap-1">
-                        <button
-                          type="button"
-                          onClick={(e) => handleDelete(e, cfg)}
-                          disabled={deletingName === cfg.name}
-                          title="Delete S3 configuration"
-                          aria-label="Delete S3 configuration"
-                          className="p-1.5 rounded-lg text-surface-400 hover:text-red-400 hover:bg-surface-800/60 transition-colors disabled:opacity-40"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+                        {!isDefault && (
+                          <button
+                            type="button"
+                            onClick={(e) => handleDelete(e, cfg)}
+                            disabled={deletingName === cfg.name}
+                            title="Delete S3 configuration"
+                            aria-label="Delete S3 configuration"
+                            className="p-1.5 rounded-lg text-surface-400 hover:text-red-400 hover:bg-surface-800/60 transition-colors disabled:opacity-40"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
                         <ChevronRight className="w-5 h-5 text-surface-500 opacity-0 group-hover:opacity-100 transition-opacity" />
                       </div>
                     </td>

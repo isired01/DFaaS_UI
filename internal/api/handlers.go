@@ -51,6 +51,7 @@ func (h *Handler) RegisterRoutes(r *gin.Engine) {
 		api.GET("/loadtests/:namespace/:name", h.GetLoadTest)
 		api.GET("/loadtests/:namespace/:name/yaml", h.GetLoadTestYAML)
 		api.POST("/loadtests", h.CreateLoadTest)
+		api.POST("/loadtests/assets", h.UploadLoadTestAsset)
 		api.POST("/loadtests/yaml", h.CreateLoadTestFromYAML)
 		api.POST("/loadtests/:namespace/:name/activate", h.ActivateLoadTest)
 		api.PATCH("/loadtests/:namespace/:name/abort", h.AbortLoadTest)

@@ -71,6 +71,13 @@ export default function S3ConfigNew() {
         </p>
       </div>
 
+      <div className="p-3 rounded-xl bg-dfaas-500/10 border border-dfaas-500/30 text-dfaas-200 text-xs flex items-start gap-2">
+        <Info className="w-3.5 h-3.5 mt-0.5 flex-shrink-0 text-dfaas-400" />
+        <span>
+          A built-in <code>minio-default</code> config already exists for the in-cluster MinIO — no need to create one for it. Add a config here only for an external S3-compatible store.
+        </span>
+      </div>
+
       <div className="glass-card p-5 space-y-4">
         <h2 className="text-sm font-semibold text-surface-300 uppercase tracking-wider">Identity</h2>
         <FormField
