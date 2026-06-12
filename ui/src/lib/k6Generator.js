@@ -42,9 +42,9 @@ function renderConfig(s, idx) {
   const headers = s.headers && s.headers.trim() ? s.headers.trim() : '{}';
   const method = effectiveMethod(s);
   if (hasImage(s)) {
-    // Body bytes are fetched lazily at exec time and cached per VU via
-    // __getImg_<idx>(); the config exposes the loader + content type so the
-    // request builder can attach both.
+    // Body bytes are fetched ONCE in setup() and handed to each VU as base64;
+    // __getImg_<idx>(data) decodes them per VU. The config exposes the loader +
+    // content type so the request builder can attach both.
     return `  "${s.name}": {
     method: '${method}',
     url: '${s.targetURL || ''}',
@@ -62,14 +62,39 @@ function renderConfig(s, idx) {
   },`;
 }
 
-// renderImageCache emits a module-scope lazy cache for a scenario's payload.
-// The http.get MUST run inside the exec function (k6 forbids HTTP in the init
-// context); the module-scope var memoizes the fetch to one call per VU.
-function renderImageCache(s, idx) {
-  return `let __img_${idx} = null;
-function __getImg_${idx}() {
-  if (__img_${idx} === null) {
-    __img_${idx} = http.get(${jsString(s.payloadImageURL)}, { responseType: 'binary' }).body;
+// renderSetup emits the once-per-test setup() that fetches every image payload
+// a SINGLE time and base64-encodes it. k6 forbids HTTP in the init context and
+// runs setup() exactly once, so this is what turns N fetches (one per VU) into
+// one fetch total — the object store is hit once regardless of VU count. Binary
+// can't survive setup-data JSON serialization to the VUs, hence base64.
+function renderSetup(imageScenarios) {
+  const fetches = imageScenarios.map(s =>
+`  {
+    const __r = http.get(${jsString(s.payloadImageURL)}, { responseType: 'binary' });
+    if (__r.status === 200 && __r.body && __r.body.byteLength > 0) {
+      payloads[${jsString(s.name)}] = encoding.b64encode(__r.body);
+    } else {
+      console.log('setup: payload fetch failed for ' + ${jsString(s.name)} + ' (status=' + __r.status + ')');
+    }
+  }`).join('\n');
+  return `export function setup() {
+  const payloads = {};
+${fetches}
+  return { payloads };
+}`;
+}
+
+// renderImageDecoder emits a per-VU lazy decode of the payload that setup()
+// fetched once and passed in as base64. Decoded to an ArrayBuffer once per VU;
+// null when setup's fetch failed (the caller then skips the POST rather than
+// sending a non-image body — which would surface as a misleading
+// "unknown format" at the function).
+function renderImageDecoder(s, idx) {
+  return `let __img_${idx} = undefined;
+function __getImg_${idx}(data) {
+  if (__img_${idx} === undefined) {
+    const __b64 = (data && data.payloads) ? data.payloads[${jsString(s.name)}] : null;
+    __img_${idx} = __b64 ? encoding.b64decode(__b64, 'std', 'b') : null;
   }
   return __img_${idx};
 }`;
@@ -78,33 +103,43 @@ function __getImg_${idx}() {
 export function generateK6Script(scenarios) {
   if (!scenarios || scenarios.length === 0) return '';
 
+  const imageScenarios = scenarios.filter(hasImage);
+  const anyImage = imageScenarios.length > 0;
+
   const scenariosBlock = scenarios.map(renderScenario).join('\n');
   const configBlock = scenarios.map((s, i) => renderConfig(s, i)).join('\n');
-  const imageCacheBlock = scenarios
-    .map((s, i) => (hasImage(s) ? renderImageCache(s, i) : null))
+  const decoderBlock = scenarios
+    .map((s, i) => (hasImage(s) ? renderImageDecoder(s, i) : null))
     .filter(Boolean)
     .join('\n\n');
+  const setupBlock = anyImage ? renderSetup(imageScenarios) : '';
 
   return `import http from 'k6/http';
-import { check } from 'k6';
+import { check } from 'k6';${anyImage ? `\nimport encoding from 'k6/encoding';` : ''}
 
 export const options = {
   scenarios: {
 ${scenariosBlock}
   },
 };
-${imageCacheBlock ? `\n${imageCacheBlock}\n` : ''}
+${anyImage ? `\n${setupBlock}\n` : ''}${decoderBlock ? `\n${decoderBlock}\n` : ''}
 const scenarioConfig = {
 ${configBlock}
 };
 
-export function runScenario() {
+export function runScenario(data) {
   const conf = scenarioConfig[__ENV.SCENARIO_ID];
   const params = { headers: Object.assign({}, conf.headers) };
 
   let body = conf.body;
   if (conf.bodyLoader) {
-    body = conf.bodyLoader();
+    body = conf.bodyLoader(data);
+    if (!body) {
+      // Payload missing (setup's fetch failed). Skip the POST rather than send a
+      // non-image body that yields a misleading "unknown format" at the function.
+      check(null, { 'payload image available': () => false });
+      return;
+    }
     params.headers['Content-Type'] = conf.contentType;
   }
 

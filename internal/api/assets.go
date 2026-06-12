@@ -130,7 +130,12 @@ func (h *Handler) UploadLoadTestAsset(c *gin.Context) {
 	secretKey := decodeSecretValue(secret.Object, "secret_access_key")
 	forcePathStyle, _ := strconv.ParseBool(decodeSecretValue(secret.Object, "force_path_style"))
 
-	s3Client, err := newS3Client(ctx, region, endpoint, accessKey, secretKey, forcePathStyle)
+	// The gateway must DIAL a reachable endpoint. For the in-cluster MinIO the
+	// Secret holds the internal cluster DNS, unreachable when the gateway runs
+	// outside the cluster (dev mode) — resolve a node-IP:NodePort fallback.
+	connectEndpoint := h.resolveConnectEndpoint(ctx, configName, endpoint)
+
+	s3Client, err := newS3Client(ctx, region, connectEndpoint, accessKey, secretKey, forcePathStyle)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("build s3 client: %v", err)})
 		return
@@ -167,6 +172,42 @@ func (h *Handler) UploadLoadTestAsset(c *gin.Context) {
 		"contentType": contentType,
 		"filename":    fileHeader.Filename,
 	})
+}
+
+// inCluster reports whether this process runs inside a Kubernetes Pod. The
+// kubelet injects KUBERNETES_SERVICE_HOST into every Pod and it is absent in
+// local/dev runs — the same signal rest.InClusterConfig() keys off (see
+// NewK8sClient in k8s_client.go).
+func inCluster() bool {
+	return os.Getenv("KUBERNETES_SERVICE_HOST") != ""
+}
+
+// resolveConnectEndpoint returns the endpoint the GATEWAY dials to reach the
+// object store — auto-detected, so the common cases need no configuration:
+//
+//   - MINIO_ENDPOINT set            → explicit override, always wins.
+//   - default in-cluster MinIO:
+//   - gateway in-cluster          → the Secret's internal DNS endpoint
+//     (minio.monitoring.svc…:9000) — the canonical ClusterIP path.
+//   - gateway outside the cluster → http://<nodeIP>:<minioNodePort>; the
+//     internal DNS would fail to resolve ("no such host"), so dial the
+//     node IP + NodePort instead (reachable from outside). Falls back to
+//     the Secret endpoint when no node IP can be derived.
+//   - explicit external S3 config   → its own endpoint.
+//
+// This is distinct from resolvePublicURL (the k6-facing asset URL); the two
+// endpoints are resolved independently.
+func (h *Handler) resolveConnectEndpoint(ctx context.Context, configName, endpoint string) string {
+	if e := strings.TrimRight(os.Getenv("MINIO_ENDPOINT"), "/"); e != "" {
+		return e
+	}
+	if configName == DefaultS3ConfigName && !inCluster() {
+		if ip := h.firstNodeIP(ctx); ip != "" {
+			return fmt.Sprintf("http://%s:%s", ip, minioNodePort)
+		}
+		// No node IP derivable: fall through to the Secret endpoint.
+	}
+	return endpoint
 }
 
 // resolvePublicURL builds the externally reachable URL of an uploaded asset.
