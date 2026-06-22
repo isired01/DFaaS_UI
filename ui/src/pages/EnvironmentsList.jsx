@@ -5,6 +5,7 @@ import { fetchEnvironments, fetchEnvironmentYAML, downloadTextAsFile, createEnvi
 import PhaseBadge from '../components/PhaseBadge';
 import ResourceTable from '../components/ResourceTable';
 import { PROVISIONING_PHASES } from '../lib/constants';
+import { formatDate } from '../lib/format';
 
 const COLUMNS = [
   { label: 'Name' },
@@ -98,7 +99,7 @@ export default function EnvironmentsList() {
           </span>
         </span>
       </td>
-      <td className="py-3.5 px-5"><span className="text-sm text-surface-400">{new Date(env.creationTimestamp).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</span></td>
+      <td className="py-3.5 px-5"><span className="text-sm text-surface-400">{formatDate(env.creationTimestamp)}</span></td>
       <td className="py-3.5 px-2">
         <div className="flex items-center justify-end gap-1">
           <button

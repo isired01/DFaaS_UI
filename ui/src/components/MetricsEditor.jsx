@@ -1,14 +1,10 @@
 import { useRef } from 'react';
 import { Plus, Trash2, BarChart3, Upload } from 'lucide-react';
 import { metricsCsvTemplate } from '../lib/metricsCsv';
+import { downloadTextAsFile } from '../api/client';
 
 function downloadCsvTemplate() {
-  const url = URL.createObjectURL(new Blob([metricsCsvTemplate()], { type: 'text/csv' }));
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = 'metrics-template.csv';
-  a.click();
-  URL.revokeObjectURL(url);
+  downloadTextAsFile(metricsCsvTemplate(), 'metrics-template.csv', 'text/csv');
 }
 
 // Metric `type` values are protocol enums sent to the operator — do not translate.

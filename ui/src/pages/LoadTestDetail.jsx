@@ -6,7 +6,9 @@ import PhaseBadge from '../components/PhaseBadge';
 import TestRunBadge from '../components/TestRunBadge';
 import ScheduledStartCard from '../components/ScheduledStartCard';
 import ConditionsList from '../components/ConditionsList';
+import LoadingSpinner from '../components/LoadingSpinner';
 import { ACTIVE_PHASES } from '../lib/constants';
+import { formatDateTime } from '../lib/format';
 
 export default function LoadTestDetail() {
   const { namespace, name } = useParams();
@@ -97,11 +99,7 @@ export default function LoadTestDetail() {
     }
   };
 
-  if (loading) return (
-    <div className="flex items-center justify-center py-32">
-      <div className="w-10 h-10 border-3 border-dfaas-500/30 border-t-dfaas-500 rounded-full animate-spin" />
-    </div>
-  );
+  if (loading) return <LoadingSpinner />;
 
   if (error) return (
     <div className="glass-card p-8 text-center border-red-500/30 bg-red-500/5">
@@ -210,11 +208,11 @@ export default function LoadTestDetail() {
       <div className={`grid gap-4 ${loadtest.startAt ? 'grid-cols-4' : 'grid-cols-3'}`}>
         <div className="glass-card p-4">
           <p className="text-xs text-surface-500 uppercase tracking-wider">Started</p>
-          <p className="text-sm text-white mt-1">{loadtest.startTime ? new Date(loadtest.startTime).toLocaleString('en-GB') : '—'}</p>
+          <p className="text-sm text-white mt-1">{loadtest.startTime ? formatDateTime(loadtest.startTime) : '—'}</p>
         </div>
         <div className="glass-card p-4">
           <p className="text-xs text-surface-500 uppercase tracking-wider">Ended</p>
-          <p className="text-sm text-white mt-1">{loadtest.endTime ? new Date(loadtest.endTime).toLocaleString('en-GB') : '—'}</p>
+          <p className="text-sm text-white mt-1">{loadtest.endTime ? formatDateTime(loadtest.endTime) : '—'}</p>
         </div>
         <div className="glass-card p-4">
           <p className="text-xs text-surface-500 uppercase tracking-wider">Exporter Job</p>

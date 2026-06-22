@@ -7,6 +7,9 @@ import { generateK6Script } from '../lib/k6Generator';
 import MetricsEditor, { DEFAULT_METRICS, emptyMetric } from '../components/MetricsEditor';
 import { parseMetricsCsv } from '../lib/metricsCsv';
 import NodeLoadConfig, { SOURCE_GENERATE, SOURCE_RAW } from '../components/NodeLoadConfig';
+import LoadingSpinner from '../components/LoadingSpinner';
+import ErrorAlert from '../components/ErrorAlert';
+import SubmitButton from '../components/SubmitButton';
 
 function defaultPerNode() {
   return {
@@ -206,11 +209,7 @@ export default function LoadTestNew() {
     }
   };
 
-  if (loading) return (
-    <div className="flex items-center justify-center py-32">
-      <div className="w-10 h-10 border-3 border-dfaas-500/30 border-t-dfaas-500 rounded-full animate-spin" />
-    </div>
-  );
+  if (loading) return <LoadingSpinner />;
 
   if (!environment) return (
     <div className="glass-card p-8 text-center border-red-500/30 bg-red-500/5">
@@ -282,7 +281,7 @@ export default function LoadTestNew() {
         environment={environment}
       />
 
-      {error && <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-sm whitespace-pre-line">{error}</div>}
+      {error && <ErrorAlert message={error} className="whitespace-pre-line" />}
 
       <div className="flex flex-col gap-3">
         {submitMode === 'schedule' && (
@@ -315,11 +314,9 @@ export default function LoadTestNew() {
             <option value="draft">Save as Draft</option>
             <option value="schedule">Schedule start</option>
           </select>
-          <button type="submit" disabled={submitting || cooldown} className="btn-primary">
-            {submitting ? <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />Saving...</>
-              : cooldown ? <>Cooling down...</>
-              : <><Play className="w-4 h-4" />Confirm</>}
-          </button>
+          <SubmitButton loading={submitting} disabled={submitting || cooldown} loadingLabel="Saving...">
+            {cooldown ? <>Cooling down...</> : <><Play className="w-4 h-4" />Confirm</>}
+          </SubmitButton>
         </div>
       </div>
     </form>

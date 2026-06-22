@@ -28,19 +28,20 @@ import (
 )
 
 // DefaultS3ConfigName is the Secret the operator provisions at startup for the
-// in-cluster MinIO. Environments that set no spec.s3ConfigRef fall back to it.
-const DefaultS3ConfigName = "minio-default"
+// in-cluster SeaweedFS. Environments that set no spec.s3ConfigRef fall back to it.
+const DefaultS3ConfigName = "seaweedfs-default"
 
-// minioNodePort is the NodePort the in-cluster MinIO S3 API is exposed on. The
-// k6 runner lives on remote VMs that cannot resolve the internal cluster DNS,
-// so asset URLs for the default MinIO are rewritten to <nodeIP>:<minioNodePort>.
-const minioNodePort = "30900"
+// seaweedfsNodePort is the NodePort the in-cluster SeaweedFS S3 API is exposed
+// on. The k6 runner lives on remote VMs that cannot resolve the internal cluster
+// DNS, so asset URLs for the default SeaweedFS are rewritten to
+// <nodeIP>:<seaweedfsNodePort>.
+const seaweedfsNodePort = "30900"
 
 // assetTagging is applied to every uploaded object so operators can identify
 // (and later sweep) k6 payload assets.
 const assetTagging = "dfaas.io/asset=true"
 
-// NodeGVR is the GVR for core/v1 Nodes, listed to derive the in-cluster MinIO
+// NodeGVR is the GVR for core/v1 Nodes, listed to derive the in-cluster SeaweedFS
 // public address (node IP + NodePort) for the default S3 config.
 var NodeGVR = schema.GroupVersionResource{
 	Group:    "",
@@ -130,7 +131,7 @@ func (h *Handler) UploadLoadTestAsset(c *gin.Context) {
 	secretKey := decodeSecretValue(secret.Object, "secret_access_key")
 	forcePathStyle, _ := strconv.ParseBool(decodeSecretValue(secret.Object, "force_path_style"))
 
-	// The gateway must DIAL a reachable endpoint. For the in-cluster MinIO the
+	// The gateway must DIAL a reachable endpoint. For the in-cluster SeaweedFS the
 	// Secret holds the internal cluster DNS, unreachable when the gateway runs
 	// outside the cluster (dev mode) — resolve a node-IP:NodePort fallback.
 	connectEndpoint := h.resolveConnectEndpoint(ctx, configName, endpoint)
@@ -185,11 +186,11 @@ func inCluster() bool {
 // resolveConnectEndpoint returns the endpoint the GATEWAY dials to reach the
 // object store — auto-detected, so the common cases need no configuration:
 //
-//   - MINIO_ENDPOINT set            → explicit override, always wins.
-//   - default in-cluster MinIO:
+//   - SEAWEEDFS_ENDPOINT set        → explicit override, always wins.
+//   - default in-cluster SeaweedFS:
 //   - gateway in-cluster          → the Secret's internal DNS endpoint
-//     (minio.monitoring.svc…:9000) — the canonical ClusterIP path.
-//   - gateway outside the cluster → http://<nodeIP>:<minioNodePort>; the
+//     (seaweedfs.monitoring.svc…:8333) — the canonical ClusterIP path.
+//   - gateway outside the cluster → http://<nodeIP>:<seaweedfsNodePort>; the
 //     internal DNS would fail to resolve ("no such host"), so dial the
 //     node IP + NodePort instead (reachable from outside). Falls back to
 //     the Secret endpoint when no node IP can be derived.
@@ -198,12 +199,12 @@ func inCluster() bool {
 // This is distinct from resolvePublicURL (the k6-facing asset URL); the two
 // endpoints are resolved independently.
 func (h *Handler) resolveConnectEndpoint(ctx context.Context, configName, endpoint string) string {
-	if e := strings.TrimRight(os.Getenv("MINIO_ENDPOINT"), "/"); e != "" {
+	if e := strings.TrimRight(os.Getenv("SEAWEEDFS_ENDPOINT"), "/"); e != "" {
 		return e
 	}
 	if configName == DefaultS3ConfigName && !inCluster() {
 		if ip := h.firstNodeIP(ctx); ip != "" {
-			return fmt.Sprintf("http://%s:%s", ip, minioNodePort)
+			return fmt.Sprintf("http://%s:%s", ip, seaweedfsNodePort)
 		}
 		// No node IP derivable: fall through to the Secret endpoint.
 	}
@@ -212,19 +213,19 @@ func (h *Handler) resolveConnectEndpoint(ctx context.Context, configName, endpoi
 
 // resolvePublicURL builds the externally reachable URL of an uploaded asset.
 //
-//   - MINIO_PUBLIC_URL set        → <MINIO_PUBLIC_URL>/<bucket>/<key>
-//   - default in-cluster MinIO    → http://<nodeIP>:30900/<bucket>/<key>
+//   - SEAWEEDFS_PUBLIC_URL set    → <SEAWEEDFS_PUBLIC_URL>/<bucket>/<key>
+//   - default in-cluster SeaweedFS → http://<nodeIP>:30900/<bucket>/<key>
 //     (the internal DNS endpoint is unreachable from remote k6 VMs, so the URL
-//     is rewritten to a node IP + the MinIO API NodePort)
+//     is rewritten to a node IP + the SeaweedFS S3 API NodePort)
 //   - explicit external S3        → <endpoint>/<bucket>/<key>
 func (h *Handler) resolvePublicURL(ctx context.Context, configName, endpoint, bucket, key string) string {
-	if base := strings.TrimRight(os.Getenv("MINIO_PUBLIC_URL"), "/"); base != "" {
+	if base := strings.TrimRight(os.Getenv("SEAWEEDFS_PUBLIC_URL"), "/"); base != "" {
 		return fmt.Sprintf("%s/%s/%s", base, bucket, key)
 	}
 
 	if configName == DefaultS3ConfigName {
 		if ip := h.firstNodeIP(ctx); ip != "" {
-			return fmt.Sprintf("http://%s:%s/%s/%s", ip, minioNodePort, bucket, key)
+			return fmt.Sprintf("http://%s:%s/%s/%s", ip, seaweedfsNodePort, bucket, key)
 		}
 		// Fall back to the configured endpoint when no node IP can be derived;
 		// in-cluster consumers (rare) can still reach it via DNS.
@@ -236,10 +237,10 @@ func (h *Handler) resolvePublicURL(ctx context.Context, configName, endpoint, bu
 // firstNodeIP lists cluster Nodes and returns the first ExternalIP, falling back
 // to the first InternalIP. Empty when no Node carries a usable address.
 //
-// NOTE: on a multi-node cluster MinIO's NodePort is reachable on every node, but
-// the chosen node may not be the one actually scheduling the MinIO Pod. This is
-// fine for a NodePort Service (kube-proxy forwards across nodes) but means the
-// returned IP is "some" node, not necessarily the MinIO host.
+// NOTE: on a multi-node cluster SeaweedFS's NodePort is reachable on every node,
+// but the chosen node may not be the one actually scheduling the SeaweedFS Pod.
+// This is fine for a NodePort Service (kube-proxy forwards across nodes) but
+// means the returned IP is "some" node, not necessarily the SeaweedFS host.
 func (h *Handler) firstNodeIP(ctx context.Context) string {
 	nodes, err := h.client.Resource(NodeGVR).List(ctx, metav1.ListOptions{})
 	if err != nil || len(nodes.Items) == 0 {
@@ -269,7 +270,7 @@ func (h *Handler) firstNodeIP(ctx context.Context) string {
 }
 
 // newS3Client builds an aws-sdk-go-v2 S3 client with static credentials, an
-// optional custom BaseEndpoint (MinIO), and path-style addressing toggle.
+// optional custom BaseEndpoint (SeaweedFS), and path-style addressing toggle.
 func newS3Client(ctx context.Context, region, endpoint, accessKey, secretKey string, forcePathStyle bool) (*s3.Client, error) {
 	cfg, err := config.LoadDefaultConfig(ctx,
 		config.WithRegion(region),

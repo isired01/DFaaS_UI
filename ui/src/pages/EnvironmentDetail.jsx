@@ -6,6 +6,8 @@ import PhaseBadge from '../components/PhaseBadge';
 import NodeCard from '../components/NodeCard';
 import ConditionsList from '../components/ConditionsList';
 import ProvisioningConditionRow from '../components/ProvisioningConditionRow';
+import LoadingSpinner from '../components/LoadingSpinner';
+import { formatDateTime } from '../lib/format';
 
 export default function EnvironmentDetail() {
   const { namespace, name } = useParams();
@@ -53,11 +55,7 @@ export default function EnvironmentDetail() {
     }
   };
 
-  if (loading) return (
-    <div className="flex items-center justify-center py-32">
-      <div className="w-10 h-10 border-3 border-dfaas-500/30 border-t-dfaas-500 rounded-full animate-spin" />
-    </div>
-  );
+  if (loading) return <LoadingSpinner />;
 
   if (error) return (
     <div className="glass-card p-8 text-center border-red-500/30 bg-red-500/5">
@@ -284,9 +282,9 @@ export default function EnvironmentDetail() {
                     <Link to={`/loadtests/${lt.namespace}/${lt.name}`} className="text-sm font-semibold text-white hover:text-dfaas-400 transition-colors">{lt.name}</Link>
                   </td>
                   <td className="py-2.5 px-4"><PhaseBadge kind="loadtest" phase={lt.phase} size="sm" /></td>
-                  <td className="py-2.5 px-4 text-xs text-surface-400">{lt.startTime ? new Date(lt.startTime).toLocaleString('en-GB') : '—'}</td>
-                  <td className="py-2.5 px-4 text-xs text-surface-400">{lt.endTime ? new Date(lt.endTime).toLocaleString('en-GB') : '—'}</td>
-                  <td className="py-2.5 px-4 text-xs text-surface-400">{new Date(lt.creationTimestamp).toLocaleString('en-GB')}</td>
+                  <td className="py-2.5 px-4 text-xs text-surface-400">{lt.startTime ? formatDateTime(lt.startTime) : '—'}</td>
+                  <td className="py-2.5 px-4 text-xs text-surface-400">{lt.endTime ? formatDateTime(lt.endTime) : '—'}</td>
+                  <td className="py-2.5 px-4 text-xs text-surface-400">{formatDateTime(lt.creationTimestamp)}</td>
                 </tr>
               ))}
             </tbody>

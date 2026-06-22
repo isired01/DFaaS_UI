@@ -5,6 +5,8 @@ import { createEnvironment, fetchEnvironment, updateEnvironment, listS3Configs }
 import NodeList from '../components/NodeList';
 import LinkEditor from '../components/LinkEditor';
 import FormField from '../components/FormField';
+import ErrorAlert from '../components/ErrorAlert';
+import SubmitButton from '../components/SubmitButton';
 
 function emptyNode() {
   return {
@@ -265,15 +267,13 @@ export default function EnvironmentNew({ mode = 'create' }) {
         onUpdate={updateLink}
       />
 
-      {error && <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-sm">{error}</div>}
+      {error && <ErrorAlert message={error} />}
 
       <div className="flex items-center justify-end gap-3">
         <Link to="/" className="btn-secondary">Cancel</Link>
-        <button type="submit" disabled={submitting || loadingEnv} className="btn-primary">
-          {submitting
-            ? <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />{isEdit ? 'Patching...' : 'Creating...'}</>
-            : <><Save className="w-4 h-4" />{isEdit ? 'Save Changes' : 'Create Environment'}</>}
-        </button>
+        <SubmitButton loading={submitting} disabled={submitting || loadingEnv} loadingLabel={isEdit ? 'Patching...' : 'Creating...'}>
+          <><Save className="w-4 h-4" />{isEdit ? 'Save Changes' : 'Create Environment'}</>
+        </SubmitButton>
       </div>
     </form>
   );

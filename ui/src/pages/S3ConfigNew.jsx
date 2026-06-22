@@ -3,12 +3,14 @@ import { Link, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Save, Database, Info } from 'lucide-react';
 import { createS3Config } from '../api/client';
 import FormField from '../components/FormField';
+import ErrorAlert from '../components/ErrorAlert';
+import SubmitButton from '../components/SubmitButton';
 
 // DNS-1123: lowercase alphanumeric and '-', start/end alphanumeric, max 63.
 const DNS1123_RE = /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/;
 
 // Heuristic for endpoints that almost always want path-style addressing.
-const PATH_STYLE_HINTS = ['minio', 'localhost', '127.0.0.1', '.svc'];
+const PATH_STYLE_HINTS = ['seaweedfs', 'minio', 'localhost', '127.0.0.1', '.svc'];
 
 export default function S3ConfigNew() {
   const navigate = useNavigate();
@@ -74,7 +76,7 @@ export default function S3ConfigNew() {
       <div className="p-3 rounded-xl bg-dfaas-500/10 border border-dfaas-500/30 text-dfaas-200 text-xs flex items-start gap-2">
         <Info className="w-3.5 h-3.5 mt-0.5 flex-shrink-0 text-dfaas-400" />
         <span>
-          A built-in <code>minio-default</code> config already exists for the in-cluster MinIO — no need to create one for it. Add a config here only for an external S3-compatible store.
+          A built-in <code>seaweedfs-default</code> config already exists for the in-cluster SeaweedFS — no need to create one for it. Add a config here only for an external S3-compatible store.
         </span>
       </div>
 
@@ -89,7 +91,7 @@ export default function S3ConfigNew() {
             className="input"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="minio-eu-west-1"
+            placeholder="s3-eu-west-1"
             required
             maxLength={63}
           />
@@ -104,7 +106,7 @@ export default function S3ConfigNew() {
             className="input"
             value={endpoint}
             onChange={(e) => setEndpoint(e.target.value)}
-            placeholder="https://s3.amazonaws.com or http://minio.minio.svc:9000"
+            placeholder="https://s3.amazonaws.com or http://seaweedfs.monitoring.svc:8333"
           />
         </FormField>
         <FormField label="Region">
@@ -127,7 +129,7 @@ export default function S3ConfigNew() {
             Force path-style addressing
           </label>
           <p className="text-[10px] text-surface-500 mt-1">
-            Enable for MinIO and most non-AWS endpoints (uses <code>{`http://host/bucket`}</code> instead of <code>{`http://bucket.host`}</code>).
+            Enable for SeaweedFS and most non-AWS endpoints (uses <code>{`http://host/bucket`}</code> instead of <code>{`http://bucket.host`}</code>).
           </p>
           {suggestPathStyle && (
             <div className="mt-2 p-2 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs flex items-start gap-2">
@@ -167,15 +169,13 @@ export default function S3ConfigNew() {
         </FormField>
       </div>
 
-      {error && <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-sm">{error}</div>}
+      {error && <ErrorAlert message={error} />}
 
       <div className="flex items-center justify-end gap-3">
         <Link to="/s3-configs" className="btn-secondary">Cancel</Link>
-        <button type="submit" disabled={submitting} className="btn-primary">
-          {submitting
-            ? <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />Creating...</>
-            : <><Save className="w-4 h-4" />Create S3 Config</>}
-        </button>
+        <SubmitButton loading={submitting} disabled={submitting} loadingLabel="Creating...">
+          <><Save className="w-4 h-4" />Create S3 Config</>
+        </SubmitButton>
       </div>
     </form>
   );

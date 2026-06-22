@@ -136,10 +136,8 @@ func (h *Handler) CreateS3Config(c *gin.Context) {
 			// Most likely the dfaas-s3 namespace doesn't exist yet — operator
 			// owns its bootstrap; surface a clear message.
 			c.JSON(http.StatusFailedDependency, gin.H{"error": fmt.Sprintf("namespace '%s' missing; the operator must bootstrap it first", S3ConfigNamespace)})
-		case apierrors.IsInvalid(err) || apierrors.IsBadRequest(err):
-			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("invalid s3-config: %v", err)})
 		default:
-			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("create s3-config: %v", err)})
+			writeK8sError(c, err, fmt.Sprintf("s3-config '%s'", req.Name))
 		}
 		return
 	}

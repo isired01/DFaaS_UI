@@ -2,10 +2,11 @@ import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { Database, RefreshCw, Search, ChevronRight, Plus, Trash2, Cloud, Server, Info } from 'lucide-react';
 import { listS3Configs, deleteS3Config } from '../api/client';
+import { formatDate } from '../lib/format';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-// Built-in S3 config the operator provisions at startup for the in-cluster MinIO.
-const DEFAULT_S3_CONFIG = 'minio-default';
+// Built-in S3 config the operator provisions at startup for the in-cluster SeaweedFS.
+const DEFAULT_S3_CONFIG = 'seaweedfs-default';
 
 export default function S3ConfigsList() {
   const [configs, setConfigs] = useState([]);
@@ -116,7 +117,7 @@ export default function S3ConfigsList() {
       {!error && (
         <p className="flex items-center gap-2 text-xs text-surface-400">
           <Info className="w-3.5 h-3.5 text-dfaas-400 flex-shrink-0" />
-          When an Environment sets no S3 config, exports and k6 payloads use the in-cluster MinIO (<code>minio-default</code>).
+          When an Environment sets no S3 config, exports and k6 payloads use the in-cluster SeaweedFS (<code>seaweedfs-default</code>).
         </p>
       )}
 
@@ -182,9 +183,7 @@ export default function S3ConfigsList() {
                     </td>
                     <td className="py-3.5 px-5">
                       <span className="text-sm text-surface-400">
-                        {new Date(cfg.createdAt).toLocaleString('en-GB', {
-                          day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit',
-                        })}
+                        {formatDate(cfg.createdAt)}
                       </span>
                     </td>
                     <td className="py-3.5 px-2">

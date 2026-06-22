@@ -30,6 +30,21 @@ func NewHandler(client dynamic.Interface) *Handler {
 	return &Handler{client: client}
 }
 
+// writeK8sError maps a Kubernetes API error to a JSON gin response.
+// resource is a human descriptor like "environment 'ns/name'".
+func writeK8sError(c *gin.Context, err error, resource string) {
+	switch {
+	case apierrors.IsNotFound(err):
+		c.JSON(http.StatusNotFound, gin.H{"error": fmt.Sprintf("%s not found", resource)})
+	case apierrors.IsConflict(err):
+		c.JSON(http.StatusConflict, gin.H{"error": fmt.Sprintf("concurrent edit on %s: %v", resource, err)})
+	case apierrors.IsInvalid(err) || apierrors.IsBadRequest(err):
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("invalid request for %s: %v", resource, err)})
+	default:
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("%s: %v", resource, err)})
+	}
+}
+
 // RegisterRoutes mounts every API route on the Gin engine.
 func (h *Handler) RegisterRoutes(r *gin.Engine) {
 	api := r.Group("/api")
@@ -155,16 +170,7 @@ func (h *Handler) UpdateEnvironment(c *gin.Context) {
 
 	patched, err := h.client.Resource(EnvironmentGVR).Namespace(namespace).Patch(ctx, name, types.MergePatchType, patchBytes, metav1.PatchOptions{})
 	if err != nil {
-		switch {
-		case apierrors.IsNotFound(err):
-			c.JSON(http.StatusNotFound, gin.H{"error": fmt.Sprintf("environment '%s/%s' not found", namespace, name)})
-		case apierrors.IsConflict(err):
-			c.JSON(http.StatusConflict, gin.H{"error": fmt.Sprintf("concurrent edit on '%s/%s': %v", namespace, name, err)})
-		case apierrors.IsInvalid(err) || apierrors.IsBadRequest(err):
-			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("invalid patch: %v", err)})
-		default:
-			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("patch environment: %v", err)})
-		}
+		writeK8sError(c, err, fmt.Sprintf("environment '%s/%s'", namespace, name))
 		return
 	}
 
@@ -940,14 +946,7 @@ func (h *Handler) AbortLoadTest(c *gin.Context) {
 
 	patch := []byte(`{"spec":{"stop":true}}`)
 	if _, err := h.client.Resource(LoadTestGVR).Namespace(namespace).Patch(ctx, name, types.MergePatchType, patch, metav1.PatchOptions{}); err != nil {
-		switch {
-		case apierrors.IsNotFound(err):
-			c.JSON(http.StatusNotFound, gin.H{"error": fmt.Sprintf("loadtest '%s/%s' not found", namespace, name)})
-		case apierrors.IsConflict(err):
-			c.JSON(http.StatusConflict, gin.H{"error": fmt.Sprintf("concurrent edit on '%s/%s': %v", namespace, name, err)})
-		default:
-			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("patch loadtest: %v", err)})
-		}
+		writeK8sError(c, err, fmt.Sprintf("loadtest '%s/%s'", namespace, name))
 		return
 	}
 

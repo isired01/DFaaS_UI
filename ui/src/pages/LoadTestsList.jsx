@@ -4,6 +4,7 @@ import { TestTube2, ChevronRight, Download } from 'lucide-react';
 import { fetchLoadTests, fetchLoadTestYAML, downloadTextAsFile, createLoadTestFromYAML } from '../api/client';
 import PhaseBadge from '../components/PhaseBadge';
 import ResourceTable from '../components/ResourceTable';
+import { formatDate } from '../lib/format';
 
 const COLUMNS = [
   { label: 'Name' },
@@ -92,7 +93,7 @@ export default function LoadTestsList() {
         <Link to={`/environments/${lt.namespace}/${lt.targetEnvironment}`} className="text-xs font-mono text-dfaas-400 hover:text-dfaas-300 transition-colors">{lt.targetEnvironment}</Link>
       </td>
       <td className="py-3.5 px-5"><PhaseBadge kind="loadtest" phase={lt.phase} size="sm" /></td>
-      <td className="py-3.5 px-5"><span className="text-sm text-surface-400">{new Date(lt.creationTimestamp).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</span></td>
+      <td className="py-3.5 px-5"><span className="text-sm text-surface-400">{formatDate(lt.creationTimestamp)}</span></td>
       <td className="py-3.5 px-2">
         <div className="flex items-center justify-end gap-1">
           <button
