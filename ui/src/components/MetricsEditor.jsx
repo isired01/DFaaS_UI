@@ -47,7 +47,7 @@ export default function MetricsEditor({ metrics, onAdd, onRemove, onUpdate, onIm
                 onChange={(e) => { if (e.target.files[0]) onImportCsv(e.target.files[0]); e.target.value = ''; }}
               />
             </div>
-            <p className="text-[10px] text-surface-500">
+            <p className="text-[12px] text-surface-500">
               Columns: <code>type(metric|query) ; query ; metric_name ; comment</code>{' · '}
               <button type="button" onClick={downloadCsvTemplate} className="text-dfaas-400 hover:text-dfaas-300 underline">example</button>
             </p>
@@ -58,7 +58,7 @@ export default function MetricsEditor({ metrics, onAdd, onRemove, onUpdate, onIm
       <div className="overflow-x-auto">
         <table className="w-full text-xs">
           <thead>
-            <tr className="text-left text-[10px] text-surface-500 uppercase tracking-wider">
+            <tr className="text-left text-[12px] text-surface-500 uppercase tracking-wider">
               <th className="py-1.5 px-2 w-[18%]">Type</th>
               <th className="py-1.5 px-2 w-[22%]">Metric name</th>
               <th className="py-1.5 px-2 w-[40%]">PromQL query</th>

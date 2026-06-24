@@ -101,7 +101,7 @@ export default function EnvironmentDetail() {
                 </span>
               )}
               {environment.cleanupOnDelete && (
-                <span className="text-[10px] text-orange-400 uppercase tracking-wider">cleanup on delete</span>
+                <span className="text-[12px] text-orange-400 uppercase tracking-wider">cleanup on delete</span>
               )}
             </div>
           </div>

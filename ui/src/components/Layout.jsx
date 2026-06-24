@@ -23,7 +23,7 @@ export default function Layout() {
               <h1 className="text-lg font-bold tracking-tight bg-gradient-to-r from-white to-surface-300 bg-clip-text text-transparent">
                 DFaaS
               </h1>
-              <p className="text-[10px] text-surface-500 -mt-1 tracking-widest uppercase">
+              <p className="text-[12px] text-surface-500 -mt-1 tracking-widest uppercase">
                 Control Plane
               </p>
             </div>

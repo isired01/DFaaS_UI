@@ -86,7 +86,7 @@ export default function K6ScenariosEditor({ scenarios, onChange, availableUrls =
               <div className="flex items-center gap-3">
                 {isExpanded ? <ChevronUp className="w-4 h-4 text-surface-400" /> : <ChevronDown className="w-4 h-4 text-surface-400" />}
                 <span className="text-sm font-semibold text-white">{scen.name || `Scenario ${sIdx + 1}`}</span>
-                <span className="text-[10px] text-surface-500 font-mono px-2 py-0.5 bg-surface-800 rounded-md">
+                <span className="text-[12px] text-surface-500 font-mono px-2 py-0.5 bg-surface-800 rounded-md">
                   {scen.method} {scen.targetURL ? (() => { try { return new URL(scen.targetURL).pathname; } catch { return '...'; } })() : '...'}
                 </span>
               </div>
@@ -99,11 +99,11 @@ export default function K6ScenariosEditor({ scenarios, onChange, availableUrls =
               <div className="p-3 border-t border-surface-700/50 space-y-3 bg-surface-950/30">
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                   <div>
-                    <label className="block text-[10px] text-surface-400 mb-1">Name</label>
+                    <label className="block text-[12px] text-surface-400 mb-1">Name</label>
                     <input type="text" className="input py-1.5 text-xs" value={scen.name} onChange={(e) => updateScenario(sIdx, { name: e.target.value })} required />
                   </div>
                   <div>
-                    <label className="flex items-center gap-1 text-[10px] text-surface-400 mb-1">
+                    <label className="flex items-center gap-1 text-[12px] text-surface-400 mb-1">
                       Executor
                       <InfoTooltip text="k6 execution model. Arrival-rate executors hold a target requests/sec (open model); VU executors hold a target number of virtual users (closed model). 'ramping-*' vary the target across stages; 'constant-*' hold it fixed." />
                     </label>
@@ -117,13 +117,13 @@ export default function K6ScenariosEditor({ scenarios, onChange, availableUrls =
                     </select>
                   </div>
                   <div>
-                    <label className="block text-[10px] text-surface-400 mb-1">Start Time</label>
+                    <label className="block text-[12px] text-surface-400 mb-1">Start Time</label>
                     <input type="text" className="input py-1.5 text-xs" value={scen.startTime} onChange={(e) => updateScenario(sIdx, { startTime: e.target.value })} required />
                   </div>
                 </div>
 
                 <div>
-                  <label className="block text-[10px] text-surface-400 mb-1">Method & Target URL</label>
+                  <label className="block text-[12px] text-surface-400 mb-1">Method & Target URL</label>
                   <div className="flex gap-2">
                     <select className="input py-1.5 text-xs w-24" value={scen.method} onChange={(e) => updateScenario(sIdx, { method: e.target.value })}>
                       <option>GET</option><option>POST</option><option>PUT</option><option>DELETE</option>
@@ -142,14 +142,14 @@ export default function K6ScenariosEditor({ scenarios, onChange, availableUrls =
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <div>
-                    <label className="flex items-center gap-1 text-[10px] text-surface-400 mb-1">
+                    <label className="flex items-center gap-1 text-[12px] text-surface-400 mb-1">
                       PreAllocated VUs
                       <InfoTooltip text="Virtual users k6 spins up before the test starts. For arrival-rate executors these serve the request rate — too few and k6 can't reach the target." />
                     </label>
                     <NumberInput className="input py-1.5 text-xs" value={scen.preAllocatedVUs} onChange={(v) => updateScenario(sIdx, { preAllocatedVUs: v })} required />
                   </div>
                   <div>
-                    <label className="flex items-center gap-1 text-[10px] text-surface-400 mb-1">
+                    <label className="flex items-center gap-1 text-[12px] text-surface-400 mb-1">
                       Max VUs
                       <InfoTooltip text="Upper bound on VUs k6 may allocate if the pre-allocated pool can't sustain the target rate." />
                     </label>
@@ -159,11 +159,11 @@ export default function K6ScenariosEditor({ scenarios, onChange, availableUrls =
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-[10px] text-surface-400 mb-1">Headers (JSON)</label>
-                    <textarea className="input py-1.5 text-[11px] font-mono h-20" value={scen.headers} onChange={(e) => updateScenario(sIdx, { headers: e.target.value })} />
+                    <label className="block text-[12px] text-surface-400 mb-1">Headers (JSON)</label>
+                    <textarea className="input py-1.5 text-[13px] font-mono h-20" value={scen.headers} onChange={(e) => updateScenario(sIdx, { headers: e.target.value })} />
                   </div>
                   <div>
-                    <label className="flex items-center gap-1 text-[10px] text-surface-400 mb-1">
+                    <label className="flex items-center gap-1 text-[12px] text-surface-400 mb-1">
                       Body / Payload
                       <InfoTooltip text="Free-text request body. Attach an image/file below to send binary bytes instead — the attachment then becomes the body and this field is disabled." />
                     </label>
@@ -171,8 +171,8 @@ export default function K6ScenariosEditor({ scenarios, onChange, availableUrls =
                       <div className="flex items-center gap-2 p-2 h-20 rounded-lg border border-surface-700/50 bg-surface-900/50">
                         <Image className="w-4 h-4 text-dfaas-400 flex-shrink-0" />
                         <div className="min-w-0 flex-1">
-                          <p className="text-[11px] text-white truncate">{scen.payloadFilename || 'attachment'}</p>
-                          <p className="text-[10px] text-surface-500 font-mono truncate">{scen.payloadContentType}</p>
+                          <p className="text-[13px] text-white truncate">{scen.payloadFilename || 'attachment'}</p>
+                          <p className="text-[12px] text-surface-500 font-mono truncate">{scen.payloadContentType}</p>
                         </div>
                         <button
                           type="button"
@@ -185,12 +185,12 @@ export default function K6ScenariosEditor({ scenarios, onChange, availableUrls =
                         </button>
                       </div>
                     ) : (
-                      <textarea className="input py-1.5 text-[11px] font-mono h-20" value={scen.body} onChange={(e) => updateScenario(sIdx, { body: e.target.value })} />
+                      <textarea className="input py-1.5 text-[13px] font-mono h-20" value={scen.body} onChange={(e) => updateScenario(sIdx, { body: e.target.value })} />
                     )}
                     <div className="mt-1.5 flex items-center gap-2">
                       <label
                         htmlFor={`img-${sIdx}`}
-                        className={`btn-secondary text-[10px] px-2.5 py-1 cursor-pointer ${uploads[sIdx]?.uploading ? 'opacity-50 pointer-events-none' : ''}`}
+                        className={`btn-secondary text-[12px] px-2.5 py-1 cursor-pointer ${uploads[sIdx]?.uploading ? 'opacity-50 pointer-events-none' : ''}`}
                       >
                         {uploads[sIdx]?.uploading
                           ? <><span className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />Uploading…</>
@@ -205,14 +205,14 @@ export default function K6ScenariosEditor({ scenarios, onChange, availableUrls =
                       />
                     </div>
                     {uploads[sIdx]?.error && (
-                      <p className="mt-1 text-[10px] text-red-400">{uploads[sIdx].error}</p>
+                      <p className="mt-1 text-[12px] text-red-400">{uploads[sIdx].error}</p>
                     )}
                   </div>
                 </div>
 
                 <div>
                   <div className="flex items-center justify-between mb-1">
-                    <label className="flex items-center gap-1 text-[10px] text-surface-400">
+                    <label className="flex items-center gap-1 text-[12px] text-surface-400">
                       Stages
                       <InfoTooltip text="Each stage ramps toward 'target' over its 'duration' (e.g. 30s), in order. target = requests/sec for arrival-rate executors, VU count for vus executors. A final stage with target 0 ramps down." />
                     </label>
@@ -229,7 +229,7 @@ export default function K6ScenariosEditor({ scenarios, onChange, availableUrls =
                     ))}
                   </div>
                   <div className="mt-2 flex justify-end">
-                    <button type="button" onClick={() => addStage(sIdx)} className="text-[10px] text-dfaas-400 hover:text-dfaas-300 font-medium">+ Add Stage</button>
+                    <button type="button" onClick={() => addStage(sIdx)} className="text-[12px] text-dfaas-400 hover:text-dfaas-300 font-medium">+ Add Stage</button>
                   </div>
                 </div>
               </div>

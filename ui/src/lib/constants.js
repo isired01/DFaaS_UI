@@ -4,7 +4,7 @@
 
 import {
   Circle, Server, Activity, Download,
-  CheckCircle, Play, CheckCheck, XCircle, LineChart, Clock, Ban,
+  CheckCircle, Play, CheckCheck, XCircle, LineChart, Clock, Ban, RefreshCw,
 } from 'lucide-react';
 
 // dfaas-worker balancing strategies, used by the EnvironmentNew form.
@@ -50,6 +50,7 @@ export const ENV_PHASE = {
   'ProvisioningMonitoring': { badge: 'badge-monitoring',   icon: Download,    label: 'Installing monitoring stack',          spin: true },
   'Ready':                  { badge: 'badge-ready',        icon: CheckCircle, label: 'Ready' },
   'Failed':                 { badge: 'badge-failed',       icon: XCircle,     label: 'Failed' },
+  'Unreachable':            { badge: 'badge-cleanup',      icon: RefreshCw,   label: 'Unreachable — retrying SSH', spin: true },
 };
 
 // LoadTest phase → badge style / icon / label (PhaseBadge kind="loadtest").

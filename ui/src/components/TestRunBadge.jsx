@@ -5,5 +5,5 @@ import { TR_PHASE_STYLE } from '../lib/constants';
 // reported by the k6-operator.
 export default function TestRunBadge({ phase }) {
   const cls = TR_PHASE_STYLE[phase] || TR_PHASE_STYLE.created;
-  return <span className={`badge text-[10px] px-2 py-0.5 border ${cls}`}>{phase || '—'}</span>;
+  return <span className={`badge text-[12px] px-2 py-0.5 border ${cls}`}>{phase || '—'}</span>;
 }

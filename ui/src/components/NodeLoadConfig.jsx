@@ -68,7 +68,7 @@ export default function NodeLoadConfig({ node, draft, onUpdate, onFile, availabl
                   <Upload className="w-3.5 h-3.5" />Upload .js
                 </label>
                 <input id={`raw-file-${node.nodeID}`} type="file" accept=".js" className="hidden" onChange={(e) => e.target.files[0] && onFile(node.nodeID, e.target.files[0])} />
-                <span className="text-[10px] text-surface-500">or paste below</span>
+                <span className="text-[12px] text-surface-500">or paste below</span>
               </div>
               <textarea
                 className="input py-2 text-xs font-mono h-48"

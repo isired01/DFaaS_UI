@@ -6,7 +6,7 @@
 // - `labelExtra`: optional node rendered inline after the label (e.g. a lock icon).
 // - `hint`      : optional helper text rendered under the control.
 // - `labelClassName` / `hintClassName`: override the default typography so a
-//   field can match its surrounding form (e.g. the tighter `text-[10px]` rows).
+//   field can match its surrounding form (e.g. the tighter `text-[12px]` rows).
 export default function FormField({
   label,
   labelExtra,
@@ -14,7 +14,7 @@ export default function FormField({
   children,
   className = '',
   labelClassName = 'block text-xs font-medium text-surface-400 mb-1',
-  hintClassName = 'text-[10px] text-surface-500 mt-1',
+  hintClassName = 'text-[12px] text-surface-500 mt-1',
 }) {
   return (
     <div className={className}>

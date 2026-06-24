@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { ArrowLeft, TestTube2, Trash2, AlertTriangle, Info, ChevronDown, ChevronUp, Server, BarChart3, FileCode, Download, Play, FileEdit, Ban, Loader2 } from 'lucide-react';
+import { ArrowLeft, TestTube2, Trash2, AlertTriangle, Info, Server, BarChart3, FileCode, Download, Play, FileEdit, Ban, Loader2 } from 'lucide-react';
 import { fetchLoadTest, deleteLoadTest, fetchLoadTestYAML, downloadTextAsFile, activateLoadTest, abortLoadTest, fetchEnvironment } from '../api/client';
 import PhaseBadge from '../components/PhaseBadge';
 import TestRunBadge from '../components/TestRunBadge';
@@ -19,7 +19,6 @@ export default function LoadTestDetail() {
   const [error, setError] = useState(null);
   const [deleting, setDeleting] = useState(false);
   const [expandedScript, setExpandedScript] = useState(null);
-  const [showSpec, setShowSpec] = useState(false);
   const [activating, setActivating] = useState(false);
   const [aborting, setAborting] = useState(false);
   const [nowMs, setNowMs] = useState(() => Date.now());
@@ -259,7 +258,7 @@ export default function LoadTestDetail() {
                       <Server className="w-4 h-4 text-amber-400" />
                       <div>
                         <p className="text-sm font-semibold text-white">{pn.nodeID}</p>
-                        <p className="text-[10px] text-surface-500 font-mono">vus={pn.vus} · duration={pn.duration}</p>
+                        <p className="text-[12px] text-surface-500 font-mono">vus={pn.vus} · duration={pn.duration}</p>
                       </div>
                     </div>
                     <div className="flex items-center gap-3 text-xs">
@@ -281,7 +280,7 @@ export default function LoadTestDetail() {
                   </div>
                   {scriptOpen && (
                     <div className="border-t border-surface-700/50">
-                      <pre className="code-block max-h-72 overflow-y-auto m-0 rounded-none border-0 text-[11px]">{pn.script || '(script not available)'}</pre>
+                      <pre className="code-block max-h-72 overflow-y-auto m-0 rounded-none border-0 text-[13px]">{pn.script || '(script not available)'}</pre>
                     </div>
                   )}
                 </div>
@@ -304,7 +303,7 @@ export default function LoadTestDetail() {
               if ((!metrics || metrics.length === 0) && Array.isArray(legacyQueries) && legacyQueries.length > 0) {
                 return (
                   <div>
-                    <div className="p-2 mb-2 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 text-[10px]">
+                    <div className="p-2 mb-2 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 text-[12px]">
                       Legacy format — recreate to migrate to the structured 4-field schema.
                     </div>
                     <ul className="space-y-1">
@@ -320,9 +319,9 @@ export default function LoadTestDetail() {
               }
               return (
                 <div className="overflow-x-auto">
-                  <table className="w-full text-[11px]">
+                  <table className="w-full text-[13px]">
                     <thead>
-                      <tr className="text-left text-[10px] text-surface-500 uppercase tracking-wider border-b border-surface-700/40">
+                      <tr className="text-left text-[12px] text-surface-500 uppercase tracking-wider border-b border-surface-700/40">
                         <th className="py-1.5 px-2">Type</th>
                         <th className="py-1.5 px-2">Metric name</th>
                         <th className="py-1.5 px-2">PromQL query</th>
@@ -363,20 +362,6 @@ export default function LoadTestDetail() {
             )}
           </div>
         </div>
-      </div>
-
-      <div className="glass-card p-5">
-        <button type="button" onClick={() => setShowSpec(!showSpec)} className="flex items-center justify-between w-full text-left">
-          <span className="text-sm font-semibold text-surface-300 uppercase tracking-wider">Raw Spec</span>
-          {showSpec ? <ChevronUp className="w-4 h-4 text-surface-400" /> : <ChevronDown className="w-4 h-4 text-surface-400" />}
-        </button>
-        {showSpec && (
-          <pre className="code-block mt-3 max-h-96 overflow-y-auto text-[11px]">{JSON.stringify({
-            perNodeLoad: loadtest.perNodeLoad?.map(p => ({ nodeID: p.nodeID, vus: p.vus, duration: p.duration, scriptConfigMap: p.scriptConfigMap })),
-            metricsExport: loadtest.metricsExport,
-            testRuns: loadtest.testRuns,
-          }, null, 2)}</pre>
-        )}
       </div>
     </div>
   );

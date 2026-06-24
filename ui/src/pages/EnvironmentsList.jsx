@@ -94,7 +94,7 @@ export default function EnvironmentsList() {
         <span className="flex items-center gap-1.5 text-sm text-surface-300">
           <Server className="w-3.5 h-3.5 text-surface-500" />
           {env.nodeCount}
-          <span className="text-[10px] text-surface-500 ml-1">
+          <span className="text-[12px] text-surface-500 ml-1">
             ({env.dfaasNodeCount}d / {env.k6NodeCount}k6)
           </span>
         </span>

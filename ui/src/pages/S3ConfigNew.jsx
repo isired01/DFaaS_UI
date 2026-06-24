@@ -128,7 +128,7 @@ export default function S3ConfigNew() {
             />
             Force path-style addressing
           </label>
-          <p className="text-[10px] text-surface-500 mt-1">
+          <p className="text-[12px] text-surface-500 mt-1">
             Enable for SeaweedFS and most non-AWS endpoints (uses <code>{`http://host/bucket`}</code> instead of <code>{`http://bucket.host`}</code>).
           </p>
           {suggestPathStyle && (

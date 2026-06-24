@@ -241,7 +241,7 @@ export default function LoadTestNew() {
           onChange={(e) => setNameSuffix(e.target.value)}
           placeholder="e.g. baseline, run-2"
         />
-        <p className="text-[10px] text-surface-500 mt-1">
+        <p className="text-[12px] text-surface-500 mt-1">
           Name: <code className="text-surface-400">lt-{envName}-&lt;timestamp&gt;{nameSuffix.trim() ? `-${nameSuffix.trim()}` : ''}</code> (sanitized to lowercase DNS-1123)
         </p>
       </div>

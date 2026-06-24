@@ -5,8 +5,10 @@
 /* === Base Styles === */
 @layer base {
   html {
-    /* Aumenta la dimensione base del font (da 16px a ~18px) per scalare proporzionalmente testo e spaziature */
-    font-size: 112.5%;
+    /* Base font size bumped from the browser default 16px to 20px (125%) so all
+       rem-based text and spacing scale up proportionally — the UI reads larger
+       without per-component changes. Tune this single value to zoom further. */
+    font-size: 125%;
   }
 
   * {

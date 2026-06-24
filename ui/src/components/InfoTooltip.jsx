@@ -11,7 +11,7 @@ export default function InfoTooltip({ text }) {
         role="tooltip"
         className="pointer-events-none absolute left-0 bottom-full z-30 mb-1.5
                    w-max max-w-[260px] rounded-lg border border-surface-700 bg-surface-900
-                   px-2.5 py-1.5 text-[11px] leading-snug text-surface-200 shadow-lg shadow-black/40
+                   px-2.5 py-1.5 text-[13px] leading-snug text-surface-200 shadow-lg shadow-black/40
                    opacity-0 transition-opacity duration-150
                    group-hover:opacity-100 group-focus-within:opacity-100"
       >

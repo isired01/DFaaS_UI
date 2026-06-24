@@ -250,7 +250,7 @@ export default function EnvironmentNew({ mode = 'create' }) {
               <option value={s3ConfigName}>{s3ConfigName} (current, not in registry)</option>
             )}
           </select>
-          <p className="text-[10px] text-surface-500 mt-1">
+          <p className="text-[12px] text-surface-500 mt-1">
             Every LoadTest in this environment exports its CSV to <code>s3://&lt;env-name&gt;-&lt;uid&gt;/metrics/...</code> using the chosen config.{' '}
             <Link to="/s3-configs/new" target="_blank" rel="noopener" className="text-dfaas-400 hover:text-dfaas-300">
               Create new S3 config

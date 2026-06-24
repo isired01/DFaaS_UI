@@ -4,7 +4,7 @@ import { ENV_PHASE, LT_PHASE } from '../lib/constants';
 const MAPS = { env: ENV_PHASE, loadtest: LT_PHASE };
 
 const SIZE_CLASSES = {
-  sm: 'text-[10px] px-2 py-0.5',
+  sm: 'text-[12px] px-2 py-0.5',
   md: 'text-xs px-3 py-1',
   lg: 'text-sm px-4 py-1.5',
 };

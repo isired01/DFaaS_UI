@@ -33,11 +33,11 @@ export default function NodeCard({ node, index, variant, onConfigureLoad, config
           </div>
         </div>
         <div className="flex flex-col items-end gap-1">
-          <span className={`badge text-[10px] px-2 py-0.5 ${capacity.bg} ${capacity.text} border ${capacity.border}`}>
+          <span className={`badge text-[12px] px-2 py-0.5 ${capacity.bg} ${capacity.text} border ${capacity.border}`}>
             {capacity.label}
           </span>
           {node.role && (
-            <span className="text-[10px] text-surface-500 uppercase tracking-wider">
+            <span className="text-[12px] text-surface-500 uppercase tracking-wider">
               {ROLE_LABEL[node.role] || node.role}
             </span>
           )}
@@ -90,7 +90,7 @@ function InfoItem({ icon: Icon, label, value }) {
     <div className="flex items-center gap-2">
       <Icon className="w-3.5 h-3.5 text-surface-500" />
       <div>
-        <p className="text-[10px] text-surface-500 uppercase">{label}</p>
+        <p className="text-[12px] text-surface-500 uppercase">{label}</p>
         <p className="text-xs text-surface-200 font-medium truncate">{value}</p>
       </div>
     </div>
@@ -104,10 +104,10 @@ function FunctionRow({ fn }) {
         <Box className="w-4 h-4 text-violet-400" />
         <div>
           <p className="text-sm font-medium text-white">{fn.name}</p>
-          <p className="text-[10px] text-surface-500 font-mono truncate max-w-[200px]">{fn.image}</p>
+          <p className="text-[12px] text-surface-500 font-mono truncate max-w-[200px]">{fn.image}</p>
         </div>
       </div>
-      <div className="flex items-center gap-3 text-[10px] text-surface-400">
+      <div className="flex items-center gap-3 text-[12px] text-surface-400">
         <span className="flex items-center gap-1">
           <Clock className="w-3 h-3" />
           {fn.execTimeout}s

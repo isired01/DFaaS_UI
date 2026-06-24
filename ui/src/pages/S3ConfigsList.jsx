@@ -163,7 +163,7 @@ export default function S3ConfigsList() {
                           {cfg.name}
                         </span>
                         {isDefault && (
-                          <span className="text-[10px] font-medium px-2 py-0.5 rounded-md bg-dfaas-500/15 text-dfaas-300 border border-dfaas-500/30">
+                          <span className="text-[12px] font-medium px-2 py-0.5 rounded-md bg-dfaas-500/15 text-dfaas-300 border border-dfaas-500/30">
                             built-in default
                           </span>
                         )}

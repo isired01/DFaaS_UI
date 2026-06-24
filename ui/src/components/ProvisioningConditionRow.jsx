@@ -28,7 +28,7 @@ export default function ProvisioningConditionRow({ conditions, type, label }) {
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
           <span className="text-sm font-semibold text-white">{label}</span>
-          {reason && <span className="text-[10px] text-surface-400 uppercase tracking-wider">{reason}</span>}
+          {reason && <span className="text-[12px] text-surface-400 uppercase tracking-wider">{reason}</span>}
         </div>
         {message && <p className="text-xs text-surface-300 mt-1 truncate">{message}</p>}
       </div>
