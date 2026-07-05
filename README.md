@@ -26,13 +26,17 @@ CRs.
 The UI is packaged in the **same unified chart** as the operator:
 
 ```bash
-# 1. Install the chart (operator + UI)
+# 1. Install the CRDs (the chart does not package them), then the chart:
+kubectl apply -f https://github.com/isired01/DFaaSOperator/releases/download/v0.1.0/dfaas.dfaas.io_environments.yaml
+kubectl apply -f https://github.com/isired01/DFaaSOperator/releases/download/v0.1.0/dfaas.dfaas.io_loadtests.yaml
+
+# 2. Install the chart (operator + UI)
 helm install dfaas oci://ghcr.io/isired01/charts/dfaas \
-  --version 1.0.0 \
+  --version 0.1.0 \
   --create-namespace \
   --namespace dfaas-operator-system
 
-# 2. Open the UI
+# 3. Open the UI
 kubectl -n dfaas-ui port-forward svc/dfaas-ui 8082:8082
 open http://localhost:8082
 ```
@@ -93,6 +97,7 @@ The server reads environment variables directly (no `.env` file is loaded):
 - `PORT` — port the server listens on (default `8082`).
 - `GIN_MODE` — set to `release` in production.
 - `KUBECONFIG` — kubeconfig path for local (out-of-cluster) runs.
+- `CORS_ORIGINS` — comma-separated allow-list of browser origins for the API (empty = same-origin only). Helm-injectable via `ui.env` in the chart.
 - `SEAWEEDFS_PUBLIC_URL` — public base URL for uploaded k6 image assets, reachable **from the k6 VMs** (e.g. `http://<node-ip>:30900`). See "Image payloads in k6 load tests".
 - `SEAWEEDFS_ENDPOINT` — override for the gateway→SeaweedFS **dial** endpoint (default: auto — in-cluster DNS, or node-IP:30900 in dev).
 

@@ -357,7 +357,7 @@ export default function LoadTestDetail() {
               </p>
             ) : (
               <p className="text-xs text-surface-500">
-                No S3 config on environment → exporter pod stdout.
+                No S3 config on environment → in-cluster SeaweedFS (default).
               </p>
             )}
           </div>

@@ -296,7 +296,10 @@ func ensureBucket(ctx context.Context, client *s3.Client, bucket, region string)
 	if err == nil {
 		return nil
 	}
-	if !isS3NotFound(err) {
+	// SeaweedFS returns 403 Forbidden (not 404) for HeadBucket on a bucket that
+	// doesn't exist yet, so treat Forbidden like NotFound and fall through to
+	// CreateBucket. A genuine auth failure then surfaces on CreateBucket below.
+	if !isS3NotFound(err) && !isS3Forbidden(err) {
 		return fmt.Errorf("head bucket %q: %w", bucket, err)
 	}
 
@@ -433,6 +436,22 @@ func isS3NotFound(err error) bool {
 	if errors.As(err, &apiErr) {
 		code := apiErr.ErrorCode()
 		return code == "NotFound" || code == "NoSuchBucket" || code == "404"
+	}
+	return false
+}
+
+// isS3Forbidden matches a 403 response. SeaweedFS returns 403 Forbidden for
+// HeadBucket on a non-existent bucket (rather than 404 NoSuchBucket), so the
+// caller treats it like NotFound and proceeds to create; a real auth failure
+// then surfaces on the follow-up CreateBucket/PutObject.
+func isS3Forbidden(err error) bool {
+	if err == nil {
+		return false
+	}
+	var apiErr smithy.APIError
+	if errors.As(err, &apiErr) {
+		code := apiErr.ErrorCode()
+		return code == "Forbidden" || code == "AccessDenied" || code == "403"
 	}
 	return false
 }

@@ -17,7 +17,11 @@ const ICON_CLASSES = {
 
 export default function PhaseBadge({ phase, kind = 'env', size = 'md' }) {
   const map = MAPS[kind] || MAPS.env;
-  const config = map[phase] || map[''] || { badge: 'badge-idle', icon: Circle, label: phase || 'Unknown' };
+  // No `|| map['']` fallback: phase === '' already resolves via map[phase] (= map['']),
+  // and that empty-phase entry is labelled "Initializing" — letting it catch *unmapped*
+  // phases (e.g. a phase the UI doesn't know) would mislabel them as "Initializing".
+  // Unknown phases fall through to showing their literal name instead.
+  const config = map[phase] || { badge: 'badge-idle', icon: Circle, label: phase || 'Unknown' };
   const Icon = config.icon;
 
   return (
