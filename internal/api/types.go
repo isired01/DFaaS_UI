@@ -28,6 +28,7 @@ type EnvironmentDetail struct {
 	CreationTimestamp  time.Time        `json:"creationTimestamp"`
 	Generation         int64            `json:"generation"`
 	ObservedGeneration int64            `json:"observedGeneration"`
+	LastHealthCheck    string           `json:"lastHealthCheck,omitempty"`
 	Conditions         []ConditionInfo  `json:"conditions,omitempty"`
 	Nodes              []NodeInfo       `json:"nodes"`
 	Topology           TopologyInfo     `json:"topology"`
@@ -59,13 +60,16 @@ type NodeInfo struct {
 	Functions         []FunctionInfo `json:"functions,omitempty"`
 }
 
-// FunctionInfo mirrors a dfaas function deployed on a worker.
+// FunctionInfo mirrors a dfaas function deployed on a worker. The numeric
+// tuning fields carry omitempty: a value of 0 is never valid for them, so a
+// blank form field (0) is dropped from the outgoing patch/create body and the
+// CRD's defaulting applies instead of an explicit 0 (which would defeat it).
 type FunctionInfo struct {
 	Name        string `json:"name"`
 	Image       string `json:"image"`
-	ExecTimeout int    `json:"execTimeout"`
-	MaxInflight int    `json:"maxInflight"`
-	TimeoutMs   int    `json:"timeoutMs"`
+	ExecTimeout int    `json:"execTimeout,omitempty"`
+	MaxInflight int    `json:"maxInflight,omitempty"`
+	TimeoutMs   int    `json:"timeoutMs,omitempty"`
 	MaxRate     int    `json:"maxRate,omitempty"`
 }
 
@@ -100,19 +104,29 @@ type CreateEnvironmentRequest struct {
 
 // UpdateEnvironmentRequest is the body for PATCH /api/environments/:ns/:name.
 // Mirrors the merge-patch shape Kubernetes expects: { "spec": { ... } }.
-// Pointer/omitempty on each spec field means "absent in the patch" rather than
-// "set to zero value".
+// Pointer fields (CleanupOnDelete, Topology, S3ConfigRef) use "absent in the
+// patch" vs "set" semantics: nil is omitted and preserved on the cluster object.
 type UpdateEnvironmentRequest struct {
 	Spec UpdateEnvironmentSpec `json:"spec" binding:"required"`
 }
 
 // UpdateEnvironmentSpec carries the subset of Environment.spec the client wants
-// to merge-patch. Any field left nil/omitted is preserved on the cluster object.
+// to merge-patch. Pointer fields left nil are omitted and preserved on the
+// cluster object.
+//
+// Nodes is a non-pointer slice with standard array-replace semantics: when
+// present it replaces the whole list, and an empty array is NOT a valid clear
+// (spec.nodes has CRD MinItems=1). It carries no absent-vs-zero distinction.
+//
+// S3ConfigRef is set-only; to clear it back to the operator default set
+// ClearS3ConfigRef=true instead, which patches s3ConfigRef to JSON null (the
+// omitempty pointer alone cannot express an explicit null).
 type UpdateEnvironmentSpec struct {
-	CleanupOnDelete *bool            `json:"cleanupOnDelete,omitempty"`
-	Nodes           []NodeInfo       `json:"nodes,omitempty"`
-	Topology        *TopologyInfo    `json:"topology,omitempty"`
-	S3ConfigRef     *S3ConfigRefView `json:"s3ConfigRef,omitempty"`
+	CleanupOnDelete  *bool            `json:"cleanupOnDelete,omitempty"`
+	Nodes            []NodeInfo       `json:"nodes,omitempty"`
+	Topology         *TopologyInfo    `json:"topology,omitempty"`
+	S3ConfigRef      *S3ConfigRefView `json:"s3ConfigRef,omitempty"`
+	ClearS3ConfigRef bool             `json:"clearS3ConfigRef,omitempty"`
 }
 
 // --- LoadTest DTOs ---
@@ -125,6 +139,7 @@ type LoadTestSummary struct {
 	TargetEnvironment string     `json:"targetEnvironment"`
 	Phase             string     `json:"phase"`
 	Suspended         bool       `json:"suspended,omitempty"`
+	SyncStart         bool       `json:"syncStart"`
 	StartAt           *time.Time `json:"startAt,omitempty"`
 	Stop              bool       `json:"stop,omitempty"`
 	Message           string     `json:"message,omitempty"`
@@ -185,12 +200,16 @@ type CreateLoadTestRequest struct {
 	// NameSuffix is an optional user-supplied suffix appended to the
 	// auto-generated name (lt-<env>-<timestamp>-<suffix>). Ignored when Name
 	// is set (full override). Sanitized to DNS-1123 server-side.
-	NameSuffix        string              `json:"nameSuffix,omitempty"`
-	TargetEnvironment string              `json:"targetEnvironment" binding:"required"`
-	Suspended         bool                `json:"suspended,omitempty"`
-	StartAt           *time.Time          `json:"startAt,omitempty"`
-	PerNodeLoad       []CreatePerNodeLoad `json:"perNodeLoad" binding:"required,min=1"`
-	MetricsExport     CreateMetricsExport `json:"metricsExport"`
+	NameSuffix        string `json:"nameSuffix,omitempty"`
+	TargetEnvironment string `json:"targetEnvironment" binding:"required"`
+	Suspended         bool   `json:"suspended,omitempty"`
+	// SyncStart requests a synchronized start: the operator injects DFAAS_SYNC_URL
+	// into every remote k6 runner and holds them at a barrier until all TestRuns
+	// are started, so the generators begin load together (~250ms skew).
+	SyncStart     bool                `json:"syncStart"`
+	StartAt       *time.Time          `json:"startAt,omitempty"`
+	PerNodeLoad   []CreatePerNodeLoad `json:"perNodeLoad" binding:"required,min=1"`
+	MetricsExport CreateMetricsExport `json:"metricsExport"`
 }
 
 // CreatePerNodeLoad: exactly one of Script or ScriptConfigMap must be set.

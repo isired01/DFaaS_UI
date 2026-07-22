@@ -19,6 +19,7 @@ export default function EnvironmentDetail() {
   const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
+    let cancelled = false;
     const load = async () => {
       try {
         setError(null);
@@ -26,14 +27,15 @@ export default function EnvironmentDetail() {
           fetchEnvironment(namespace, name),
           fetchLoadTests({ environment: `${namespace}/${name}` }).catch(() => []),
         ]);
+        if (cancelled) return;
         setEnvironment(env);
         setLoadtests(lts);
-      } catch (err) { setError(err.message); }
-      finally { setLoading(false); }
+      } catch (err) { if (!cancelled) setError(err.message); }
+      finally { if (!cancelled) setLoading(false); }
     };
     load();
     const interval = setInterval(load, 5000);
-    return () => clearInterval(interval);
+    return () => { cancelled = true; clearInterval(interval); };
   }, [namespace, name]);
 
   const handleDownloadYAML = async () => {
@@ -102,6 +104,11 @@ export default function EnvironmentDetail() {
               )}
               {environment.cleanupOnDelete && (
                 <span className="text-[12px] text-orange-400 uppercase tracking-wider">cleanup on delete</span>
+              )}
+              {environment.lastHealthCheck && (
+                <span className="text-[12px] text-surface-500" id="environment-last-health-check">
+                  Last health check: {formatDateTime(environment.lastHealthCheck)}
+                </span>
               )}
             </div>
           </div>

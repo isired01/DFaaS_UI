@@ -9,6 +9,7 @@ import LoadTestNew from './pages/LoadTestNew';
 import LoadTestDetail from './pages/LoadTestDetail';
 import S3ConfigsList from './pages/S3ConfigsList';
 import S3ConfigNew from './pages/S3ConfigNew';
+import S3ConfigDetail from './pages/S3ConfigDetail';
 
 export default function App() {
   return (
@@ -24,6 +25,7 @@ export default function App() {
           <Route path="loadtests/:namespace/:name" element={<ErrorBoundary><LoadTestDetail /></ErrorBoundary>} />
           <Route path="s3-configs" element={<ErrorBoundary><S3ConfigsList /></ErrorBoundary>} />
           <Route path="s3-configs/new" element={<ErrorBoundary><S3ConfigNew /></ErrorBoundary>} />
+          <Route path="s3-configs/:name" element={<ErrorBoundary><S3ConfigDetail /></ErrorBoundary>} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
       </Routes>

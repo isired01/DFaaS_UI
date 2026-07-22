@@ -9,7 +9,7 @@ function jsString(s) {
 
 function renderScenario(s) {
   const stages = (s.stages || []).map(st => `        { duration: '${st.duration}', target: ${st.target} },`).join('\n');
-  return `    "${s.name}": {
+  return `    ${jsString(s.name)}: {
       executor: '${s.executor || 'ramping-arrival-rate'}',
       startRate: 0,
       timeUnit: '1s',
@@ -20,7 +20,7 @@ function renderScenario(s) {
 ${stages}
       ],
       exec: 'runScenario',
-      env: { SCENARIO_ID: '${s.name}' },
+      env: { SCENARIO_ID: ${jsString(s.name)} },
     },`;
 }
 
@@ -45,7 +45,7 @@ function renderConfig(s, idx) {
     // Body bytes are fetched ONCE in setup() and handed to each VU as base64;
     // __getImg_<idx>(data) decodes them per VU. The config exposes the loader +
     // content type so the request builder can attach both.
-    return `  "${s.name}": {
+    return `  ${jsString(s.name)}: {
     method: '${method}',
     url: '${s.targetURL || ''}',
     bodyLoader: __getImg_${idx},
@@ -54,7 +54,7 @@ function renderConfig(s, idx) {
   },`;
   }
   const body = s.body ? jsString(s.body) : 'null';
-  return `  "${s.name}": {
+  return `  ${jsString(s.name)}: {
     method: '${method}',
     url: '${s.targetURL || ''}',
     body: ${body},
@@ -67,6 +67,16 @@ function renderConfig(s, idx) {
 // runs setup() exactly once, so this is what turns N fetches (one per VU) into
 // one fetch total — the object store is hit once regardless of VU count. Binary
 // can't survive setup-data JSON serialization to the VUs, hence base64.
+//
+// The sync barrier is emitted LAST, after any image fetches, so that payload
+// warmup happens while we wait: when DFAAS_SYNC_URL is injected (synchronized
+// start), every generator busy-waits until the operator publishes the "GO"
+// signal (HTTP 200) so all runners begin load together. The barrier is guarded
+// by the env var to stay backwards-compatible when sync start is off.
+//
+// setup() is always emitted (even with no images) and always returns
+// { payloads } — an empty object when there are no images — so the per-VU image
+// decoders keep reading data.payloads unchanged.
 function renderSetup(imageScenarios) {
   const fetches = imageScenarios.map(s =>
 `  {
@@ -76,10 +86,18 @@ function renderSetup(imageScenarios) {
     } else {
       console.log('setup: payload fetch failed for ' + ${jsString(s.name)} + ' (status=' + __r.status + ')');
     }
-  }`).join('\n');
+  }`);
+  const barrier =
+`  // Synchronized start: wait for the operator's GO signal (HTTP 200) so every
+  // generator begins its load at the same moment. No-op unless DFAAS_SYNC_URL
+  // is injected, keeping non-synchronized runs backwards-compatible.
+  if (__ENV.DFAAS_SYNC_URL) {
+    while (http.get(__ENV.DFAAS_SYNC_URL).status !== 200) { sleep(0.25); }
+  }`;
+  const body = [...fetches, barrier].join('\n');
   return `export function setup() {
   const payloads = {};
-${fetches}
+${body}
   return { payloads };
 }`;
 }
@@ -112,18 +130,23 @@ export function generateK6Script(scenarios) {
     .map((s, i) => (hasImage(s) ? renderImageDecoder(s, i) : null))
     .filter(Boolean)
     .join('\n\n');
-  const setupBlock = anyImage ? renderSetup(imageScenarios) : '';
+  // setup() is always emitted: it carries the sync barrier, so it must exist
+  // even when there are no image payloads to fetch.
+  const setupBlock = renderSetup(imageScenarios);
 
   return `import http from 'k6/http';
-import { check } from 'k6';${anyImage ? `\nimport encoding from 'k6/encoding';` : ''}
+import { check, sleep } from 'k6';${anyImage ? `\nimport encoding from 'k6/encoding';` : ''}
 
 export const options = {
+  setupTimeout: '10m',
   scenarios: {
 ${scenariosBlock}
   },
 };
-${anyImage ? `\n${setupBlock}\n` : ''}${decoderBlock ? `\n${decoderBlock}\n` : ''}
-const scenarioConfig = {
+
+${setupBlock}
+
+${decoderBlock ? `${decoderBlock}\n\n` : ''}const scenarioConfig = {
 ${configBlock}
 };
 

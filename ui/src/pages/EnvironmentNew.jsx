@@ -134,19 +134,20 @@ export default function EnvironmentNew({ mode = 'create' }) {
           if (n.role === 'dfaas-worker') {
             node.balancingStrategy = n.balancingStrategy;
             if (n.functions.length > 0) {
-              const emitMaxRate = n.balancingStrategy === 'recalcstrategy';
               node.functions = n.functions.map(f => {
-                const fn = {
-                  name: f.name,
-                  image: f.image,
-                  execTimeout: parseInt(f.execTimeout) || 0,
-                  maxInflight: parseInt(f.maxInflight) || 0,
-                  timeoutMs: parseInt(f.timeoutMs) || 0,
-                };
-                if (emitMaxRate) {
-                  const maxRate = parseInt(f.maxRate);
-                  fn.maxRate = Number.isFinite(maxRate) && maxRate >= 1 ? maxRate : 100;
-                }
+                const fn = { name: f.name, image: f.image };
+                // Omit numeric fields left blank/NaN so the CRD default applies;
+                // sending an explicit 0 would override the default. maxRate is
+                // always emitted when set, regardless of balancing strategy, so
+                // a tuned value survives an edit.
+                const execTimeout = parseInt(f.execTimeout);
+                if (Number.isFinite(execTimeout)) fn.execTimeout = execTimeout;
+                const maxInflight = parseInt(f.maxInflight);
+                if (Number.isFinite(maxInflight)) fn.maxInflight = maxInflight;
+                const timeoutMs = parseInt(f.timeoutMs);
+                if (Number.isFinite(timeoutMs)) fn.timeoutMs = timeoutMs;
+                const maxRate = parseInt(f.maxRate);
+                if (Number.isFinite(maxRate)) fn.maxRate = maxRate;
                 return fn;
               });
             }
@@ -174,6 +175,12 @@ export default function EnvironmentNew({ mode = 'create' }) {
         };
         if (trimmedS3) {
           patch.s3ConfigRef = { name: trimmedS3 };
+        } else {
+          // Explicit clear: the gateway patches s3ConfigRef to null so K8s
+          // deletes the field and the environment falls back to the operator
+          // default (seaweedfs-default). Omitting the field would leave the
+          // previous reference untouched on a merge-patch.
+          patch.clearS3ConfigRef = true;
         }
         await updateEnvironment(namespace, name, patch);
       } else {

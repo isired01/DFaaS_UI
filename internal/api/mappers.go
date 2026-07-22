@@ -49,6 +49,7 @@ func mapEnvDetail(item unstructured.Unstructured) EnvironmentDetail {
 	}
 
 	d.CleanupOnDelete, _, _ = unstructured.NestedBool(item.Object, "spec", "cleanupOnDelete")
+	d.LastHealthCheck = getNestedString(item.Object, "status", "lastHealthCheck")
 
 	conditions, _, _ := unstructured.NestedSlice(item.Object, "status", "conditions")
 	for _, c := range conditions {
@@ -143,12 +144,14 @@ func mapEnvDetail(item unstructured.Unstructured) EnvironmentDetail {
 func mapLoadTestSummary(item unstructured.Unstructured) LoadTestSummary {
 	suspended, _, _ := unstructured.NestedBool(item.Object, "spec", "suspended")
 	stop, _, _ := unstructured.NestedBool(item.Object, "spec", "stop")
+	syncStart, _, _ := unstructured.NestedBool(item.Object, "spec", "syncStart")
 	s := LoadTestSummary{
 		Name:              item.GetName(),
 		Namespace:         item.GetNamespace(),
 		TargetEnvironment: getNestedString(item.Object, "spec", "targetEnvironment"),
 		Phase:             getNestedString(item.Object, "status", "phase"),
 		Suspended:         suspended,
+		SyncStart:         syncStart,
 		Stop:              stop,
 		Message:           getNestedString(item.Object, "status", "message"),
 		CreationTimestamp: item.GetCreationTimestamp().Time,

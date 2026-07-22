@@ -40,7 +40,7 @@ func (h *Handler) GetEnvironment(c *gin.Context) {
 
 	result, err := h.client.Resource(EnvironmentGVR).Namespace(namespace).Get(ctx, name, metav1.GetOptions{})
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": fmt.Sprintf("environment '%s/%s' not found: %v", namespace, name, err)})
+		writeK8sError(c, err, fmt.Sprintf("environment '%s/%s'", namespace, name))
 		return
 	}
 
@@ -96,7 +96,28 @@ func (h *Handler) UpdateEnvironment(c *gin.Context) {
 		}
 	}
 
-	patchBytes, err := json.Marshal(req)
+	// Build the merge patch as a map so an explicit s3ConfigRef clear survives
+	// re-marshalling: ClearS3ConfigRef sets s3ConfigRef to JSON null (which the
+	// merge-patch deletes on the cluster object), whereas the omitempty struct
+	// field would silently drop the null. Other fields mirror the DTO's
+	// pointer/omitempty semantics.
+	specPatch := map[string]interface{}{}
+	if req.Spec.CleanupOnDelete != nil {
+		specPatch["cleanupOnDelete"] = *req.Spec.CleanupOnDelete
+	}
+	if len(req.Spec.Nodes) > 0 {
+		specPatch["nodes"] = req.Spec.Nodes
+	}
+	if req.Spec.Topology != nil {
+		specPatch["topology"] = req.Spec.Topology
+	}
+	if req.Spec.ClearS3ConfigRef {
+		specPatch["s3ConfigRef"] = nil
+	} else if req.Spec.S3ConfigRef != nil {
+		specPatch["s3ConfigRef"] = req.Spec.S3ConfigRef
+	}
+
+	patchBytes, err := json.Marshal(map[string]interface{}{"spec": specPatch})
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("marshal patch: %v", err)})
 		return
@@ -168,7 +189,7 @@ func (h *Handler) DeleteEnvironment(c *gin.Context) {
 
 	err := h.client.Resource(EnvironmentGVR).Namespace(namespace).Delete(ctx, name, metav1.DeleteOptions{})
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("delete environment: %v", err)})
+		writeK8sError(c, err, fmt.Sprintf("environment '%s/%s'", namespace, name))
 		return
 	}
 
@@ -196,11 +217,21 @@ func buildEnvironmentUnstructured(req CreateEnvironmentRequest) *unstructured.Un
 			funcs := make([]interface{}, 0, len(n.Functions))
 			for _, f := range n.Functions {
 				fn := map[string]interface{}{
-					"name":        f.Name,
-					"image":       f.Image,
-					"execTimeout": int64(f.ExecTimeout),
-					"maxInflight": int64(f.MaxInflight),
-					"timeoutMs":   int64(f.TimeoutMs),
+					"name":  f.Name,
+					"image": f.Image,
+				}
+				// Emit the tuning fields only when set (>0): a blank form field
+				// arrives as 0, and sending an explicit 0 would defeat the CRD's
+				// defaulting (defaults apply to absent fields only) and deploy a
+				// function with a 0 timeout. Omitting lets the CRD default apply.
+				if f.ExecTimeout > 0 {
+					fn["execTimeout"] = int64(f.ExecTimeout)
+				}
+				if f.MaxInflight > 0 {
+					fn["maxInflight"] = int64(f.MaxInflight)
+				}
+				if f.TimeoutMs > 0 {
+					fn["timeoutMs"] = int64(f.TimeoutMs)
 				}
 				if f.MaxRate > 0 {
 					fn["maxRate"] = int64(f.MaxRate)

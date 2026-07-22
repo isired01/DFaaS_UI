@@ -40,6 +40,8 @@ export default function LoadTestNew() {
   const [cooldown, setCooldown] = useState(false);
   const [startAt, setStartAt] = useState('');
   const [submitMode, setSubmitMode] = useState('draft');
+  const [syncStart, setSyncStart] = useState(false);
+  const [syncTouched, setSyncTouched] = useState(false);
 
   useEffect(() => {
     fetchEnvironment(namespace, envName)
@@ -81,6 +83,20 @@ export default function LoadTestNew() {
     });
     return urls;
   }, [environment]);
+
+  // Count generators the user has actually enabled: synchronized start only
+  // matters when two or more will run at once.
+  const enabledK6Count = useMemo(
+    () => Object.values(perNode).filter(d => d?.enabled).length,
+    [perNode],
+  );
+
+  // Default the checkbox on when 2+ generators are enabled, but stop steering it
+  // once the user has toggled it by hand.
+  useEffect(() => {
+    if (syncTouched) return;
+    setSyncStart(enabledK6Count >= 2);
+  }, [enabledK6Count, syncTouched]);
 
   const updateNode = (nodeID, patch) => setPerNode(prev => ({ ...prev, [nodeID]: { ...prev[nodeID], ...patch } }));
 
@@ -187,6 +203,7 @@ export default function LoadTestNew() {
         targetEnvironment: envName,
         perNodeLoad,
         metricsExport,
+        syncStart,
       };
       if (nameSuffix.trim()) payload.nameSuffix = nameSuffix.trim();
       payload.suspended = true;
@@ -269,6 +286,20 @@ export default function LoadTestNew() {
           envName={envName}
         />
       ))}
+
+      <div className="glass-card p-5">
+        <label className="flex items-center gap-2 text-sm text-surface-300">
+          <input
+            type="checkbox"
+            checked={syncStart}
+            onChange={(e) => { setSyncStart(e.target.checked); setSyncTouched(true); }}
+          />
+          Synchronized start
+        </label>
+        <p className="text-[12px] text-surface-500 mt-1">
+          All generators wait for a GO signal and start together (~250ms skew). Requires k6 VMs to reach the management node on port 30901.
+        </p>
+      </div>
 
       <MetricsEditor
         metrics={metrics}

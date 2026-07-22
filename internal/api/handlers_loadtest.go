@@ -55,7 +55,7 @@ func (h *Handler) GetLoadTest(c *gin.Context) {
 
 	result, err := h.client.Resource(LoadTestGVR).Namespace(namespace).Get(ctx, name, metav1.GetOptions{})
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": fmt.Sprintf("loadtest '%s/%s' not found: %v", namespace, name, err)})
+		writeK8sError(c, err, fmt.Sprintf("loadtest '%s/%s'", namespace, name))
 		return
 	}
 
@@ -97,9 +97,11 @@ func (h *Handler) CreateLoadTest(c *gin.Context) {
 		return
 	}
 
+	// The operator dispatches against Ready or Degraded environments, so gate on
+	// both. Draft/scheduled tests skip the gate (they run later once the env settles).
 	phase := getNestedString(envObj.Object, "status", "phase")
-	if !req.Suspended && req.StartAt == nil && phase != "Ready" {
-		c.JSON(http.StatusConflict, gin.H{"error": fmt.Sprintf("environment '%s' is not Ready (current phase: %s)", req.TargetEnvironment, phase)})
+	if !req.Suspended && req.StartAt == nil && phase != "Ready" && phase != "Degraded" {
+		c.JSON(http.StatusConflict, gin.H{"error": fmt.Sprintf("environment '%s' is not dispatchable (current phase: %s; requires Ready or Degraded)", req.TargetEnvironment, phase)})
 		return
 	}
 
@@ -149,7 +151,7 @@ func (h *Handler) CreateLoadTest(c *gin.Context) {
 	created, err := h.client.Resource(LoadTestGVR).Namespace(req.Namespace).Create(ctx, lt, metav1.CreateOptions{})
 	if err != nil {
 		cleanup()
-		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("create loadtest: %v", err)})
+		writeK8sError(c, err, fmt.Sprintf("loadtest '%s/%s'", req.Namespace, ltName))
 		return
 	}
 
@@ -297,6 +299,9 @@ func buildLoadTestUnstructured(ltName string, req *CreateLoadTestRequest) (lt *u
 	if req.Suspended {
 		spec["suspended"] = true
 	}
+	if req.SyncStart {
+		spec["syncStart"] = true
+	}
 	if req.StartAt != nil {
 		spec["startAt"] = req.StartAt.UTC().Format(time.RFC3339)
 	}
@@ -348,7 +353,7 @@ func (h *Handler) DeleteLoadTest(c *gin.Context) {
 	defer cancel()
 
 	if err := h.client.Resource(LoadTestGVR).Namespace(namespace).Delete(ctx, name, metav1.DeleteOptions{}); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("delete loadtest: %v", err)})
+		writeK8sError(c, err, fmt.Sprintf("loadtest '%s/%s'", namespace, name))
 		return
 	}
 

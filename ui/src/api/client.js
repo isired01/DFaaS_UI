@@ -16,8 +16,11 @@ async function request(endpoint, options = {}) {
     throw new Error(error.error || `Request failed: ${res.status}`);
   }
 
-  if (res.status === 204) return null;
-  return res.json();
+  // Read the body once as text and parse only when non-empty. Empty-bodied 2xx
+  // responses (e.g. ActivateLoadTest's bare 202) would otherwise blow up on
+  // res.json() with "Unexpected end of JSON input".
+  const text = await res.text();
+  return text ? JSON.parse(text) : null;
 }
 
 // --- Environments ---

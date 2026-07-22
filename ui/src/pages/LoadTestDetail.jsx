@@ -30,24 +30,26 @@ export default function LoadTestDetail() {
   }, [loadtest?.startAt]);
 
   useEffect(() => {
+    let cancelled = false;
     const load = async () => {
       try {
         setError(null);
         const data = await fetchLoadTest(namespace, name);
+        if (cancelled) return;
         setLoadtest(data);
         if (data?.targetEnvironment) {
           fetchEnvironment(namespace, data.targetEnvironment)
-            .then(setEnvironment)
+            .then((env) => { if (!cancelled) setEnvironment(env); })
             .catch(() => { /* non-fatal — hint just hidden */ });
         }
-      } catch (err) { setError(err.message); }
-      finally { setLoading(false); }
+      } catch (err) { if (!cancelled) setError(err.message); }
+      finally { if (!cancelled) setLoading(false); }
     };
     load();
     const interval = setInterval(() => {
       if (!loadtest || ACTIVE_PHASES.has(loadtest.phase)) load();
     }, 5000);
-    return () => clearInterval(interval);
+    return () => { cancelled = true; clearInterval(interval); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [namespace, name, loadtest?.phase]);
 
@@ -151,6 +153,14 @@ export default function LoadTestDetail() {
                   Draft
                 </span>
               )}
+              {loadtest.syncStart && (
+                <span
+                  className="badge text-xs px-3 py-1 bg-sky-500/15 text-sky-300 border border-sky-500/30 inline-flex items-center gap-1.5"
+                  title="All generators wait for the operator's GO signal and start load together."
+                >
+                  Synchronized start
+                </span>
+              )}
               {abortRequested && loadtest.phase !== 'Aborted' && (
                 <span
                   className="badge text-xs px-3 py-1 bg-slate-500/15 text-slate-300 border border-slate-500/40 inline-flex items-center gap-1.5"
@@ -222,7 +232,7 @@ export default function LoadTestDetail() {
 
       {loadtest.phase === 'Pending' && (() => {
         const c = (loadtest.conditions || []).find(
-          (x) => x.type === 'Ready' && ['Scheduled', 'ScheduledDelayedEnvNotReady', 'ScheduledFired'].includes(x.reason)
+          (x) => x.type === 'Scheduled' && ['ScheduledArmed', 'ScheduledFired', 'ScheduledDelayedEnvNotReady'].includes(x.reason)
         );
         if (!c) return null;
         const tone = c.reason === 'ScheduledDelayedEnvNotReady'
