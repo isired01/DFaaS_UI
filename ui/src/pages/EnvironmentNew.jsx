@@ -104,12 +104,15 @@ export default function EnvironmentNew({ mode = 'create' }) {
     try {
       if (!name) throw new Error('Environment name is required');
       if (nodes.length === 0) throw new Error('At least one node is required');
-      const NODE_ID_RE = /^[-._a-zA-Z0-9]+$/;
+      // Mirrors the CRD's CEL rule: nodeID is embedded in Kubernetes object
+      // names (kubeconfig Secrets, remote TestRuns), so DNS-1123 lowercase.
+      const NODE_ID_RE = /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/;
       const seen = new Set();
       nodes.forEach((n, idx) => {
         const nid = (n.nodeID || '').trim();
         if (!nid) throw new Error(`Node #${idx + 1} is missing a nodeID`);
-        if (!NODE_ID_RE.test(nid)) throw new Error(`Node '${nid}' nodeID must match [-._a-zA-Z0-9]+ (no spaces)`);
+        if (!NODE_ID_RE.test(nid)) throw new Error(`Node '${nid}': nodeID must be lowercase letters, digits and '-' only (e.g. 'g3', not 'G3' — it becomes part of Kubernetes object names)`);
+        if (nid.length > 63) throw new Error(`Node '${nid}': nodeID must be at most 63 characters`);
         if (seen.has(nid)) throw new Error(`Duplicate nodeID '${nid}'`);
         seen.add(nid);
         if (!n.role) throw new Error(`Node '${nid}' is missing a role`);

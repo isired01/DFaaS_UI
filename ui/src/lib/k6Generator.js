@@ -192,5 +192,23 @@ export function runScenario(data) {
     'status is 2xx': (r) => r.status >= 200 && r.status < 300,
   });
 }
+
+export function handleSummary(data) {
+  // Ship the end-of-test summary to the DFaaS collector (SeaweedFS filer).
+  // No-op when DFAAS_SUMMARY_URL is not injected (e.g. local runs).
+  if (__ENV.DFAAS_SUMMARY_URL) {
+    const res = http.put(__ENV.DFAAS_SUMMARY_URL, JSON.stringify(data), {
+      headers: { 'Content-Type': 'application/json' },
+      timeout: '30s',
+    });
+    if (res.status < 200 || res.status >= 300) {
+      console.error('summary upload failed: status=' + res.status);
+    }
+  }
+  // Defining handleSummary suppresses k6's default stdout summary; return the
+  // raw JSON on stdout so the log-capture channel stays a machine-readable
+  // fallback when the PUT fails.
+  return { stdout: JSON.stringify(data, null, 1) };
+}
 `;
 }

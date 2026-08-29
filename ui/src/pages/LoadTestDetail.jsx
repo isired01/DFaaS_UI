@@ -248,6 +248,27 @@ export default function LoadTestDetail() {
         );
       })()}
 
+      {loadtest.results && (
+        <div className="glass-card p-5">
+          <h2 className="text-lg font-semibold text-white flex items-center gap-2 mb-3">
+            <BarChart3 className="w-5 h-5 text-emerald-400" />Results on SeaweedFS
+          </h2>
+          <p className="text-xs text-surface-500 mb-3">
+            Exported artifacts, browsable in the SeaweedFS filer (no login).
+          </p>
+          <div className="flex flex-col gap-2 text-sm">
+            <a href={loadtest.results.metricsUrl} target="_blank" rel="noopener noreferrer"
+               className="text-emerald-300 hover:text-emerald-200 underline underline-offset-2 break-all">
+              Metrics CSV — {loadtest.results.metricsUrl}
+            </a>
+            <a href={loadtest.results.k6Url} target="_blank" rel="noopener noreferrer"
+               className="text-emerald-300 hover:text-emerald-200 underline underline-offset-2 break-all">
+              k6 logs &amp; summaries — {loadtest.results.k6Url}
+            </a>
+          </div>
+        </div>
+      )}
+
       <ConditionsList conditions={loadtest.conditions} />
 
       <div className="glass-card p-5">

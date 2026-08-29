@@ -156,6 +156,17 @@ type LoadTestDetail struct {
 	TestRuns      []TestRunRefView  `json:"testRuns,omitempty"`
 	ExporterJob   string            `json:"exporterJob,omitempty"`
 	Conditions    []ConditionInfo   `json:"conditions,omitempty"`
+	// Results carries browsable SeaweedFS filer URLs of the exported
+	// artifacts. Set only when the test Completed and the Environment
+	// exports to the in-cluster SeaweedFS (results.go).
+	Results *LoadTestResults `json:"results,omitempty"`
+}
+
+// LoadTestResults are the filer directory listings holding a finished test's
+// artifacts (keys embed an export timestamp, so only directories are stable).
+type LoadTestResults struct {
+	MetricsURL string `json:"metricsUrl"`
+	K6URL      string `json:"k6Url"`
 }
 
 // PerNodeLoadView mirrors LoadTest.spec.perNodeLoad[] + carries the materialized script.

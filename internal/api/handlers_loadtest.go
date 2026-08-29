@@ -62,6 +62,11 @@ func (h *Handler) GetLoadTest(c *gin.Context) {
 	detail := mapLoadTestDetail(*result)
 	h.inlineScripts(ctx, namespace, &detail)
 
+	// Completed tests get browsable SeaweedFS links to their artifacts.
+	if detail.Phase == "Completed" && detail.TargetEnvironment != "" {
+		detail.Results = h.resolveResultsURLs(ctx, namespace, detail.TargetEnvironment, detail.Name)
+	}
+
 	c.JSON(http.StatusOK, detail)
 }
 
