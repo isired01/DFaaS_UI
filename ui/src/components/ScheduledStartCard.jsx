@@ -17,7 +17,7 @@ export default function ScheduledStartCard({ startAt, nowMs }) {
   }
   return (
     <div className="glass-card p-4">
-      <p className="text-xs text-surface-500 uppercase tracking-wider">Scheduled start</p>
+      <p className="text-xs text-surface-450 uppercase tracking-wider">Scheduled start</p>
       <p className="text-sm text-white mt-1">{formatDateTime(startAt)}</p>
       <p className="text-xs font-mono text-dfaas-400 mt-1">{countdown}</p>
     </div>

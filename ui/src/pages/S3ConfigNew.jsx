@@ -128,7 +128,7 @@ export default function S3ConfigNew() {
             />
             Force path-style addressing
           </label>
-          <p className="text-[12px] text-surface-500 mt-1">
+          <p className="text-[12px] text-surface-450 mt-1">
             Enable for SeaweedFS and most non-AWS endpoints (uses <code>{`http://host/bucket`}</code> instead of <code>{`http://bucket.host`}</code>).
           </p>
           {suggestPathStyle && (
@@ -144,7 +144,7 @@ export default function S3ConfigNew() {
 
       <div className="glass-card p-5 space-y-4">
         <h2 className="text-sm font-semibold text-surface-300 uppercase tracking-wider">Credentials</h2>
-        <p className="text-xs text-surface-500">
+        <p className="text-xs text-surface-450">
           Stored verbatim in the Secret. The gateway never echoes these values back on read.
         </p>
         <FormField label="Access Key ID">

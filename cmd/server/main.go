@@ -30,16 +30,29 @@ func main() {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
 	})
 
-	// 3. CORS: configurabile via env CORS_ORIGINS (csv).
+	// 3. CORS: configurable via the CORS_ORIGINS env (csv).
 	// Empty = same-origin only (in-cluster Helm install).
-	// Defaults to localhost dev origins when env is unset for local `go run`.
+	// Defaults to the localhost dev origins when the env is unset, for `go run`.
 	corsOrigins := parseCORSOrigins()
 	if len(corsOrigins) > 0 {
+		// A literal "*" makes the lib emit Access-Control-Allow-Origin: * —
+		// which every browser rejects when paired with credentials, silently
+		// breaking every credentialed cross-origin call. Drop the credentials
+		// flag instead of shipping a config that cannot work, and say so.
+		allowCredentials := true
+		for _, o := range corsOrigins {
+			if o == "*" {
+				log.Println("⚠️  CORS_ORIGINS contains '*': AllowCredentials disabled (browsers reject a wildcard origin together with credentials). List explicit origins to keep credentialed requests working.")
+				allowCredentials = false
+				break
+			}
+		}
 		r.Use(cors.New(cors.Config{
-			AllowOrigins:     corsOrigins,
-			AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+			AllowOrigins: corsOrigins,
+			// PATCH is required by UpdateEnvironment and AbortLoadTest.
+			AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 			AllowHeaders:     []string{"Origin", "Content-Type", "Authorization"},
-			AllowCredentials: true,
+			AllowCredentials: allowCredentials,
 		}))
 	}
 

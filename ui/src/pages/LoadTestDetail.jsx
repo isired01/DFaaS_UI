@@ -4,10 +4,11 @@ import { ArrowLeft, TestTube2, Trash2, AlertTriangle, Info, Server, BarChart3, F
 import { fetchLoadTest, deleteLoadTest, fetchLoadTestYAML, downloadTextAsFile, activateLoadTest, abortLoadTest, fetchEnvironment } from '../api/client';
 import PhaseBadge from '../components/PhaseBadge';
 import TestRunBadge from '../components/TestRunBadge';
+import GeneratorProgress from '../components/GeneratorProgress';
 import ScheduledStartCard from '../components/ScheduledStartCard';
 import ConditionsList from '../components/ConditionsList';
 import LoadingSpinner from '../components/LoadingSpinner';
-import { ACTIVE_PHASES } from '../lib/constants';
+import { ABORTABLE_PHASES, ACTIVE_PHASES } from '../lib/constants';
 import { formatDateTime } from '../lib/format';
 
 export default function LoadTestDetail() {
@@ -23,11 +24,15 @@ export default function LoadTestDetail() {
   const [aborting, setAborting] = useState(false);
   const [nowMs, setNowMs] = useState(() => Date.now());
 
+  // 1 Hz ticker: drives the scheduled-start countdown and the per-generator
+  // progress bars. Gated so a finished test does not re-render once a second
+  // forever.
+  const ticking = !!loadtest?.startAt || loadtest?.phase === 'Running' || loadtest?.phase === 'Pending';
   useEffect(() => {
-    if (!loadtest?.startAt) return undefined;
+    if (!ticking) return undefined;
     const id = setInterval(() => setNowMs(Date.now()), 1000);
     return () => clearInterval(id);
-  }, [loadtest?.startAt]);
+  }, [ticking]);
 
   useEffect(() => {
     let cancelled = false;
@@ -117,7 +122,7 @@ export default function LoadTestDetail() {
   const isDraft = loadtest.suspended === true;
   const isTerminal = ['Completed', 'Failed', 'Aborted'].includes(loadtest.phase);
   const abortRequested = loadtest.stop === true;
-  const canAbort = loadtest.phase === 'Running' && !abortRequested;
+  const canAbort = ABORTABLE_PHASES.has(loadtest.phase) && !abortRequested;
   const isRunning = loadtest.phase === 'Running';
   // Tooltip on terminal Aborted: surface operator-stamped Ready=False reason=UserAborted message.
   const abortedMsg = loadtest.phase === 'Aborted'
@@ -207,24 +212,19 @@ export default function LoadTestDetail() {
             </button>
           </div>
         </div>
-        {loadtest.message && (
-          <div className={`mt-4 p-3 rounded-xl flex items-start gap-2 text-sm ${loadtest.phase === 'Failed' ? 'bg-red-500/10 border border-red-500/30 text-red-400' : 'bg-surface-800/50 border border-surface-700/50 text-surface-300'}`}>
-            <Info className="w-4 h-4 mt-0.5 flex-shrink-0" />{loadtest.message}
-          </div>
-        )}
       </div>
 
       <div className={`grid gap-4 ${loadtest.startAt ? 'grid-cols-4' : 'grid-cols-3'}`}>
         <div className="glass-card p-4">
-          <p className="text-xs text-surface-500 uppercase tracking-wider">Started</p>
+          <p className="text-xs text-surface-450 uppercase tracking-wider">Started</p>
           <p className="text-sm text-white mt-1">{loadtest.startTime ? formatDateTime(loadtest.startTime) : '—'}</p>
         </div>
         <div className="glass-card p-4">
-          <p className="text-xs text-surface-500 uppercase tracking-wider">Ended</p>
+          <p className="text-xs text-surface-450 uppercase tracking-wider">Ended</p>
           <p className="text-sm text-white mt-1">{loadtest.endTime ? formatDateTime(loadtest.endTime) : '—'}</p>
         </div>
         <div className="glass-card p-4">
-          <p className="text-xs text-surface-500 uppercase tracking-wider">Exporter Job</p>
+          <p className="text-xs text-surface-450 uppercase tracking-wider">Exporter Job</p>
           <p className="text-sm font-mono text-white mt-1 truncate">{loadtest.exporterJob || '—'}</p>
         </div>
         {loadtest.startAt && <ScheduledStartCard startAt={loadtest.startAt} nowMs={nowMs} />}
@@ -253,7 +253,7 @@ export default function LoadTestDetail() {
           <h2 className="text-lg font-semibold text-white flex items-center gap-2 mb-3">
             <BarChart3 className="w-5 h-5 text-emerald-400" />Results on SeaweedFS
           </h2>
-          <p className="text-xs text-surface-500 mb-3">
+          <p className="text-xs text-surface-450 mb-3">
             Exported artifacts, browsable in the SeaweedFS filer (no login).
           </p>
           <div className="flex flex-col gap-2 text-sm">
@@ -276,7 +276,7 @@ export default function LoadTestDetail() {
           <Server className="w-5 h-5 text-amber-400" />Per-Node Test Runs ({loadtest.perNodeLoad?.length || 0})
         </h2>
         {(!loadtest.perNodeLoad || loadtest.perNodeLoad.length === 0) ? (
-          <p className="text-sm text-surface-500">No per-node loads.</p>
+          <p className="text-sm text-surface-450">No per-node loads.</p>
         ) : (
           <div className="space-y-3">
             {loadtest.perNodeLoad.map((pn, i) => {
@@ -289,12 +289,12 @@ export default function LoadTestDetail() {
                       <Server className="w-4 h-4 text-amber-400" />
                       <div>
                         <p className="text-sm font-semibold text-white">{pn.nodeID}</p>
-                        <p className="text-[12px] text-surface-500 font-mono">vus={pn.vus} · duration={pn.duration}</p>
+                        <p className="text-[12px] text-surface-450 font-mono">vus={pn.vus} · duration={pn.duration}</p>
                       </div>
                     </div>
                     <div className="flex items-center gap-3 text-xs">
                       <TestRunBadge phase={tr?.phase} />
-                      <span className="text-surface-500 font-mono">{tr?.name || pn.scriptConfigMap}</span>
+                      <span className="text-surface-450 font-mono">{tr?.name || pn.scriptConfigMap}</span>
                       <button
                         type="button"
                         onClick={() => downloadTextAsFile(pn.script || '', `${loadtest.name}-${pn.nodeID}.js`, 'text/javascript')}
@@ -308,6 +308,15 @@ export default function LoadTestDetail() {
                         <FileCode className="w-4 h-4" />
                       </button>
                     </div>
+                  </div>
+                  <div className="px-3 pb-3">
+                    <GeneratorProgress
+                      stage={tr?.phase}
+                      phase={loadtest.phase}
+                      startTime={loadtest.startTime}
+                      duration={pn.duration}
+                      nowMs={nowMs}
+                    />
                   </div>
                   {scriptOpen && (
                     <div className="border-t border-surface-700/50">
@@ -327,32 +336,17 @@ export default function LoadTestDetail() {
         </h2>
         <div className="grid grid-cols-1 md:grid-cols-4 gap-3 text-xs">
           <div className="md:col-span-3">
-            <p className="text-surface-500 uppercase tracking-wider mb-1">Metrics</p>
+            <p className="text-surface-450 uppercase tracking-wider mb-1">Metrics</p>
             {(() => {
               const metrics = loadtest.metricsExport?.metrics;
-              const legacyQueries = loadtest.metricsExport?.queries;
-              if ((!metrics || metrics.length === 0) && Array.isArray(legacyQueries) && legacyQueries.length > 0) {
-                return (
-                  <div>
-                    <div className="p-2 mb-2 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 text-[12px]">
-                      Legacy format — recreate to migrate to the structured 4-field schema.
-                    </div>
-                    <ul className="space-y-1">
-                      {legacyQueries.map((q, i) => (
-                        <li key={i} className="font-mono text-surface-400 bg-surface-900/50 border border-surface-700/30 rounded-lg px-2 py-1 opacity-70">{q}</li>
-                      ))}
-                    </ul>
-                  </div>
-                );
-              }
               if (!metrics || metrics.length === 0) {
-                return <p className="text-surface-500 italic">No metrics configured.</p>;
+                return <p className="text-surface-450 italic">No metrics configured.</p>;
               }
               return (
                 <div className="overflow-x-auto">
                   <table className="w-full text-[13px]">
                     <thead>
-                      <tr className="text-left text-[12px] text-surface-500 uppercase tracking-wider border-b border-surface-700/40">
+                      <tr className="text-left text-[12px] text-surface-450 uppercase tracking-wider border-b border-surface-700/40">
                         <th className="py-1.5 px-2">Type</th>
                         <th className="py-1.5 px-2">Metric name</th>
                         <th className="py-1.5 px-2">PromQL query</th>
@@ -363,7 +357,7 @@ export default function LoadTestDetail() {
                       {metrics.map((m, i) => (
                         <tr key={i} className="border-b border-surface-800/40">
                           <td className="py-1.5 px-2 text-surface-300">{m.type}</td>
-                          <td className="py-1.5 px-2 font-mono text-surface-200">{m.metricName || <span className="text-surface-500 italic">(=query)</span>}</td>
+                          <td className="py-1.5 px-2 font-mono text-surface-200">{m.metricName || <span className="text-surface-450 italic">(=query)</span>}</td>
                           <td className="py-1.5 px-2 font-mono text-surface-300 break-all">{m.query}</td>
                           <td className="py-1.5 px-2 text-surface-400">{m.comment || '—'}</td>
                         </tr>
@@ -375,19 +369,19 @@ export default function LoadTestDetail() {
             })()}
           </div>
           <div>
-            <p className="text-surface-500 uppercase tracking-wider mb-1">Step</p>
+            <p className="text-surface-450 uppercase tracking-wider mb-1">Step</p>
             <p className="font-mono text-surface-200">{loadtest.metricsExport?.step || '15s'}</p>
-            <p className="text-surface-500 uppercase tracking-wider mt-3 mb-1">Destination</p>
+            <p className="text-surface-450 uppercase tracking-wider mt-3 mb-1">Destination</p>
             {environment?.s3ConfigRef ? (
               <p className="text-xs text-surface-300">
                 S3 config{' '}
                 <Link to={`/s3-configs/${environment.s3ConfigRef.name}`} className="font-mono text-dfaas-400 hover:text-dfaas-300 hover:underline">
                   {environment.s3ConfigRef.name}
                 </Link>
-                <span className="text-surface-500"> (inherited from environment)</span>
+                <span className="text-surface-450"> (inherited from environment)</span>
               </p>
             ) : (
-              <p className="text-xs text-surface-500">
+              <p className="text-xs text-surface-450">
                 No S3 config on environment → in-cluster SeaweedFS (default).
               </p>
             )}

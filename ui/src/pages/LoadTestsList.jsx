@@ -6,6 +6,7 @@ import PhaseBadge from '../components/PhaseBadge';
 import ResourceTable from '../components/ResourceTable';
 import ErrorAlert from '../components/ErrorAlert';
 import { formatDate } from '../lib/format';
+import { DISPATCHABLE_ENV_PHASES } from '../lib/constants';
 
 const COLUMNS = [
   { label: 'Name' },
@@ -55,19 +56,43 @@ export default function LoadTestsList() {
     if (e.target === dialogRef.current) dialogRef.current.close();
   };
 
+  // Same guard as EnvironmentsList: skip overlapping polls, cancel on unmount,
+  // and clear the error only on success so a failure stays readable instead of
+  // being wiped by the next tick.
+  const inFlight = useRef(false);
+  const abortRef = useRef(null);
+
   const load = useCallback(async () => {
+    if (inFlight.current) return;
+    inFlight.current = true;
+    const controller = new AbortController();
+    abortRef.current = controller;
     try {
-      setError(null);
-      const data = await fetchLoadTests();
+      const data = await fetchLoadTests({ signal: controller.signal });
       setLoadtests(data);
-    } catch (err) { setError(err.message); }
-    finally { setLoading(false); }
+      setError(null);
+    } catch (err) {
+      if (err?.name !== 'AbortError') setError(err.message);
+    } finally {
+      // Only the newest request may clear the guard — see EnvironmentsList.
+      if (abortRef.current === controller) {
+        inFlight.current = false;
+        setLoading(false);
+      }
+    }
   }, []);
 
   useEffect(() => {
     load();
     const interval = setInterval(load, 5000);
-    return () => clearInterval(interval);
+    return () => {
+      clearInterval(interval);
+      abortRef.current?.abort();
+      // Release the guard synchronously so StrictMode's second mount loads
+      // immediately instead of waiting out the 5s interval.
+      abortRef.current = null;
+      inFlight.current = false;
+    };
   }, [load]);
 
   const handleDownloadYAML = async (e, lt) => {
@@ -137,7 +162,7 @@ export default function LoadTestsList() {
           >
             <Download className="w-4 h-4" />
           </button>
-          <Link to={`/loadtests/${lt.namespace}/${lt.name}`} className="opacity-0 group-hover:opacity-100 transition-opacity"><ChevronRight className="w-5 h-5 text-surface-500" /></Link>
+          <Link to={`/loadtests/${lt.namespace}/${lt.name}`} className="opacity-0 group-hover:opacity-100 transition-opacity"><ChevronRight className="w-5 h-5 text-surface-450" /></Link>
         </div>
       </td>
     </tr>
@@ -196,7 +221,7 @@ export default function LoadTestsList() {
               <X className="w-4 h-4" />
             </button>
           </div>
-          <p className="text-xs text-surface-400">A load test runs against a <strong className="text-surface-300">Ready</strong> environment — pick one to continue to the create form.</p>
+          <p className="text-xs text-surface-400">A load test runs against a <strong className="text-surface-300">Ready</strong> or <strong className="text-surface-300">Degraded</strong> environment — pick one to continue to the create form.</p>
 
           {envsLoading ? (
             <div className="flex items-center justify-center py-10">
@@ -212,14 +237,14 @@ export default function LoadTestsList() {
           ) : (
             <ul className="space-y-2 max-h-80 overflow-y-auto">
               {envs.map((env) => {
-                const ready = env.phase === 'Ready';
+                const dispatchable = DISPATCHABLE_ENV_PHASES.has(env.phase);
                 return (
                   <li key={`${env.namespace}/${env.name}`}>
                     <button
                       type="button"
-                      disabled={!ready}
+                      disabled={!dispatchable}
                       onClick={() => pickEnv(env)}
-                      title={ready ? undefined : `Environment must be Ready (currently ${env.phase})`}
+                      title={dispatchable ? undefined : `Environment must be Ready or Degraded (currently ${env.phase})`}
                       className="w-full flex items-center justify-between gap-3 p-3 rounded-xl border border-surface-800 bg-surface-800/30 text-left transition-colors enabled:hover:bg-surface-800/60 enabled:hover:border-dfaas-500/40 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       <div className="min-w-0">

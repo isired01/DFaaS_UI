@@ -20,29 +20,29 @@ export default function LinkEditor({ links, nodeIDs, onAdd, onRemove, onUpdate }
       </div>
 
       {links.length === 0 ? (
-        <p className="text-xs text-surface-500">No topology links. Add latency edges between nodes if needed.</p>
+        <p className="text-xs text-surface-450">No topology links. Add latency edges between nodes if needed.</p>
       ) : links.map((link, i) => (
         <div key={i} className="grid grid-cols-12 gap-2 items-end">
           <div className="col-span-4">
-            <label className="block text-[12px] text-surface-500 mb-1">Node A</label>
+            <label className="block text-[12px] text-surface-450 mb-1">Node A</label>
             <select className="input py-1.5 text-xs" value={link.nodeA} onChange={(e) => onUpdate(i, { nodeA: e.target.value })} required>
               <option value="">—</option>
               {nodeIDs.map(id => <option key={id} value={id}>{id}</option>)}
             </select>
           </div>
           <div className="col-span-4">
-            <label className="block text-[12px] text-surface-500 mb-1">Node B</label>
+            <label className="block text-[12px] text-surface-450 mb-1">Node B</label>
             <select className="input py-1.5 text-xs" value={link.nodeB} onChange={(e) => onUpdate(i, { nodeB: e.target.value })} required>
               <option value="">—</option>
               {nodeIDs.map(id => <option key={id} value={id}>{id}</option>)}
             </select>
           </div>
           <div className="col-span-3">
-            <label className="block text-[12px] text-surface-500 mb-1">Latency (ms)</label>
+            <label className="block text-[12px] text-surface-450 mb-1">Latency (ms)</label>
             <input type="number" min="0" className="input py-1.5 text-xs" value={link.latencyMs} onChange={(e) => onUpdate(i, { latencyMs: e.target.value })} required />
           </div>
           <div className="col-span-1">
-            <button type="button" onClick={() => onRemove(i)} className="p-1.5 text-surface-500 hover:text-red-400">
+            <button type="button" onClick={() => onRemove(i)} aria-label={`Remove link ${i + 1}`} title="Remove link" className="p-1.5 text-surface-450 hover:text-red-400">
               <Trash2 className="w-3.5 h-3.5" />
             </button>
           </div>

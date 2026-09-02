@@ -1,32 +1,61 @@
+import {
+  reportApiResponse,
+  reportApiFailure,
+  reportClusterUnreachable,
+} from '../lib/clusterStatus';
+
 const API_BASE = '/api';
+
+// Gateway wording when the Kubernetes call itself could not be completed —
+// distinguishes "the cluster is unreachable" from an ordinary application 500.
+const CLUSTER_UNREACHABLE_RE = /cluster|kubernetes|connection refused|timeout|deadline exceeded|no such host/i;
 
 async function request(endpoint, options = {}) {
   const url = `${API_BASE}${endpoint}`;
 
-  const res = await fetch(url, {
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers,
-    },
-    ...options,
-  });
+  let res;
+  try {
+    res = await fetch(url, {
+      headers: {
+        'Content-Type': 'application/json',
+        ...options.headers,
+      },
+      ...options,
+    });
+  } catch (err) {
+    // Network-layer rejection, or the caller aborted us on unmount / next poll.
+    reportApiFailure({ aborted: err?.name === 'AbortError' });
+    throw err;
+  }
+  reportApiResponse(res.status);
 
   if (!res.ok) {
     const error = await res.json().catch(() => ({ error: res.statusText }));
-    throw new Error(error.error || `Request failed: ${res.status}`);
+    const message = error.error || `Request failed: ${res.status}`;
+    if (res.status >= 500 && CLUSTER_UNREACHABLE_RE.test(message)) {
+      reportClusterUnreachable();
+    }
+    throw new Error(message);
   }
 
   // Read the body once as text and parse only when non-empty. Empty-bodied 2xx
   // responses (e.g. ActivateLoadTest's bare 202) would otherwise blow up on
   // res.json() with "Unexpected end of JSON input".
   const text = await res.text();
-  return text ? JSON.parse(text) : null;
+  if (!text) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    // A truncated or non-JSON 2xx body would surface as a raw SyntaxError in the
+    // UI; every non-2xx path here already reports a readable message.
+    throw new Error(`Malformed response from ${endpoint} (HTTP ${res.status}): body is not valid JSON`);
+  }
 }
 
 // --- Environments ---
 
-export async function fetchEnvironments() {
-  const data = await request('/environments');
+export async function fetchEnvironments({ signal } = {}) {
+  const data = await request('/environments', { signal });
   return data.environments || [];
 }
 
@@ -54,9 +83,9 @@ export async function updateEnvironment(namespace, name, specPatch) {
 
 // --- LoadTests ---
 
-export async function fetchLoadTests({ environment } = {}) {
+export async function fetchLoadTests({ environment, signal } = {}) {
   const qs = environment ? `?environment=${encodeURIComponent(environment)}` : '';
-  const data = await request(`/loadtests${qs}`);
+  const data = await request(`/loadtests${qs}`, { signal });
   return data.loadtests || [];
 }
 

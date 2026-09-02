@@ -27,6 +27,9 @@ export default {
           200: '#e2e8f0',
           300: '#cbd5e1',
           400: '#94a3b8',
+          // 450: muted text that still clears WCAG AA (4.5:1) on surface-800/900/950.
+          // surface-500 measured 3.7:1 on glass-card and failed the audit.
+          450: '#8d9aac',
           500: '#64748b',
           600: '#475569',
           700: '#334155',

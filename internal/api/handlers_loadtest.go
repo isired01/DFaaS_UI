@@ -4,11 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
@@ -17,6 +20,18 @@ import (
 func (h *Handler) ListLoadTests(c *gin.Context) {
 	envFilter := c.Query("environment")
 
+	// A malformed filter used to fall through to the full unfiltered list, which
+	// reads as "this environment has every test in the cluster". Reject it.
+	var filterNs, filterName string
+	if envFilter != "" {
+		parts := strings.SplitN(envFilter, "/", 2)
+		if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("invalid environment filter '%s': expected 'namespace/name'", envFilter)})
+			return
+		}
+		filterNs, filterName = parts[0], parts[1]
+	}
+
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
 	defer cancel()
 
@@ -24,14 +39,6 @@ func (h *Handler) ListLoadTests(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("list loadtests: %v", err)})
 		return
-	}
-
-	var filterNs, filterName string
-	if envFilter != "" {
-		parts := strings.SplitN(envFilter, "/", 2)
-		if len(parts) == 2 {
-			filterNs, filterName = parts[0], parts[1]
-		}
 	}
 
 	out := make([]LoadTestSummary, 0, len(result.Items))
@@ -88,7 +95,14 @@ func (h *Handler) CreateLoadTest(c *gin.Context) {
 		return
 	}
 
+	// Every pure input-shape check runs before the first cluster write, so an
+	// invalid submission never creates ConfigMaps only to roll them back.
 	if status, msg, ok := validatePerNodeLoad(req.PerNodeLoad); !ok {
+		c.JSON(status, gin.H{"error": msg})
+		return
+	}
+
+	if status, msg, ok := validateMetricsExport(req.MetricsExport); !ok {
 		c.JSON(status, gin.H{"error": msg})
 		return
 	}
@@ -98,7 +112,7 @@ func (h *Handler) CreateLoadTest(c *gin.Context) {
 
 	envObj, err := h.client.Resource(EnvironmentGVR).Namespace(req.Namespace).Get(ctx, req.TargetEnvironment, metav1.GetOptions{})
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": fmt.Sprintf("environment '%s/%s' not found: %v", req.Namespace, req.TargetEnvironment, err)})
+		writeK8sError(c, err, fmt.Sprintf("environment '%s/%s'", req.Namespace, req.TargetEnvironment))
 		return
 	}
 
@@ -124,36 +138,44 @@ func (h *Handler) CreateLoadTest(c *gin.Context) {
 
 	ltName := req.Name
 	if ltName == "" {
-		ltName = sanitizeDNS1123(fmt.Sprintf("lt-%s-%s", req.TargetEnvironment, time.Now().Format("20060102-150405")))
+		generated := fmt.Sprintf("lt-%s-%s", req.TargetEnvironment, time.Now().Format("20060102-150405"))
 		if req.NameSuffix != "" {
-			ltName = sanitizeDNS1123(ltName + "-" + req.NameSuffix)
+			generated += "-" + req.NameSuffix
 		}
+		// The timestamp is second-granular and the name also seeds every script
+		// ConfigMap name, so a double-click on Create (or a client retry) inside
+		// the same second would collide. Mix in a short nonce, same idea as
+		// bucketNameFor's UID suffix.
+		ltName = sanitizeDNS1123(generated + "-" + shortNonce())
 	}
 
 	// cleanup best-effort deletes the script ConfigMaps already created, used to
-	// roll back when a later step in the sequence fails.
+	// roll back when a later step in the sequence fails. Failures are logged and
+	// otherwise ignored — an orphaned ConfigMap must not mask the real error.
 	createdCMs := make([]string, 0, len(req.PerNodeLoad))
 	cleanup := func() {
 		for _, cmName := range createdCMs {
-			_ = h.client.Resource(ConfigMapGVR).Namespace(req.Namespace).Delete(context.Background(), cmName, metav1.DeleteOptions{})
+			if derr := h.client.Resource(ConfigMapGVR).Namespace(req.Namespace).Delete(context.Background(), cmName, metav1.DeleteOptions{}); derr != nil && !apierrors.IsNotFound(derr) {
+				log.Printf("loadtest '%s/%s': rollback of script configmap '%s' failed, it is now orphaned: %v", req.Namespace, ltName, cmName, derr)
+			}
 		}
 	}
 
 	createdCMs, err = h.createScriptConfigMaps(ctx, ltName, &req)
 	if err != nil {
 		cleanup()
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		// A name collision is the caller's problem (409), anything else is ours.
+		// The error already names the offending ConfigMap, so it is echoed as-is
+		// rather than routed through writeK8sError.
+		status := http.StatusInternalServerError
+		if apierrors.IsAlreadyExists(err) {
+			status = http.StatusConflict
+		}
+		c.JSON(status, gin.H{"error": err.Error()})
 		return
 	}
 
-	lt, status, msg, ok := buildLoadTestUnstructured(ltName, &req)
-	if !ok {
-		cleanup()
-		c.JSON(status, gin.H{"error": msg})
-		return
-	}
-
-	created, err := h.client.Resource(LoadTestGVR).Namespace(req.Namespace).Create(ctx, lt, metav1.CreateOptions{})
+	created, err := h.client.Resource(LoadTestGVR).Namespace(req.Namespace).Create(ctx, buildLoadTestUnstructured(ltName, &req), metav1.CreateOptions{})
 	if err != nil {
 		cleanup()
 		writeK8sError(c, err, fmt.Sprintf("loadtest '%s/%s'", req.Namespace, ltName))
@@ -163,9 +185,28 @@ func (h *Handler) CreateLoadTest(c *gin.Context) {
 	h.patchConfigMapOwnerRefs(ctx, req.Namespace, createdCMs, created)
 
 	detail := mapLoadTestDetail(*created)
+	// Echo back the scripts the caller just submitted instead of re-reading the
+	// ConfigMaps written a moment ago: the round-trip buys nothing and a blip
+	// would blank the script in a 201, which reads as data loss. inlineScripts
+	// then only fetches entries that referenced a pre-existing ConfigMap.
+	submitted := make(map[string]string, len(req.PerNodeLoad))
+	for _, pn := range req.PerNodeLoad {
+		if pn.Script != "" {
+			submitted[pn.NodeID] = pn.Script
+		}
+	}
+	for i := range detail.PerNodeLoad {
+		detail.PerNodeLoad[i].Script = submitted[detail.PerNodeLoad[i].NodeID]
+	}
 	h.inlineScripts(ctx, req.Namespace, &detail)
 
 	c.JSON(http.StatusCreated, detail)
+}
+
+// shortNonce returns a short lowercase-hex disambiguator for generated resource
+// names.
+func shortNonce() string {
+	return uuid.NewString()[:6]
 }
 
 // validatePerNodeLoad enforces that each entry carries exactly one of an inline
@@ -178,6 +219,19 @@ func validatePerNodeLoad(perNodeLoad []CreatePerNodeLoad) (status int, msg strin
 		}
 		if pn.Script != "" && pn.ScriptConfigMap != "" {
 			return http.StatusBadRequest, fmt.Sprintf("perNodeLoad[%d]: only one of script or scriptConfigMap allowed", i), false
+		}
+	}
+	return 0, "", true
+}
+
+// validateMetricsExport enforces that custom-promql metrics carry a metricName.
+// Pure input-shape check, so the handler runs it before touching the cluster.
+// On failure it returns the HTTP status and message the handler should send; ok
+// is false in that case.
+func validateMetricsExport(export CreateMetricsExport) (status int, msg string, ok bool) {
+	for i, m := range export.Metrics {
+		if m.Type == "custom-promql" && m.MetricName == "" {
+			return http.StatusBadRequest, fmt.Sprintf("metricsExport.metrics[%d]: metricName required when type='custom-promql'", i), false
 		}
 	}
 	return 0, "", true
@@ -243,7 +297,9 @@ func (h *Handler) createScriptConfigMaps(ctx context.Context, ltName string, req
 			},
 		}
 		if _, err := h.client.Resource(ConfigMapGVR).Namespace(req.Namespace).Create(ctx, cm, metav1.CreateOptions{}); err != nil {
-			return createdCMs, fmt.Errorf("create script configmap '%s': %v", cmName, err)
+			// %w keeps the k8s status reason intact so writeK8sError can map an
+			// AlreadyExists collision to 409 instead of a blanket 500.
+			return createdCMs, fmt.Errorf("create script configmap '%s': %w", cmName, err)
 		}
 		createdCMs = append(createdCMs, cmName)
 		pn.ScriptConfigMap = cmName
@@ -252,10 +308,10 @@ func (h *Handler) createScriptConfigMaps(ctx context.Context, ltName string, req
 }
 
 // buildLoadTestUnstructured assembles the LoadTest object from the request,
-// defaulting metricsExport.step to "15s" and validating that custom-promql
-// metrics carry a metricName. On a metric validation failure it returns the
-// HTTP status and message the handler should send; ok is false in that case.
-func buildLoadTestUnstructured(ltName string, req *CreateLoadTestRequest) (lt *unstructured.Unstructured, status int, msg string, ok bool) {
+// defaulting metricsExport.step to "15s". The request is assumed already
+// validated (validatePerNodeLoad + validateMetricsExport run in the handler,
+// before any child resource is created).
+func buildLoadTestUnstructured(ltName string, req *CreateLoadTestRequest) *unstructured.Unstructured {
 	step := req.MetricsExport.Step
 	if step == "" {
 		step = "15s"
@@ -274,10 +330,7 @@ func buildLoadTestUnstructured(ltName string, req *CreateLoadTestRequest) (lt *u
 	}
 
 	metrics := make([]interface{}, 0, len(req.MetricsExport.Metrics))
-	for i, m := range req.MetricsExport.Metrics {
-		if m.Type == "custom-promql" && m.MetricName == "" {
-			return nil, http.StatusBadRequest, fmt.Sprintf("metricsExport.metrics[%d]: metricName required when type='custom-promql'", i), false
-		}
+	for _, m := range req.MetricsExport.Metrics {
 		entry := map[string]interface{}{
 			"type":  m.Type,
 			"query": m.Query,
@@ -311,7 +364,7 @@ func buildLoadTestUnstructured(ltName string, req *CreateLoadTestRequest) (lt *u
 		spec["startAt"] = req.StartAt.UTC().Format(time.RFC3339)
 	}
 
-	lt = &unstructured.Unstructured{
+	return &unstructured.Unstructured{
 		Object: map[string]interface{}{
 			"apiVersion": "dfaas.dfaas.io/v1",
 			"kind":       "LoadTest",
@@ -322,12 +375,13 @@ func buildLoadTestUnstructured(ltName string, req *CreateLoadTestRequest) (lt *u
 			"spec": spec,
 		},
 	}
-	return lt, 0, "", true
 }
 
 // patchConfigMapOwnerRefs best-effort patches each script ConfigMap's
 // ownerReferences to point at the freshly created LoadTest so the cluster GC
-// reaps them when the LoadTest is deleted. Errors are ignored by design.
+// reaps them when the LoadTest is deleted. A failure never fails the request —
+// the LoadTest itself is already created and usable — but it is logged, since
+// an un-owned ConfigMap survives the LoadTest forever with no other signal.
 func (h *Handler) patchConfigMapOwnerRefs(ctx context.Context, namespace string, cmNames []string, owner *unstructured.Unstructured) {
 	if len(cmNames) == 0 {
 		return
@@ -340,13 +394,19 @@ func (h *Handler) patchConfigMapOwnerRefs(ctx context.Context, namespace string,
 		"controller":         true,
 		"blockOwnerDeletion": true,
 	}
-	patch, _ := json.Marshal(map[string]interface{}{
+	patch, err := json.Marshal(map[string]interface{}{
 		"metadata": map[string]interface{}{
 			"ownerReferences": []interface{}{ownerRef},
 		},
 	})
+	if err != nil {
+		log.Printf("loadtest '%s/%s': marshal ownerReferences patch: %v", namespace, owner.GetName(), err)
+		return
+	}
 	for _, cmName := range cmNames {
-		_, _ = h.client.Resource(ConfigMapGVR).Namespace(namespace).Patch(ctx, cmName, types.MergePatchType, patch, metav1.PatchOptions{})
+		if _, perr := h.client.Resource(ConfigMapGVR).Namespace(namespace).Patch(ctx, cmName, types.MergePatchType, patch, metav1.PatchOptions{}); perr != nil {
+			log.Printf("loadtest '%s/%s': setting ownerReferences on script configmap '%s' failed, it will not be garbage-collected with the loadtest: %v", namespace, owner.GetName(), cmName, perr)
+		}
 	}
 }
 
@@ -365,14 +425,19 @@ func (h *Handler) DeleteLoadTest(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": fmt.Sprintf("loadtest '%s/%s' deletion requested", namespace, name)})
 }
 
-// inlineScripts reads each referenced ConfigMap and inlines its "script.js" value.
+// inlineScripts reads each referenced ConfigMap and inlines its "script.js"
+// value. Entries whose Script is already populated (the create path echoes back
+// what the caller submitted) are left alone. A ConfigMap that cannot be read is
+// logged rather than silently blanked: GetLoadTest is polled for a test's whole
+// lifetime, so a blank script in an otherwise 200 response reads as data loss.
 func (h *Handler) inlineScripts(ctx context.Context, namespace string, detail *LoadTestDetail) {
 	for i, pn := range detail.PerNodeLoad {
-		if pn.ScriptConfigMap == "" {
+		if pn.ScriptConfigMap == "" || pn.Script != "" {
 			continue
 		}
 		cm, err := h.client.Resource(ConfigMapGVR).Namespace(namespace).Get(ctx, pn.ScriptConfigMap, metav1.GetOptions{})
 		if err != nil {
+			log.Printf("loadtest '%s/%s': inlining script for node '%s' from configmap '%s' failed, the script is reported empty: %v", namespace, detail.Name, pn.NodeID, pn.ScriptConfigMap, err)
 			continue
 		}
 		detail.PerNodeLoad[i].Script = getNestedString(cm.Object, "data", "script.js")
@@ -380,8 +445,9 @@ func (h *Handler) inlineScripts(ctx context.Context, namespace string, detail *L
 }
 
 // ActivateLoadTest flips spec.suspended=false via merge-patch.
-// 202 Accepted on success, 404 NotFound, 409 if already past Pending,
-// 400 if Pending but not actually a draft (Conditions[Suspended] != True).
+// 202 Accepted on success, 404 NotFound, 409 if already past Pending or if the
+// object moved between the read and the patch, 400 if Pending but not actually
+// a draft (spec.suspended != true).
 func (h *Handler) ActivateLoadTest(c *gin.Context) {
 	namespace := c.Param("namespace")
 	name := c.Param("name")
@@ -391,7 +457,7 @@ func (h *Handler) ActivateLoadTest(c *gin.Context) {
 
 	obj, err := h.client.Resource(LoadTestGVR).Namespace(namespace).Get(ctx, name, metav1.GetOptions{})
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": fmt.Sprintf("loadtest '%s/%s' not found: %v", namespace, name, err)})
+		writeK8sError(c, err, fmt.Sprintf("loadtest '%s/%s'", namespace, name))
 		return
 	}
 
@@ -409,9 +475,20 @@ func (h *Handler) ActivateLoadTest(c *gin.Context) {
 		return
 	}
 
-	patch := []byte(`{"spec":{"suspended":false}}`)
+	// Carry the observed resourceVersion in the patch so the API server rejects
+	// it with a conflict if the object moved between the Get above and this
+	// write — a stale Activate must not un-suspend a test that has since been
+	// aborted, rescheduled or re-suspended.
+	patch, err := json.Marshal(map[string]interface{}{
+		"metadata": map[string]interface{}{"resourceVersion": obj.GetResourceVersion()},
+		"spec":     map[string]interface{}{"suspended": false},
+	})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("marshal patch: %v", err)})
+		return
+	}
 	if _, err := h.client.Resource(LoadTestGVR).Namespace(namespace).Patch(ctx, name, types.MergePatchType, patch, metav1.PatchOptions{}); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("patch loadtest: %v", err)})
+		writeK8sError(c, err, fmt.Sprintf("loadtest '%s/%s'", namespace, name))
 		return
 	}
 

@@ -35,6 +35,10 @@ export default function EnvironmentNew({ mode = 'create' }) {
   const isEdit = mode === 'edit';
   const [namespace, setNamespace] = useState(isEdit ? (params.namespace || '') : 'default');
   const [name, setName] = useState(isEdit ? (params.name || '') : '');
+  // No longer editable from the form (the checkbox was removed), but still
+  // carried through create and edit: an Environment set to true via kubectl or
+  // YAML import must not be silently flipped to false by saving the form.
+  // Defaults to false on create, matching the CRD default.
   const [cleanupOnDelete, setCleanupOnDelete] = useState(false);
   const [nodes, setNodes] = useState([emptyNode()]);
   const [links, setLinks] = useState([]);
@@ -139,18 +143,20 @@ export default function EnvironmentNew({ mode = 'create' }) {
             if (n.functions.length > 0) {
               node.functions = n.functions.map(f => {
                 const fn = { name: f.name, image: f.image };
-                // Omit numeric fields left blank/NaN so the CRD default applies;
-                // sending an explicit 0 would override the default. maxRate is
+                // Omit numeric fields the user cleared so the CRD default
+                // applies. NumberInput reports a cleared box as 0, and none of
+                // these accept 0 (maxRate has a CEL Minimum=1, the others are
+                // timeouts/limits), so non-positive means "unset". maxRate is
                 // always emitted when set, regardless of balancing strategy, so
                 // a tuned value survives an edit.
                 const execTimeout = parseInt(f.execTimeout);
-                if (Number.isFinite(execTimeout)) fn.execTimeout = execTimeout;
+                if (execTimeout > 0) fn.execTimeout = execTimeout;
                 const maxInflight = parseInt(f.maxInflight);
-                if (Number.isFinite(maxInflight)) fn.maxInflight = maxInflight;
+                if (maxInflight > 0) fn.maxInflight = maxInflight;
                 const timeoutMs = parseInt(f.timeoutMs);
-                if (Number.isFinite(timeoutMs)) fn.timeoutMs = timeoutMs;
+                if (timeoutMs > 0) fn.timeoutMs = timeoutMs;
                 const maxRate = parseInt(f.maxRate);
-                if (Number.isFinite(maxRate)) fn.maxRate = maxRate;
+                if (maxRate > 0) fn.maxRate = maxRate;
                 return fn;
               });
             }
@@ -222,10 +228,6 @@ export default function EnvironmentNew({ mode = 'create' }) {
             <input type="text" className={`input ${isEdit ? 'opacity-60 cursor-not-allowed' : ''}`} value={name} onChange={(e) => setName(e.target.value)} placeholder="env-demo" readOnly={isEdit} required />
           </FormField>
         </div>
-        <label className="flex items-center gap-2 text-sm text-surface-300">
-          <input type="checkbox" checked={cleanupOnDelete} onChange={(e) => setCleanupOnDelete(e.target.checked)} />
-          Run cleanup when environment is deleted
-        </label>
       </div>
 
       <div className="glass-card p-5 space-y-4">
@@ -240,7 +242,7 @@ export default function EnvironmentNew({ mode = 'create' }) {
         />
 
         <div className="border-t border-surface-700/50 pt-4">
-          <label className="block text-xs font-medium text-surface-400 mb-1 flex items-center gap-1.5">
+          <label htmlFor="s3-config-select" className="block text-xs font-medium text-surface-400 mb-1 flex items-center gap-1.5">
             <Database className="w-3.5 h-3.5 text-dfaas-400" />
             S3 Configuration (optional)
           </label>
@@ -250,7 +252,7 @@ export default function EnvironmentNew({ mode = 'create' }) {
             className="input py-2 text-sm"
             id="s3-config-select"
           >
-            <option value="">— none (CSV → stdout) —</option>
+            <option value="">— none (in-cluster SeaweedFS default) —</option>
             {availableConfigs.map(cfg => (
               <option key={cfg.name} value={cfg.name}>
                 {cfg.name} ({cfg.endpoint || 'AWS default'} / {cfg.region})
@@ -260,9 +262,9 @@ export default function EnvironmentNew({ mode = 'create' }) {
               <option value={s3ConfigName}>{s3ConfigName} (current, not in registry)</option>
             )}
           </select>
-          <p className="text-[12px] text-surface-500 mt-1">
+          <p className="text-[12px] text-surface-450 mt-1">
             Every LoadTest in this environment exports its CSV to <code>s3://&lt;env-name&gt;-&lt;uid&gt;/metrics/...</code> using the chosen config.{' '}
-            <Link to="/s3-configs/new" target="_blank" rel="noopener" className="text-dfaas-400 hover:text-dfaas-300">
+            <Link to="/s3-configs/new" target="_blank" rel="noopener" className="text-dfaas-400 hover:text-dfaas-300 underline">
               Create new S3 config
             </Link>
           </p>

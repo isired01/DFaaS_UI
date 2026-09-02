@@ -87,17 +87,18 @@ export default function S3ConfigsList() {
           { label: 'Created last 24h', value: recentCount, color: 'text-emerald-400' },
         ].map(stat => (
           <div key={stat.label} className="glass-card p-4">
-            <p className="text-xs text-surface-500 uppercase tracking-wider">{stat.label}</p>
+            <p className="text-xs text-surface-450 uppercase tracking-wider">{stat.label}</p>
             <p className={`text-2xl font-bold mt-1 ${stat.color}`}>{stat.value}</p>
           </div>
         ))}
       </div>
 
       <div className="relative">
-        <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-surface-500" />
+        <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-surface-450" />
         <input
           type="text"
           id="search-s3-configs"
+          aria-label="Search by name, endpoint or region"
           placeholder="Search by name, endpoint or region..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
@@ -108,7 +109,7 @@ export default function S3ConfigsList() {
       {error && (
         <div className="glass-card p-6 border-red-500/30 bg-red-500/5 text-center">
           <p className="text-red-400 text-sm">{error}</p>
-          <p className="text-surface-500 text-xs mt-2">
+          <p className="text-surface-450 text-xs mt-2">
             Verify the backend is running and that the <code>dfaas-s3</code> namespace exists.
           </p>
         </div>
@@ -135,14 +136,14 @@ export default function S3ConfigsList() {
             </thead>
             <tbody>
               {loading && configs.length === 0 ? (
-                <tr><td colSpan="5" className="text-center py-12 text-surface-500">
+                <tr><td colSpan="5" className="text-center py-12 text-surface-450">
                   <div className="flex flex-col items-center gap-3">
                     <div className="w-8 h-8 border-2 border-dfaas-500/30 border-t-dfaas-500 rounded-full animate-spin" />
                     <span className="text-sm">Loading S3 configurations...</span>
                   </div>
                 </td></tr>
               ) : filtered.length === 0 ? (
-                <tr><td colSpan="5" className="text-center py-12 text-surface-500">
+                <tr><td colSpan="5" className="text-center py-12 text-surface-450">
                   <Database className="w-10 h-10 mx-auto mb-3 opacity-30" />
                   <p className="text-sm">
                     No S3 configs yet — create one to enable bucket-per-environment metrics export.
@@ -200,7 +201,7 @@ export default function S3ConfigsList() {
                             <Trash2 className="w-4 h-4" />
                           </button>
                         )}
-                        <ChevronRight className="w-5 h-5 text-surface-500 opacity-0 group-hover:opacity-100 transition-opacity" />
+                        <ChevronRight className="w-5 h-5 text-surface-450 opacity-0 group-hover:opacity-100 transition-opacity" />
                       </div>
                     </td>
                   </tr>

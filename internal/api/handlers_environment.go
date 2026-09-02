@@ -66,7 +66,7 @@ func (h *Handler) CreateEnvironment(c *gin.Context) {
 
 	created, err := h.client.Resource(EnvironmentGVR).Namespace(req.Namespace).Create(ctx, obj, metav1.CreateOptions{})
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("create environment: %v", err)})
+		writeK8sError(c, err, fmt.Sprintf("environment '%s/%s'", req.Namespace, req.Name))
 		return
 	}
 
@@ -90,6 +90,12 @@ func (h *Handler) UpdateEnvironment(c *gin.Context) {
 	}
 
 	if req.Spec.Nodes != nil {
+		// An explicit empty array is not a valid clear (the CRD requires at least
+		// one node), and silently dropping it would look like a successful edit.
+		if len(req.Spec.Nodes) == 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "spec.nodes cannot be empty; omit the field to leave the node list unchanged"})
+			return
+		}
 		if err := validateEnvNodes(req.Spec.Nodes); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return

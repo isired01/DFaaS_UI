@@ -41,6 +41,13 @@ const seaweedfsNodePort = "30900"
 // (and later sweep) k6 payload assets.
 const assetTagging = "dfaas.io/asset=true"
 
+// maxAssetUploadBytes is the hard ceiling on the whole multipart request body.
+// ParseMultipartForm's argument only bounds the IN-MEMORY portion — anything
+// past it spills to disk with no aggregate limit — and this endpoint carries no
+// authentication, so the ceiling goes on the body itself. Keeping the in-memory
+// budget equal to the ceiling also means nothing ever reaches the disk.
+const maxAssetUploadBytes = 32 << 20
+
 // NodeGVR is the GVR for core/v1 Nodes, listed to derive the in-cluster SeaweedFS
 // public address (node IP + NodePort) for the default S3 config.
 var NodeGVR = schema.GroupVersionResource{
@@ -66,7 +73,13 @@ var dashRunRegexp = regexp.MustCompile(`-+`)
 // made anonymously readable via a one-time bucket policy so remote k6 runners
 // can fetch it without credentials.
 func (h *Handler) UploadLoadTestAsset(c *gin.Context) {
-	if err := c.Request.ParseMultipartForm(32 << 20); err != nil {
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxAssetUploadBytes)
+	if err := c.Request.ParseMultipartForm(maxAssetUploadBytes); err != nil {
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			c.JSON(http.StatusRequestEntityTooLarge, gin.H{"error": fmt.Sprintf("upload exceeds the %d MiB limit", maxAssetUploadBytes>>20)})
+			return
+		}
 		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("parse multipart form: %v", err)})
 		return
 	}
@@ -104,7 +117,7 @@ func (h *Handler) UploadLoadTestAsset(c *gin.Context) {
 	// names the bucket.
 	envObj, err := h.client.Resource(EnvironmentGVR).Namespace(namespace).Get(ctx, environment, metav1.GetOptions{})
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": fmt.Sprintf("environment '%s/%s' not found: %v", namespace, environment, err)})
+		writeK8sError(c, err, fmt.Sprintf("environment '%s/%s'", namespace, environment))
 		return
 	}
 	envUID := string(envObj.GetUID())
@@ -112,6 +125,26 @@ func (h *Handler) UploadLoadTestAsset(c *gin.Context) {
 	configName := getNestedString(envObj.Object, "spec", "s3ConfigRef", "name")
 	if configName == "" {
 		configName = DefaultS3ConfigName
+	}
+
+	// The in-cluster SeaweedFS is reached over <nodeIP>:<NodePort> both by this
+	// gateway (dev mode) and by the remote k6 runners. Resolve that IP once, up
+	// front, and fail here rather than after the upload: falling back to the
+	// internal cluster DNS would hand back a 201 carrying a URL no k6 VM can
+	// resolve, and the failure would only surface at test runtime as an opaque
+	// DNS error. Skipped entirely when explicit overrides cover both uses.
+	var nodeIP string
+	if configName == DefaultS3ConfigName && (publicURLOverride() == "" || (connectEndpointOverride() == "" && !inCluster())) {
+		ip, nerr := h.firstNodeIP(ctx)
+		if nerr != nil {
+			c.JSON(http.StatusBadGateway, gin.H{"error": fmt.Sprintf("resolve a cluster node address for the in-cluster SeaweedFS: %v — grant the gateway 'list nodes', or set SEAWEEDFS_PUBLIC_URL to the address remote k6 runners can reach", nerr)})
+			return
+		}
+		if ip == "" {
+			c.JSON(http.StatusBadGateway, gin.H{"error": "no cluster node exposes a usable address for the in-cluster SeaweedFS; set SEAWEEDFS_PUBLIC_URL (and SEAWEEDFS_ENDPOINT when the gateway runs outside the cluster)"})
+			return
+		}
+		nodeIP = ip
 	}
 
 	// Read the resolved S3 config Secret from the registry namespace.
@@ -125,16 +158,38 @@ func (h *Handler) UploadLoadTestAsset(c *gin.Context) {
 		return
 	}
 
-	endpoint := decodeSecretValue(secret.Object, "endpoint")
-	region := decodeSecretValue(secret.Object, "region")
-	accessKey := decodeSecretValue(secret.Object, "access_key_id")
-	secretKey := decodeSecretValue(secret.Object, "secret_access_key")
-	forcePathStyle, _ := strconv.ParseBool(decodeSecretValue(secret.Object, "force_path_style"))
+	// A field that fails to decode must not degrade to "": a blank credential
+	// reaches S3 as an opaque "access denied" with nothing naming the culprit.
+	var decodeErr error
+	field := func(key string) string {
+		v, ferr := decodeSecretValue(secret.Object, key)
+		if ferr != nil && decodeErr == nil {
+			decodeErr = ferr
+		}
+		return v
+	}
+	endpoint := field("endpoint")
+	region := field("region")
+	accessKey := field("access_key_id")
+	secretKey := field("secret_access_key")
+	forcePathStyleRaw := field("force_path_style")
+	if decodeErr != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("s3 config '%s/%s': %v", S3ConfigNamespace, configName, decodeErr)})
+		return
+	}
+	forcePathStyle := false
+	if forcePathStyleRaw != "" {
+		forcePathStyle, err = strconv.ParseBool(forcePathStyleRaw)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("s3 config '%s/%s': field \"force_path_style\" is not a boolean: %v", S3ConfigNamespace, configName, err)})
+			return
+		}
+	}
 
 	// The gateway must DIAL a reachable endpoint. For the in-cluster SeaweedFS the
 	// Secret holds the internal cluster DNS, unreachable when the gateway runs
 	// outside the cluster (dev mode) — resolve a node-IP:NodePort fallback.
-	connectEndpoint := h.resolveConnectEndpoint(ctx, configName, endpoint)
+	connectEndpoint := resolveConnectEndpoint(configName, endpoint, nodeIP)
 
 	s3Client, err := newS3Client(ctx, region, connectEndpoint, accessKey, secretKey, forcePathStyle)
 	if err != nil {
@@ -166,7 +221,7 @@ func (h *Handler) UploadLoadTestAsset(c *gin.Context) {
 		return
 	}
 
-	publicURL := h.resolvePublicURL(ctx, configName, endpoint, bucket, key)
+	publicURL := resolvePublicURL(configName, endpoint, bucket, key, nodeIP)
 
 	c.JSON(http.StatusCreated, gin.H{
 		"url":         publicURL,
@@ -183,6 +238,16 @@ func inCluster() bool {
 	return os.Getenv("KUBERNETES_SERVICE_HOST") != ""
 }
 
+// connectEndpointOverride returns the SEAWEEDFS_ENDPOINT override, trimmed.
+func connectEndpointOverride() string {
+	return strings.TrimRight(os.Getenv("SEAWEEDFS_ENDPOINT"), "/")
+}
+
+// publicURLOverride returns the SEAWEEDFS_PUBLIC_URL override, trimmed.
+func publicURLOverride() string {
+	return strings.TrimRight(os.Getenv("SEAWEEDFS_PUBLIC_URL"), "/")
+}
+
 // resolveConnectEndpoint returns the endpoint the GATEWAY dials to reach the
 // object store — auto-detected, so the common cases need no configuration:
 //
@@ -192,21 +257,20 @@ func inCluster() bool {
 //     (seaweedfs.monitoring.svc…:8333) — the canonical ClusterIP path.
 //   - gateway outside the cluster → http://<nodeIP>:<seaweedfsNodePort>; the
 //     internal DNS would fail to resolve ("no such host"), so dial the
-//     node IP + NodePort instead (reachable from outside). Falls back to
-//     the Secret endpoint when no node IP can be derived.
+//     node IP + NodePort instead (reachable from outside).
 //   - explicit external S3 config   → its own endpoint.
+//
+// nodeIP is resolved once per request by the caller (see UploadLoadTestAsset),
+// which also decides whether an unresolvable node address is fatal.
 //
 // This is distinct from resolvePublicURL (the k6-facing asset URL); the two
 // endpoints are resolved independently.
-func (h *Handler) resolveConnectEndpoint(ctx context.Context, configName, endpoint string) string {
-	if e := strings.TrimRight(os.Getenv("SEAWEEDFS_ENDPOINT"), "/"); e != "" {
+func resolveConnectEndpoint(configName, endpoint, nodeIP string) string {
+	if e := connectEndpointOverride(); e != "" {
 		return e
 	}
-	if configName == DefaultS3ConfigName && !inCluster() {
-		if ip := h.firstNodeIP(ctx); ip != "" {
-			return fmt.Sprintf("http://%s:%s", ip, seaweedfsNodePort)
-		}
-		// No node IP derivable: fall through to the Secret endpoint.
+	if configName == DefaultS3ConfigName && !inCluster() && nodeIP != "" {
+		return fmt.Sprintf("http://%s:%s", nodeIP, seaweedfsNodePort)
 	}
 	return endpoint
 }
@@ -218,33 +282,36 @@ func (h *Handler) resolveConnectEndpoint(ctx context.Context, configName, endpoi
 //     (the internal DNS endpoint is unreachable from remote k6 VMs, so the URL
 //     is rewritten to a node IP + the SeaweedFS S3 API NodePort)
 //   - explicit external S3        → <endpoint>/<bucket>/<key>
-func (h *Handler) resolvePublicURL(ctx context.Context, configName, endpoint, bucket, key string) string {
-	if base := strings.TrimRight(os.Getenv("SEAWEEDFS_PUBLIC_URL"), "/"); base != "" {
+//
+// There is no internal-DNS fallback for the default config: the caller refuses
+// the upload outright when no node IP is available, rather than handing back a
+// URL that only fails later, on a remote k6 VM.
+func resolvePublicURL(configName, endpoint, bucket, key, nodeIP string) string {
+	if base := publicURLOverride(); base != "" {
 		return fmt.Sprintf("%s/%s/%s", base, bucket, key)
 	}
-
-	if configName == DefaultS3ConfigName {
-		if ip := h.firstNodeIP(ctx); ip != "" {
-			return fmt.Sprintf("http://%s:%s/%s/%s", ip, seaweedfsNodePort, bucket, key)
-		}
-		// Fall back to the configured endpoint when no node IP can be derived;
-		// in-cluster consumers (rare) can still reach it via DNS.
+	if configName == DefaultS3ConfigName && nodeIP != "" {
+		return fmt.Sprintf("http://%s:%s/%s/%s", nodeIP, seaweedfsNodePort, bucket, key)
 	}
-
 	return fmt.Sprintf("%s/%s/%s", strings.TrimRight(endpoint, "/"), bucket, key)
 }
 
 // firstNodeIP lists cluster Nodes and returns the first ExternalIP, falling back
-// to the first InternalIP. Empty when no Node carries a usable address.
+// to the first InternalIP.
+//
+// The error distinguishes "the lookup failed" (List error/timeout) from "the
+// cluster genuinely has no Node carrying a usable address" (empty string, nil
+// error) — collapsing the two used to turn an API blip into a silent fallback
+// to an unreachable endpoint.
 //
 // NOTE: on a multi-node cluster SeaweedFS's NodePort is reachable on every node,
 // but the chosen node may not be the one actually scheduling the SeaweedFS Pod.
 // This is fine for a NodePort Service (kube-proxy forwards across nodes) but
 // means the returned IP is "some" node, not necessarily the SeaweedFS host.
-func (h *Handler) firstNodeIP(ctx context.Context) string {
+func (h *Handler) firstNodeIP(ctx context.Context) (string, error) {
 	nodes, err := h.client.Resource(NodeGVR).List(ctx, metav1.ListOptions{})
-	if err != nil || len(nodes.Items) == 0 {
-		return ""
+	if err != nil {
+		return "", fmt.Errorf("list nodes: %w", err)
 	}
 	var internalFallback string
 	for _, node := range nodes.Items {
@@ -257,7 +324,7 @@ func (h *Handler) firstNodeIP(ctx context.Context) string {
 			switch getStringFromMap(addr, "type") {
 			case "ExternalIP":
 				if ip := getStringFromMap(addr, "address"); ip != "" {
-					return ip
+					return ip, nil
 				}
 			case "InternalIP":
 				if internalFallback == "" {
@@ -266,7 +333,7 @@ func (h *Handler) firstNodeIP(ctx context.Context) string {
 			}
 		}
 	}
-	return internalFallback
+	return internalFallback, nil
 }
 
 // newS3Client builds an aws-sdk-go-v2 S3 client with static credentials, an

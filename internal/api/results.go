@@ -35,8 +35,10 @@ func (h *Handler) resolveResultsURLs(ctx context.Context, envNamespace, envName,
 	// SEAWEEDFS_FILER_PUBLIC_URL override → else <first node IP>:30901.
 	base := strings.TrimRight(os.Getenv("SEAWEEDFS_FILER_PUBLIC_URL"), "/")
 	if base == "" {
-		ip := h.firstNodeIP(ctx)
-		if ip == "" {
+		// Best-effort surface: no links beats broken links, so a failed lookup
+		// and an address-less cluster are both simply "no results section".
+		ip, err := h.firstNodeIP(ctx)
+		if err != nil || ip == "" {
 			return nil
 		}
 		base = fmt.Sprintf("http://%s:%s", ip, seaweedfsFilerNodePort)

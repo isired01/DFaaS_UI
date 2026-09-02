@@ -1,5 +1,34 @@
+import { useSyncExternalStore } from 'react';
 import { Outlet, Link, useLocation } from 'react-router-dom';
 import { FlaskConical, LayoutDashboard, TestTube2, Database } from 'lucide-react';
+import { subscribeClusterStatus, getClusterStatus } from '../lib/clusterStatus';
+
+// Reflects whether API calls are actually reaching the cluster. This badge was
+// previously hardcoded to a green "Cluster Connected" and therefore lied
+// whenever the cluster was unreachable — the worst possible moment to be
+// reassuring. Status comes from real traffic (see lib/clusterStatus.js), so
+// before the first request it honestly reads "Cluster —".
+const CLUSTER_BADGE = {
+  ok: { dot: 'bg-emerald-400 animate-pulse', text: 'Cluster Connected' },
+  down: { dot: 'bg-red-500', text: 'Cluster Unreachable' },
+  unknown: { dot: 'bg-surface-500', text: 'Cluster —' },
+};
+
+function ClusterBadge() {
+  const status = useSyncExternalStore(subscribeClusterStatus, getClusterStatus, getClusterStatus);
+  const { dot, text } = CLUSTER_BADGE[status] || CLUSTER_BADGE.unknown;
+  return (
+    <div
+      className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-surface-800/50 border border-surface-700/50"
+      role="status"
+      aria-live="polite"
+      data-cluster-status={status}
+    >
+      <div className={`w-2 h-2 rounded-full ${dot}`} />
+      <span className="text-xs text-surface-400">{text}</span>
+    </div>
+  );
+}
 
 export default function Layout() {
   const location = useLocation();
@@ -23,7 +52,7 @@ export default function Layout() {
               <h1 className="text-lg font-bold tracking-tight bg-gradient-to-r from-white to-surface-300 bg-clip-text text-transparent">
                 DFaaS
               </h1>
-              <p className="text-[12px] text-surface-500 -mt-1 tracking-widest uppercase">
+              <p className="text-[12px] text-surface-450 -mt-1 tracking-widest uppercase">
                 Control Plane
               </p>
             </div>
@@ -36,10 +65,7 @@ export default function Layout() {
           </nav>
 
           <div className="flex items-center gap-3">
-            <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-surface-800/50 border border-surface-700/50">
-              <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-              <span className="text-xs text-surface-400">Cluster Connected</span>
-            </div>
+            <ClusterBadge />
           </div>
         </div>
       </header>
@@ -50,10 +76,10 @@ export default function Layout() {
 
       <footer className="border-t border-surface-800/50 py-4">
         <div className="max-w-[1600px] mx-auto px-6 flex items-center justify-between">
-          <p className="text-xs text-surface-600">
+          <p className="text-xs text-surface-450">
             DFaaS Control Plane — Tesi Magistrale
           </p>
-          <p className="text-xs text-surface-600">
+          <p className="text-xs text-surface-450">
             Kubernetes Operator + React UI
           </p>
         </div>

@@ -1,7 +1,6 @@
 package api
 
 import (
-	"fmt"
 	"regexp"
 	"strings"
 	"time"
@@ -38,15 +37,11 @@ func getNestedString(obj map[string]interface{}, fields ...string) string {
 	return val
 }
 
+// getStringFromMap reads a string field out of an unstructured map. A missing
+// key or a non-string value both yield "": Go-formatted renderings of maps and
+// slices ("map[foo:bar]") have no business leaking into a JSON response.
 func getStringFromMap(m map[string]interface{}, key string) string {
-	val, ok := m[key]
-	if !ok {
-		return ""
-	}
-	s, ok := val.(string)
-	if !ok {
-		return fmt.Sprintf("%v", val)
-	}
+	s, _ := m[key].(string)
 	return s
 }
 

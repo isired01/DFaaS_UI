@@ -101,6 +101,10 @@ The server reads environment variables directly (no `.env` file is loaded):
 - `SEAWEEDFS_PUBLIC_URL` — public base URL for uploaded k6 image assets, reachable **from the k6 VMs** (e.g. `http://<node-ip>:30900`). See "Image payloads in k6 load tests".
 - `SEAWEEDFS_ENDPOINT` — override for the gateway→SeaweedFS **dial** endpoint (default: auto — in-cluster DNS, or node-IP:30900 in dev).
 
+> **`CORS_ORIGINS=*` is not usable as an origin list.** The server always sends `Access-Control-Allow-Credentials: true`, and the CORS spec forbids pairing that with a `*` origin — browsers silently refuse such responses. On startup the gateway warns and disables credentials rather than shipping a combination that cannot work. List the real origins instead.
+
+**RBAC: the gateway needs `nodes` read access.** Auto-detecting the public asset URL lists cluster Nodes to find a reachable IP. The chart's UI ClusterRole grants core `nodes` `get`/`list` for this; without it every asset upload fails with **502** telling you to set `SEAWEEDFS_PUBLIC_URL` explicitly. (That rule was missing until recently — installs from an older chart hit exactly this, previously as a *silently unreachable* URL baked into the k6 script.)
+
 ## Image payloads in k6 load tests
 
 A k6 scenario can carry an uploaded image as its request body — e.g. to load-test an image-processing function like `dfaas-imgproc`.
@@ -111,6 +115,69 @@ A k6 scenario can carry an uploaded image as its request body — e.g. to load-t
   - `SEAWEEDFS_PUBLIC_URL=http://<node-ip-reachable-from-k6-VMs>:30900` — the asset URL must be reachable **from the k6 VMs**. Port **30900** = SeaweedFS S3 API (object GET). Auto-detect picks a node IP from the k8s node status, which on a multi-subnet lab may not be the routable one → set this explicitly. **Re-upload** the image after changing it (the URL is baked into the script at upload time).
   - Target URL = `http://<dfaas-node-ip>:30080/function/<name>` (HAProxy NodePort on the DFaaS node — not the k6 node, not the gateway).
 - **Use a small image** (KB, not multi-MB): the base64 payload is copied per-VU (runner memory) and the function receives the full image on **every** request — a large image saturates SeaweedFS / network / DFaaS node under load (symptoms: `unknown format` from failed fetches, `500/504` from a saturated node). Keep the arrival rate sane.
+
+## Load-test progress
+
+The LoadTest detail page draws **one progress bar per generator**, next to that node's run stage.
+It counts `status.startTime` against the node's declared `duration`, and colours from the remote
+k6 stage: amber while running, green on `finished`, red on `error`.
+
+The elapsed side is exact. The total is a *declaration*, so the bar is explicit about the limits of
+what it knows — if the run passes its declared length while the runner is still going, the bar
+switches to indeterminate rather than sitting at 99% pretending.
+
+**Where that declaration comes from.** k6 never reads `spec.perNodeLoad[].duration`; the script's own
+`options.scenarios` decides how long the run lasts. The field used to be a free text box that drove
+nothing, and it was wrong out of the box — the default said `30s` for a default scenario that runs
+`50s`. Now:
+
+- **Generated scripts** — computed for you and shown read-only: the longest scenario, `startTime`
+  plus its stages. Edit a stage and the number follows. This is also the only check stage durations
+  get, since they live inside the script where the CRD cannot reach them.
+- **Raw pasted scripts** — you still type it, because nobody can parse arbitrary JS. Get it wrong and
+  only the bar is wrong; the test itself is unaffected.
+
+## Known limitation — k6 executors
+
+**Only `ramping-arrival-rate` produces a working script.** The scenario editor's
+executor dropdown offers six options; the other five generate scripts that k6
+rejects at startup, so the runner reports `error` *before* the test starts and
+the operator's sync barrier aborts the whole LoadTest.
+
+Cause: `renderScenario` in [ui/src/lib/k6Generator.js](ui/src/lib/k6Generator.js)
+emits one fixed option block for every executor —
+
+```js
+executor: '<selected>',
+startRate: 0,        // arrival-rate only
+timeUnit: '1s',      // arrival-rate only
+preAllocatedVUs: N,  // arrival-rate only
+maxVUs: N,           // arrival-rate only
+stages: [ … ],
+```
+
+— but each k6 executor accepts a different option set, and k6 validates strictly:
+
+| Executor | Needs | Emitted today | Works |
+|---|---|---|---|
+| `ramping-arrival-rate` | `startRate`, `timeUnit`, `stages`, `preAllocatedVUs`, `maxVUs` | all | ✅ |
+| `constant-arrival-rate` | `rate`, `timeUnit`, **`duration`**, `preAllocatedVUs`, `maxVUs` | `stages`, no `rate`/`duration` | ❌ |
+| `ramping-vus` | `startVUs`, `stages` | 4 illegal fields | ❌ |
+| `constant-vus` | `vus`, **`duration`** | `stages` + illegal fields | ❌ |
+| `shared-iterations` | `vus`, **`iterations`**, `maxDuration` | `stages` + illegal fields | ❌ |
+| `per-vu-iterations` | `vus`, **`iterations`**, `maxDuration` | `stages` + illegal fields | ❌ |
+
+Fixing it takes two parts: a `switch` on executor in `renderScenario`, **and**
+new per-executor inputs in `K6ScenariosEditor` — the bolded fields (`rate`,
+`duration`, `iterations`) are not collected by the form at all, so the generator
+would have nothing to emit for them even after the first part.
+
+**Workaround:** leave the executor on `ramping-arrival-rate` and vary the load
+through `stages`. Steady plateaus, bursts and sawtooth spikes are all expressible
+that way, and several scenarios can run concurrently on one generator with
+different `startTime` offsets. Arrival-rate is also the better model for these
+experiments: it holds throughput as a controlled independent variable instead of
+letting it fall out of how fast the system happens to respond.
 
 ## Verification
 

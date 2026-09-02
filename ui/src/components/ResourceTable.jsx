@@ -75,6 +75,7 @@ export default function ResourceTable({
               <input
                 ref={fileInputRef}
                 type="file"
+                aria-label="Import YAML"
                 accept=".yaml,.yml,application/yaml,application/x-yaml,text/yaml"
                 onChange={upload.onChange}
                 className="hidden"
@@ -99,15 +100,15 @@ export default function ResourceTable({
       <div className={`grid ${statsCols} gap-4`}>
         {stats.map(stat => (
           <div key={stat.label} className="glass-card p-4">
-            <p className="text-xs text-surface-500 uppercase tracking-wider">{stat.label}</p>
+            <p className="text-xs text-surface-450 uppercase tracking-wider">{stat.label}</p>
             <p className={`text-2xl font-bold mt-1 ${stat.color}`}>{stat.value}</p>
           </div>
         ))}
       </div>
 
       <div className="relative">
-        <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-surface-500" />
-        <input type="text" id={searchId} placeholder={searchPlaceholder} value={search} onChange={(e) => onSearch(e.target.value)} className="input pl-11" />
+        <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-surface-450" />
+        <input type="text" id={searchId} aria-label={searchPlaceholder} placeholder={searchPlaceholder} value={search} onChange={(e) => onSearch(e.target.value)} className="input pl-11" />
       </div>
 
       {error && (
@@ -136,14 +137,14 @@ export default function ResourceTable({
             </thead>
             <tbody>
               {loading && initialLoad ? (
-                <tr><td colSpan={colSpan} className="text-center py-12 text-surface-500">
+                <tr><td colSpan={colSpan} className="text-center py-12 text-surface-450">
                   <div className="flex flex-col items-center gap-3">
                     <div className="w-8 h-8 border-2 border-dfaas-500/30 border-t-dfaas-500 rounded-full animate-spin" />
                     <span className="text-sm">{loadingText}</span>
                   </div>
                 </td></tr>
               ) : items.length === 0 ? (
-                <tr><td colSpan={colSpan} className="text-center py-12 text-surface-500">
+                <tr><td colSpan={colSpan} className="text-center py-12 text-surface-450">
                   {EmptyIcon && <EmptyIcon className="w-10 h-10 mx-auto mb-3 opacity-30" />}
                   <p className="text-sm">{emptyText}</p>
                 </td></tr>

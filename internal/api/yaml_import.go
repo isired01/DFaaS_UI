@@ -17,23 +17,30 @@ import (
 
 // --- YAML apply handlers ---
 
+// yamlValidator runs the gateway's business rules against a decoded CR before
+// it is created. It returns the HTTP status and message the handler should
+// send; ok is false in that case.
+type yamlValidator func(ctx context.Context, namespace string, obj map[string]interface{}) (status int, msg string, ok bool)
+
 // CreateEnvironmentFromYAML accepts a raw CR YAML body and creates an
 // Environment, mirroring `kubectl apply -f` UX.
 func (h *Handler) CreateEnvironmentFromYAML(c *gin.Context) {
-	h.applyResourceYAML(c, EnvironmentGVR, "Environment", "dfaas.dfaas.io/v1")
+	h.applyResourceYAML(c, EnvironmentGVR, "Environment", "dfaas.dfaas.io/v1", validateEnvironmentYAML)
 }
 
 // CreateLoadTestFromYAML accepts a raw CR YAML body and creates a LoadTest,
 // mirroring `kubectl apply -f` UX.
 func (h *Handler) CreateLoadTestFromYAML(c *gin.Context) {
-	h.applyResourceYAML(c, LoadTestGVR, "LoadTest", "dfaas.dfaas.io/v1")
+	h.applyResourceYAML(c, LoadTestGVR, "LoadTest", "dfaas.dfaas.io/v1", h.validateLoadTestYAML)
 }
 
 // applyResourceYAML reads a YAML CR body, validates apiVersion+kind, scrubs
-// server-managed fields, defaults namespace to "default", and creates the
-// resource via the dynamic client. Bypasses the typed DTO entirely so a user
-// can round-trip a downloaded YAML (possibly with an edited metadata.name).
-func (h *Handler) applyResourceYAML(c *gin.Context, gvr schema.GroupVersionResource, expectedKind string, expectedAPIVersion string) {
+// server-managed fields, defaults namespace to "default", runs the kind's
+// business-rule validator, and creates the resource via the dynamic client.
+// Bypasses the typed DTO entirely so a user can round-trip a downloaded YAML
+// (possibly with an edited metadata.name) — but not the gateway's rules, which
+// would otherwise only fail later, as a confusing reconcile error.
+func (h *Handler) applyResourceYAML(c *gin.Context, gvr schema.GroupVersionResource, expectedKind string, expectedAPIVersion string, validate yamlValidator) {
 	body, err := io.ReadAll(io.LimitReader(c.Request.Body, 1<<20))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("read body: %v", err)})
@@ -87,6 +94,11 @@ func (h *Handler) applyResourceYAML(c *gin.Context, gvr schema.GroupVersionResou
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 15*time.Second)
 	defer cancel()
 
+	if status, msg, ok := validate(ctx, namespace, obj); !ok {
+		c.JSON(status, gin.H{"error": msg})
+		return
+	}
+
 	u := &unstructured.Unstructured{Object: obj}
 	created, err := h.client.Resource(gvr).Namespace(namespace).Create(ctx, u, metav1.CreateOptions{})
 	if err != nil {
@@ -108,4 +120,128 @@ func (h *Handler) applyResourceYAML(c *gin.Context, gvr schema.GroupVersionResou
 		"name":      created.GetName(),
 		"kind":      expectedKind,
 	})
+}
+
+// --- YAML business-rule validators ---
+//
+// These mirror the checks the structured JSON handlers run, so a pasted YAML
+// gets the same clear 400/409 instead of a reconcile failure hours later.
+
+// nestedSliceNoCopy reads a slice at the given path WITHOUT the deep copy
+// unstructured.NestedSlice performs. The YAML decoder yields plain Go ints for
+// numeric fields and that deep copy panics on any type outside the JSON set,
+// so it must never be pointed at a freshly decoded YAML document.
+func nestedSliceNoCopy(obj map[string]interface{}, fields ...string) []interface{} {
+	raw, _, _ := unstructured.NestedFieldNoCopy(obj, fields...)
+	s, _ := raw.([]interface{})
+	return s
+}
+
+// validateEnvironmentYAML runs the same per-node shape checks CreateEnvironment
+// enforces (role enum, capacity enum, required fields, duplicate nodeIDs).
+func validateEnvironmentYAML(_ context.Context, _ string, obj map[string]interface{}) (int, string, bool) {
+	rawNodes := nestedSliceNoCopy(obj, "spec", "nodes")
+	if len(rawNodes) == 0 {
+		return http.StatusBadRequest, "spec.nodes must contain at least one node", false
+	}
+
+	nodes := make([]NodeInfo, 0, len(rawNodes))
+	for i, raw := range rawNodes {
+		m, ok := raw.(map[string]interface{})
+		if !ok {
+			return http.StatusBadRequest, fmt.Sprintf("spec.nodes[%d] is not an object", i), false
+		}
+		node := NodeInfo{
+			NodeID:            getStringFromMap(m, "nodeID"),
+			IpAddress:         getStringFromMap(m, "ipAddress"),
+			Role:              getStringFromMap(m, "role"),
+			Username:          getStringFromMap(m, "username"),
+			Password:          getStringFromMap(m, "password"),
+			Capacity:          getStringFromMap(m, "capacity"),
+			BalancingStrategy: getStringFromMap(m, "balancingStrategy"),
+		}
+		for _, rawFn := range nestedSliceNoCopy(m, "functions") {
+			fn, ok := rawFn.(map[string]interface{})
+			if !ok {
+				return http.StatusBadRequest, fmt.Sprintf("spec.nodes[%d].functions[] entries must be objects", i), false
+			}
+			node.Functions = append(node.Functions, FunctionInfo{
+				Name:  getStringFromMap(fn, "name"),
+				Image: getStringFromMap(fn, "image"),
+			})
+		}
+		nodes = append(nodes, node)
+	}
+
+	if err := validateEnvNodes(nodes); err != nil {
+		return http.StatusBadRequest, err.Error(), false
+	}
+	return 0, "", true
+}
+
+// validateLoadTestYAML runs the business rules CreateLoadTest enforces: every
+// perNodeLoad entry must reference a script ConfigMap (the CRD carries no
+// inline script), the target Environment must exist and be dispatchable unless
+// the test is a draft or scheduled, and every nodeID must be a k6 load
+// generator of that Environment.
+func (h *Handler) validateLoadTestYAML(ctx context.Context, namespace string, obj map[string]interface{}) (int, string, bool) {
+	rawPerNode := nestedSliceNoCopy(obj, "spec", "perNodeLoad")
+	if len(rawPerNode) == 0 {
+		return http.StatusBadRequest, "spec.perNodeLoad must contain at least one entry", false
+	}
+
+	nodeIDs := make([]string, 0, len(rawPerNode))
+	for i, raw := range rawPerNode {
+		entry, ok := raw.(map[string]interface{})
+		if !ok {
+			return http.StatusBadRequest, fmt.Sprintf("spec.perNodeLoad[%d] is not an object", i), false
+		}
+		nodeID := getStringFromMap(entry, "nodeID")
+		if nodeID == "" {
+			return http.StatusBadRequest, fmt.Sprintf("spec.perNodeLoad[%d]: nodeID required", i), false
+		}
+		cmRef, _ := entry["scriptConfigMap"].(map[string]interface{})
+		if getStringFromMap(cmRef, "name") == "" {
+			return http.StatusBadRequest, fmt.Sprintf("spec.perNodeLoad[%d]: scriptConfigMap.name required (the CRD carries no inline script)", i), false
+		}
+		nodeIDs = append(nodeIDs, nodeID)
+	}
+
+	target := getNestedString(obj, "spec", "targetEnvironment")
+	if target == "" {
+		return http.StatusBadRequest, "spec.targetEnvironment required", false
+	}
+
+	envObj, err := h.client.Resource(EnvironmentGVR).Namespace(namespace).Get(ctx, target, metav1.GetOptions{})
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			return http.StatusBadRequest, fmt.Sprintf("environment '%s/%s' not found", namespace, target), false
+		}
+		return http.StatusInternalServerError, fmt.Sprintf("read environment '%s/%s': %v", namespace, target, err), false
+	}
+
+	// Draft/scheduled tests skip the dispatchability gate — they run later, once
+	// the environment settles (same rule as the structured path). "Scheduled" is
+	// decided on key presence: yaml.v3 resolves an unquoted RFC3339 value to a
+	// time.Time, not to a string.
+	suspended, _, _ := unstructured.NestedBool(obj, "spec", "suspended")
+	spec, _ := obj["spec"].(map[string]interface{})
+	scheduled := spec["startAt"] != nil
+	phase := getNestedString(envObj.Object, "status", "phase")
+	if !suspended && !scheduled && phase != "Ready" && phase != "Degraded" {
+		return http.StatusConflict, fmt.Sprintf("environment '%s' is not dispatchable (current phase: %s; requires Ready or Degraded)", target, phase), false
+	}
+
+	k6IDs := buildK6NodeIndex(envObj)
+	for i, nodeID := range nodeIDs {
+		if _, ok := k6IDs[nodeID]; !ok {
+			valid := make([]string, 0, len(k6IDs))
+			for id := range k6IDs {
+				valid = append(valid, id)
+			}
+			return http.StatusBadRequest, fmt.Sprintf("spec.perNodeLoad[%d].nodeID '%s' not a k6-load-generator (valid: %v)", i, nodeID, valid), false
+		}
+	}
+
+	return 0, "", true
 }

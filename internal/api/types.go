@@ -6,11 +6,13 @@ import "time"
 // Mirror the dfaas-operator Environment CRD (dfaas.dfaas.io/v1).
 
 // EnvironmentSummary is returned by GET /api/environments.
+//
+// There is no message field: the operator never writes status.message on either
+// CRD — all messaging goes through the Ready condition, surfaced in Conditions.
 type EnvironmentSummary struct {
 	Name               string    `json:"name"`
 	Namespace          string    `json:"namespace"`
 	Phase              string    `json:"phase"`
-	Message            string    `json:"message,omitempty"`
 	CreationTimestamp  time.Time `json:"creationTimestamp"`
 	Generation         int64     `json:"generation"`
 	ObservedGeneration int64     `json:"observedGeneration"`
@@ -24,7 +26,6 @@ type EnvironmentDetail struct {
 	Name               string           `json:"name"`
 	Namespace          string           `json:"namespace"`
 	Phase              string           `json:"phase"`
-	Message            string           `json:"message,omitempty"`
 	CreationTimestamp  time.Time        `json:"creationTimestamp"`
 	Generation         int64            `json:"generation"`
 	ObservedGeneration int64            `json:"observedGeneration"`
@@ -133,6 +134,9 @@ type UpdateEnvironmentSpec struct {
 // Mirror the dfaas-operator LoadTest CRD (dfaas.dfaas.io/v1).
 
 // LoadTestSummary is returned by GET /api/loadtests.
+//
+// There is no message field: the operator never writes status.message on either
+// CRD — all messaging goes through the Ready condition, surfaced in Conditions.
 type LoadTestSummary struct {
 	Name              string     `json:"name"`
 	Namespace         string     `json:"namespace"`
@@ -142,7 +146,6 @@ type LoadTestSummary struct {
 	SyncStart         bool       `json:"syncStart"`
 	StartAt           *time.Time `json:"startAt,omitempty"`
 	Stop              bool       `json:"stop,omitempty"`
-	Message           string     `json:"message,omitempty"`
 	StartTime         *time.Time `json:"startTime,omitempty"`
 	EndTime           *time.Time `json:"endTime,omitempty"`
 	CreationTimestamp time.Time  `json:"creationTimestamp"`

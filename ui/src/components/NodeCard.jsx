@@ -37,7 +37,7 @@ export default function NodeCard({ node, index, variant, onConfigureLoad, config
             {capacity.label}
           </span>
           {node.role && (
-            <span className="text-[12px] text-surface-500 uppercase tracking-wider">
+            <span className="text-[12px] text-surface-450 uppercase tracking-wider">
               {ROLE_LABEL[node.role] || node.role}
             </span>
           )}
@@ -55,10 +55,10 @@ export default function NodeCard({ node, index, variant, onConfigureLoad, config
 
       {!isK6 && node.functions && node.functions.length > 0 && (
         <div className="mt-4 pt-4 border-t border-surface-700/50">
-          <h4 className="text-xs font-semibold text-surface-400 uppercase tracking-wider mb-3 flex items-center gap-1.5">
+          <h3 className="text-xs font-semibold text-surface-400 uppercase tracking-wider mb-3 flex items-center gap-1.5">
             <Zap className="w-3.5 h-3.5" />
             Functions ({node.functions.length})
-          </h4>
+          </h3>
           <div className="space-y-2">
             {node.functions.map((fn, i) => (
               <FunctionRow key={fn.name + i} fn={fn} />
@@ -88,9 +88,9 @@ export default function NodeCard({ node, index, variant, onConfigureLoad, config
 function InfoItem({ icon: Icon, label, value }) {
   return (
     <div className="flex items-center gap-2">
-      <Icon className="w-3.5 h-3.5 text-surface-500" />
+      <Icon className="w-3.5 h-3.5 text-surface-450" />
       <div>
-        <p className="text-[12px] text-surface-500 uppercase">{label}</p>
+        <p className="text-[12px] text-surface-450 uppercase">{label}</p>
         <p className="text-xs text-surface-200 font-medium truncate">{value}</p>
       </div>
     </div>
@@ -104,7 +104,7 @@ function FunctionRow({ fn }) {
         <Box className="w-4 h-4 text-violet-400" />
         <div>
           <p className="text-sm font-medium text-white">{fn.name}</p>
-          <p className="text-[12px] text-surface-500 font-mono truncate max-w-[200px]">{fn.image}</p>
+          <p className="text-[12px] text-surface-450 font-mono truncate max-w-[200px]">{fn.image}</p>
         </div>
       </div>
       <div className="flex items-center gap-3 text-[12px] text-surface-400">

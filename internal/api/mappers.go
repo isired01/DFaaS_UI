@@ -12,7 +12,6 @@ func mapEnvSummary(item unstructured.Unstructured) EnvironmentSummary {
 		Name:               item.GetName(),
 		Namespace:          item.GetNamespace(),
 		Phase:              getNestedString(item.Object, "status", "phase"),
-		Message:            getNestedString(item.Object, "status", "message"),
 		CreationTimestamp:  item.GetCreationTimestamp().Time,
 		Generation:         item.GetGeneration(),
 		ObservedGeneration: observedGen,
@@ -42,7 +41,6 @@ func mapEnvDetail(item unstructured.Unstructured) EnvironmentDetail {
 		Name:               item.GetName(),
 		Namespace:          item.GetNamespace(),
 		Phase:              getNestedString(item.Object, "status", "phase"),
-		Message:            getNestedString(item.Object, "status", "message"),
 		CreationTimestamp:  item.GetCreationTimestamp().Time,
 		Generation:         item.GetGeneration(),
 		ObservedGeneration: observedGen,
@@ -153,7 +151,6 @@ func mapLoadTestSummary(item unstructured.Unstructured) LoadTestSummary {
 		Suspended:         suspended,
 		SyncStart:         syncStart,
 		Stop:              stop,
-		Message:           getNestedString(item.Object, "status", "message"),
 		CreationTimestamp: item.GetCreationTimestamp().Time,
 	}
 

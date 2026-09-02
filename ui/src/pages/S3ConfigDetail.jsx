@@ -91,7 +91,7 @@ export default function S3ConfigDetail() {
         <dl className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {fields.map(f => (
             <div key={f.label}>
-              <dt className="text-xs text-surface-500 uppercase tracking-wider">{f.label}</dt>
+              <dt className="text-xs text-surface-450 uppercase tracking-wider">{f.label}</dt>
               <dd className="text-sm font-mono text-surface-200 mt-1">{f.value}</dd>
             </div>
           ))}

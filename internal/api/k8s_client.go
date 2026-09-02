@@ -2,6 +2,7 @@ package api
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 
@@ -54,7 +55,12 @@ func NewK8sClient() (dynamic.Interface, error) {
 	if err != nil {
 		kubeconfig := os.Getenv("KUBECONFIG")
 		if kubeconfig == "" {
-			home, _ := os.UserHomeDir()
+			home, herr := os.UserHomeDir()
+			if herr != nil {
+				// Not fatal on its own — BuildConfigFromFlags below reports the
+				// resulting bad path — but the cause belongs in the log.
+				log.Printf("resolve home directory for the default kubeconfig path: %v", herr)
+			}
 			kubeconfig = filepath.Join(home, ".kube", "config")
 		}
 

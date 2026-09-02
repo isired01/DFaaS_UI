@@ -25,6 +25,8 @@ func writeK8sError(c *gin.Context, err error, resource string) {
 	switch {
 	case apierrors.IsNotFound(err):
 		c.JSON(http.StatusNotFound, gin.H{"error": fmt.Sprintf("%s not found", resource)})
+	case apierrors.IsAlreadyExists(err):
+		c.JSON(http.StatusConflict, gin.H{"error": fmt.Sprintf("%s already exists", resource)})
 	case apierrors.IsConflict(err):
 		c.JSON(http.StatusConflict, gin.H{"error": fmt.Sprintf("concurrent edit on %s: %v", resource, err)})
 	case apierrors.IsInvalid(err) || apierrors.IsBadRequest(err):

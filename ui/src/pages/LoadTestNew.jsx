@@ -2,14 +2,20 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams, Link } from 'react-router-dom';
 import { ArrowLeft, Play, Info } from 'lucide-react';
 import { createLoadTest, fetchEnvironment } from '../api/client';
-import { newScenario } from '../components/K6ScenariosEditor';
+import { newScenario, ensureScenarioIds } from '../components/K6ScenariosEditor';
 import { generateK6Script } from '../lib/k6Generator';
 import MetricsEditor, { DEFAULT_METRICS, emptyMetric } from '../components/MetricsEditor';
 import { parseMetricsCsv } from '../lib/metricsCsv';
+import { formatGoDuration, perNodeTotalMs } from '../lib/duration';
 import NodeLoadConfig, { SOURCE_GENERATE, SOURCE_RAW } from '../components/NodeLoadConfig';
 import LoadingSpinner from '../components/LoadingSpinner';
 import ErrorAlert from '../components/ErrorAlert';
 import SubmitButton from '../components/SubmitButton';
+
+// Go duration grammar, kept in sync by hand with the CRD pattern on
+// spec.perNodeLoad[].duration and spec.metricsExport.step. ASCII only: the CRD
+// pattern deliberately omits the 'µs' spelling.
+const GO_DURATION_RE = /^([0-9]+(\.[0-9]+)?(ns|us|ms|s|m|h))+$/;
 
 function defaultPerNode() {
   return {
@@ -17,13 +23,42 @@ function defaultPerNode() {
     vus: 5,
     duration: '30s',
     source: SOURCE_GENERATE,
-    scenarios: [newScenario(0)],
+    scenarios: [newScenario()],
     rawScript: '',
   };
 }
 
 function storageKeyFor(ns, env, nodeID) {
   return `loadtest_draft_${ns}_${env}_${nodeID}`;
+}
+
+// loadDraft restores one node's saved form state. A draft written by an older
+// build parses fine but can be missing whole keys (e.g. `scenarios`), which used
+// to take the page down to the route ErrorBoundary until the user cleared
+// localStorage by hand — so nothing is trusted beyond the shape defaultPerNode()
+// declares, and scenarios get their stable id backfilled.
+function loadDraft(ns, env, nodeID) {
+  const base = defaultPerNode();
+  let saved = null;
+  try {
+    const raw = localStorage.getItem(storageKeyFor(ns, env, nodeID));
+    saved = raw ? JSON.parse(raw) : null;
+  } catch { return base; }
+  if (!saved || typeof saved !== 'object' || Array.isArray(saved)) return base;
+  const scenarios = Array.isArray(saved.scenarios) && saved.scenarios.length > 0
+    ? ensureScenarioIds(saved.scenarios)
+    : base.scenarios;
+  return { ...base, ...saved, scenarios };
+}
+
+// k6NodesOf resolves the generator list: status is authoritative once populated
+// (it carries the resolved kubeconfig Secret), otherwise fall back to the spec
+// filtered by role.
+function k6NodesOf(env) {
+  if (!env) return [];
+  return env.k6Nodes && env.k6Nodes.length > 0
+    ? env.k6Nodes
+    : (env.nodes || []).filter(n => n.role === 'k6-load-generator');
 }
 
 export default function LoadTestNew() {
@@ -37,7 +72,6 @@ export default function LoadTestNew() {
   const [step, setStep] = useState('15s');
   const [nameSuffix, setNameSuffix] = useState('');
   const [submitting, setSubmitting] = useState(false);
-  const [cooldown, setCooldown] = useState(false);
   const [startAt, setStartAt] = useState('');
   const [submitMode, setSubmitMode] = useState('draft');
   const [syncStart, setSyncStart] = useState(false);
@@ -45,24 +79,23 @@ export default function LoadTestNew() {
 
   useEffect(() => {
     fetchEnvironment(namespace, envName)
-      .then(env => {
-        setEnvironment(env);
-        const initial = {};
-        const k6Statuses = env.k6Nodes && env.k6Nodes.length > 0
-          ? env.k6Nodes
-          : (env.nodes || []).filter(n => n.role === 'k6-load-generator').map(n => ({ nodeID: n.nodeID, ipAddress: n.ipAddress }));
-        k6Statuses.forEach(n => {
-          const saved = localStorage.getItem(storageKeyFor(namespace, envName, n.nodeID));
-          if (saved) {
-            try { initial[n.nodeID] = JSON.parse(saved); return; } catch { /* fall through */ }
-          }
-          initial[n.nodeID] = defaultPerNode();
-        });
-        setPerNode(initial);
-      })
+      .then(setEnvironment)
       .catch(err => setError(err.message))
       .finally(() => setLoading(false));
   }, [namespace, envName]);
+
+  // One definition of the generator list, used both to seed the drafts below and
+  // to render the per-node cards.
+  const k6Nodes = useMemo(() => k6NodesOf(environment), [environment]);
+
+  // Seed one draft per generator, restoring the saved localStorage draft when
+  // there is one. The environment is fetched once, so this runs once.
+  useEffect(() => {
+    if (k6Nodes.length === 0) return;
+    const initial = {};
+    k6Nodes.forEach(n => { initial[n.nodeID] = loadDraft(namespace, envName, n.nodeID); });
+    setPerNode(initial);
+  }, [k6Nodes, namespace, envName]);
 
   useEffect(() => {
     Object.entries(perNode).forEach(([nodeID, draft]) => {
@@ -107,6 +140,7 @@ export default function LoadTestNew() {
     }
     const reader = new FileReader();
     reader.onload = () => updateNode(nodeID, { rawScript: reader.result, source: SOURCE_RAW });
+    reader.onerror = () => setError(`Could not read '${file.name}': ${reader.error?.message || 'read failed'}`);
     reader.readAsText(file);
   };
 
@@ -161,7 +195,30 @@ export default function LoadTestNew() {
       for (const [nodeID, draft] of Object.entries(perNode)) {
         if (!draft.enabled) continue;
         if (!draft.vus || draft.vus < 1) throw new Error(`Node '${nodeID}' needs vus >= 1`);
-        if (!draft.duration) throw new Error(`Node '${nodeID}' needs a duration`);
+
+        // Duration is derived for generated scripts and typed only for raw ones.
+        // k6 never reads the CRD field either way (the operator just copies it
+        // onto an unread annotation), so its only real job is to be truthful
+        // enough to drive the progress bar.
+        let duration;
+        if (draft.source === SOURCE_RAW) {
+          if (!draft.duration) throw new Error(`Node '${nodeID}' needs a duration`);
+          // Mirrors the CRD pattern on spec.perNodeLoad[].duration (source of truth:
+          // DFaaSOperator api/v1/loadtest_types.go). Checked here so "5 minutes"
+          // fails inline instead of coming back as a raw API-server 422.
+          if (!GO_DURATION_RE.test(draft.duration)) {
+            throw new Error(`Node '${nodeID}': duration must be a Go duration like '30s', '5m' or '1h30m' (got '${draft.duration}')`);
+          }
+          duration = draft.duration;
+        } else {
+          // Also the only validation stage durations get: they live inside the
+          // generated script, so neither the CRD nor the API server can check them.
+          const totalMs = perNodeTotalMs(draft.scenarios);
+          if (totalMs === null || totalMs <= 0) {
+            throw new Error(`Node '${nodeID}': cannot compute the run length — every scenario needs a valid startTime and stage durations like '30s' or '1m30s'`);
+          }
+          duration = formatGoDuration(totalMs);
+        }
 
         let script = '';
         if (draft.source === SOURCE_RAW) {
@@ -169,10 +226,26 @@ export default function LoadTestNew() {
           if (!script.trim()) throw new Error(`Node '${nodeID}' has no raw script`);
         } else {
           if (!draft.scenarios || draft.scenarios.length === 0) throw new Error(`Node '${nodeID}' has no scenarios`);
+          // Names key the generated `scenarios` object: a duplicate is legal JS
+          // but the later entry overwrites the earlier one, silently dropping a
+          // whole scenario from the test.
+          const seenNames = new Set();
           for (const s of draft.scenarios) {
-            if (!s.targetURL) throw new Error(`Node '${nodeID}' scenario '${s.name}' missing targetURL`);
+            const scenName = (s.name || '').trim();
+            if (!scenName) throw new Error(`Node '${nodeID}' has a scenario with an empty name`);
+            if (seenNames.has(scenName)) throw new Error(`Node '${nodeID}' has two scenarios named '${scenName}' — scenario names must be unique`);
+            seenNames.add(scenName);
+            if (!s.targetURL) throw new Error(`Node '${nodeID}' scenario '${scenName}' missing targetURL`);
+            if (!s.preAllocatedVUs || s.preAllocatedVUs < 1) throw new Error(`Node '${nodeID}' scenario '${scenName}' needs preAllocatedVUs >= 1`);
+            if (!s.maxVUs || s.maxVUs < 1) throw new Error(`Node '${nodeID}' scenario '${scenName}' needs maxVUs >= 1`);
             if (s.headers) {
-              try { JSON.parse(s.headers); } catch { throw new Error(`Node '${nodeID}' scenario '${s.name}' has invalid headers JSON`); }
+              let parsedHeaders;
+              try { parsedHeaders = JSON.parse(s.headers); } catch { throw new Error(`Node '${nodeID}' scenario '${scenName}' has invalid headers JSON`); }
+              // Parseable is not enough: `null` and `[]` are valid JSON but not
+              // header maps, and the generator splices the text in verbatim.
+              if (parsedHeaders === null || typeof parsedHeaders !== 'object' || Array.isArray(parsedHeaders)) {
+                throw new Error(`Node '${nodeID}' scenario '${scenName}': headers must be a JSON object like {"Content-Type": "application/json"}`);
+              }
             }
           }
           script = generateK6Script(draft.scenarios);
@@ -181,7 +254,7 @@ export default function LoadTestNew() {
         perNodeLoad.push({
           nodeID,
           vus: parseInt(draft.vus) || 1,
-          duration: draft.duration,
+          duration,
           script,
         });
       }
@@ -217,8 +290,6 @@ export default function LoadTestNew() {
       }
 
       const created = await createLoadTest(payload);
-      setCooldown(true);
-      setTimeout(() => setCooldown(false), 30000);
       navigate(`/loadtests/${created.namespace}/${created.name}`);
     } catch (err) {
       setError(err.message);
@@ -235,10 +306,6 @@ export default function LoadTestNew() {
     </div>
   );
 
-  const k6Statuses = environment.k6Nodes && environment.k6Nodes.length > 0
-    ? environment.k6Nodes
-    : (environment.nodes || []).filter(n => n.role === 'k6-load-generator');
-
   return (
     <form onSubmit={handleSubmit} className="space-y-6 animate-fade-in max-w-5xl mx-auto">
       <div>
@@ -250,15 +317,16 @@ export default function LoadTestNew() {
       </div>
 
       <div>
-        <label className="block text-xs font-medium text-surface-400 mb-1">Name suffix (optional)</label>
+        <label htmlFor="lt-name-suffix" className="block text-xs font-medium text-surface-400 mb-1">Name suffix (optional)</label>
         <input
+          id="lt-name-suffix"
           type="text"
           className="input py-2 text-sm md:w-1/2"
           value={nameSuffix}
           onChange={(e) => setNameSuffix(e.target.value)}
           placeholder="e.g. baseline, run-2"
         />
-        <p className="text-[12px] text-surface-500 mt-1">
+        <p className="text-[12px] text-surface-450 mt-1">
           Name: <code className="text-surface-400">lt-{envName}-&lt;timestamp&gt;{nameSuffix.trim() ? `-${nameSuffix.trim()}` : ''}</code> (sanitized to lowercase DNS-1123)
         </p>
       </div>
@@ -266,15 +334,15 @@ export default function LoadTestNew() {
       <div className="p-4 rounded-xl bg-surface-800/50 border border-surface-700/50 flex items-center gap-3">
         <Info className="w-5 h-5 text-surface-400 flex-shrink-0" />
         <span className="text-sm text-surface-300">
-          Load tests are created as <strong>drafts</strong>. Click <strong>Start</strong> on the load test detail page once the environment is <strong>Ready</strong> to dispatch k6.
+          Load tests are created as <strong>drafts</strong>. Click <strong>Start</strong> on the load test detail page once the environment is <strong>Ready</strong> (or <strong>Degraded</strong>) to dispatch k6.
         </span>
       </div>
 
-      {k6Statuses.length === 0 ? (
+      {k6Nodes.length === 0 ? (
         <div className="glass-card p-6 text-center text-surface-400">
           No k6 generators on this environment. Add a node with role <code>k6-load-generator</code> to launch load tests.
         </div>
-      ) : k6Statuses.map((node) => (
+      ) : k6Nodes.map((node) => (
         <NodeLoadConfig
           key={node.nodeID}
           node={node}
@@ -296,7 +364,7 @@ export default function LoadTestNew() {
           />
           Synchronized start
         </label>
-        <p className="text-[12px] text-surface-500 mt-1">
+        <p className="text-[12px] text-surface-450 mt-1">
           All generators wait for a GO signal and start together (~250ms skew). Requires k6 VMs to reach the management node on port 30901.
         </p>
       </div>
@@ -317,8 +385,9 @@ export default function LoadTestNew() {
       <div className="flex flex-col gap-3">
         {submitMode === 'schedule' && (
           <div className="glass-card p-4 space-y-2">
-            <label className="block text-xs font-medium text-surface-400">Start at</label>
+            <label htmlFor="lt-start-at" className="block text-xs font-medium text-surface-400">Start at</label>
             <input
+              id="lt-start-at"
               type="datetime-local"
               value={startAt}
               onChange={(e) => setStartAt(e.target.value)}
@@ -333,6 +402,7 @@ export default function LoadTestNew() {
         <div className="flex items-center justify-end gap-3">
           <Link to={`/environments/${namespace}/${envName}`} className="btn-secondary">Cancel</Link>
           <select
+            aria-label="Submit mode"
             value={submitMode}
             onChange={(e) => {
               const v = e.target.value;
@@ -340,13 +410,13 @@ export default function LoadTestNew() {
               if (v === 'draft') setStartAt('');
             }}
             className="input py-2 text-sm w-44"
-            disabled={submitting || cooldown}
+            disabled={submitting}
           >
             <option value="draft">Save as Draft</option>
             <option value="schedule">Schedule start</option>
           </select>
-          <SubmitButton loading={submitting} disabled={submitting || cooldown} loadingLabel="Saving...">
-            {cooldown ? <>Cooling down...</> : <><Play className="w-4 h-4" />Confirm</>}
+          <SubmitButton loading={submitting} disabled={submitting} loadingLabel="Saving...">
+            <><Play className="w-4 h-4" />Confirm</>
           </SubmitButton>
         </div>
       </div>

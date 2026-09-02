@@ -3,7 +3,7 @@
 // keep them byte-for-byte identical to what they replaced.
 
 import {
-  Circle, Server, Activity, Download,
+  Circle, Server, Activity, Download, AlertTriangle,
   CheckCircle, Play, CheckCheck, XCircle, LineChart, Clock, Ban, RefreshCw,
 } from 'lucide-react';
 
@@ -29,8 +29,18 @@ export const STRATEGY_LABELS = {
 // LoadTest phases that warrant continued polling on the detail page.
 export const ACTIVE_PHASES = new Set(['Pending', 'Running', 'Exporting', '']);
 
+// LoadTest phases where the operator still honours spec.stop — a queued or
+// draft test is abortable, not just a running one.
+export const ABORTABLE_PHASES = new Set(['', 'Pending', 'Running']);
+
 // Environment phases that count as "provisioning" for the list stats.
 export const PROVISIONING_PHASES = new Set(['ProvisioningVMs', 'ProvisioningInfra', 'ProvisioningMonitoring']);
+
+// Environment phases a LoadTest can be dispatched against. Mirrors the gateway
+// (handlers_loadtest.go) and the operator's dispatcher: Degraded means the infra
+// is up but monitoring is broken, so the test runs and only the metrics export
+// may fail.
+export const DISPATCHABLE_ENV_PHASES = new Set(['Ready', 'Degraded']);
 
 // Remote k6 TestRun phase → badge classnames (LoadTestDetail).
 export const TR_PHASE_STYLE = {
@@ -49,6 +59,7 @@ export const ENV_PHASE = {
   'ProvisioningInfra':      { badge: 'badge-provisioning', icon: Activity,    label: 'Provisioning workers + k6 (parallel)', spin: true },
   'ProvisioningMonitoring': { badge: 'badge-monitoring',   icon: Download,    label: 'Installing monitoring stack',          spin: true },
   'Ready':                  { badge: 'badge-ready',        icon: CheckCircle, label: 'Ready' },
+  'Degraded':               { badge: 'badge-cleanup',      icon: AlertTriangle, label: 'Degraded — monitoring unavailable' },
   'Failed':                 { badge: 'badge-failed',       icon: XCircle,     label: 'Failed' },
   'Unreachable':            { badge: 'badge-cleanup',      icon: RefreshCw,   label: 'Unreachable — retrying SSH', spin: true },
 };

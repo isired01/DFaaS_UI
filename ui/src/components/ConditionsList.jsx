@@ -11,7 +11,7 @@ export default function ConditionsList({ conditions }) {
             <div className="flex items-center gap-3 min-w-0 shrink-0">
               <div className={`w-2 h-2 rounded-full ${c.status === 'True' ? 'bg-emerald-400' : 'bg-amber-400'}`} />
               <span className="text-sm font-medium text-white">{c.type}</span>
-              <span className="text-xs text-surface-500">{c.reason}</span>
+              <span className="text-xs text-surface-450">{c.reason}</span>
             </div>
             <span className="text-xs text-surface-400 text-right break-words">{c.message}</span>
           </div>

@@ -12,6 +12,11 @@ CLAUDE.md
 credentials.json
 token.json
 
+# Build artifacts — both are rebuilt by the Dockerfile, so tracked copies are
+# never consumed and only produce noisy diffs (ui/dist filenames are content-hashed).
+/server
+ui/dist/
+
 # Dipendenze
 node_modules/
 vendor/

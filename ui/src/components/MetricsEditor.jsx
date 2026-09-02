@@ -17,9 +17,21 @@ export function emptyMetric() {
   return { type: 'custom-promql', metricName: '', query: '', comment: '' };
 }
 
+// Two things here are load-bearing and were both wrong before; verified against
+// a live cluster:
+//
+//   1. The pod selector is `dfaas-agent.*`. The old `dfaas-node-.*` matched ZERO
+//      series, so the shipped defaults exported nothing and the exporter failed
+//      the whole LoadTest on an empty CSV.
+//   2. Rate windows are [5m], not [1m]. The management Prometheus does not scrape
+//      the workers directly — it federates from each worker's Prometheus once a
+//      minute (the chart default global.scrape_interval). A [1m] window therefore
+//      holds at most one sample and rate() needs two, so every rate([1m]) query
+//      silently returned no data while plain gauges kept working. Keep rate
+//      windows at >= 4x the federation interval, and raise them if it is raised.
 export const DEFAULT_METRICS = [
-  { type: 'custom-promql', metricName: 'cpu_dfaas_pods', query: 'sum(rate(container_cpu_usage_seconds_total{pod=~"dfaas-node-.*"}[1m])) by (pod)', comment: 'CPU rate per DFaaS pod' },
-  { type: 'custom-promql', metricName: 'memory_dfaas_pods', query: 'sum(container_memory_working_set_bytes{pod=~"dfaas-node-.*"}) by (pod)', comment: 'Working set memory per DFaaS pod' },
+  { type: 'custom-promql', metricName: 'cpu_dfaas_pods', query: 'sum(rate(container_cpu_usage_seconds_total{pod=~"dfaas-agent.*"}[5m])) by (pod)', comment: 'CPU rate per DFaaS pod' },
+  { type: 'custom-promql', metricName: 'memory_dfaas_pods', query: 'sum(container_memory_working_set_bytes{pod=~"dfaas-agent.*"}) by (pod)', comment: 'Working set memory per DFaaS pod' },
 ];
 
 // MetricsEditor renders the metrics-export table editor plus the step input and
@@ -42,12 +54,13 @@ export default function MetricsEditor({ metrics, onAdd, onRemove, onUpdate, onIm
               <input
                 ref={fileInputRef}
                 type="file"
+                aria-label="Import metrics CSV"
                 accept=".csv,text/csv"
                 className="hidden"
                 onChange={(e) => { if (e.target.files[0]) onImportCsv(e.target.files[0]); e.target.value = ''; }}
               />
             </div>
-            <p className="text-[12px] text-surface-500">
+            <p className="text-[12px] text-surface-450">
               Columns: <code>type(metric|query) ; query ; metric_name ; comment</code>{' · '}
               <button type="button" onClick={downloadCsvTemplate} className="text-dfaas-400 hover:text-dfaas-300 underline">example</button>
             </p>
@@ -58,12 +71,12 @@ export default function MetricsEditor({ metrics, onAdd, onRemove, onUpdate, onIm
       <div className="overflow-x-auto">
         <table className="w-full text-xs">
           <thead>
-            <tr className="text-left text-[12px] text-surface-500 uppercase tracking-wider">
-              <th className="py-1.5 px-2 w-[18%]">Type</th>
-              <th className="py-1.5 px-2 w-[22%]">Metric name</th>
-              <th className="py-1.5 px-2 w-[40%]">PromQL query</th>
-              <th className="py-1.5 px-2 w-[18%]">Comment</th>
-              <th className="py-1.5 px-2 w-[2%]"></th>
+            <tr className="text-left text-[12px] text-surface-450 uppercase tracking-wider">
+              <th scope="col" className="py-1.5 px-2 w-[18%]">Type</th>
+              <th scope="col" className="py-1.5 px-2 w-[22%]">Metric name</th>
+              <th scope="col" className="py-1.5 px-2 w-[40%]">PromQL query</th>
+              <th scope="col" className="py-1.5 px-2 w-[18%]">Comment</th>
+              <th scope="col" className="py-1.5 px-2 w-[2%]"></th>
             </tr>
           </thead>
           <tbody>
@@ -73,6 +86,7 @@ export default function MetricsEditor({ metrics, onAdd, onRemove, onUpdate, onIm
                 <tr key={i} className="align-top">
                   <td className="py-1 px-2">
                     <select
+                      aria-label={`Row ${i + 1} metric type`}
                       className="input py-1.5 text-xs"
                       value={m.type}
                       onChange={(e) => onUpdate(i, { type: e.target.value })}
@@ -84,6 +98,7 @@ export default function MetricsEditor({ metrics, onAdd, onRemove, onUpdate, onIm
                     <input
                       type="text"
                       className="input py-1.5 text-xs"
+                      aria-label={`Row ${i + 1} metric name`}
                       value={m.metricName}
                       onChange={(e) => onUpdate(i, { metricName: e.target.value })}
                       placeholder={isCustom ? 'required' : '(defaults to query value)'}
@@ -94,6 +109,7 @@ export default function MetricsEditor({ metrics, onAdd, onRemove, onUpdate, onIm
                     <input
                       type="text"
                       className="input py-1.5 text-xs font-mono"
+                      aria-label={`Row ${i + 1} query`}
                       value={m.query}
                       onChange={(e) => onUpdate(i, { query: e.target.value })}
                       placeholder={isCustom ? 'sum(rate(...))' : 'haproxy_backend_http_requests_total'}
@@ -104,6 +120,7 @@ export default function MetricsEditor({ metrics, onAdd, onRemove, onUpdate, onIm
                     <input
                       type="text"
                       className="input py-1.5 text-xs"
+                      aria-label={`Row ${i + 1} comment`}
                       value={m.comment}
                       onChange={(e) => onUpdate(i, { comment: e.target.value })}
                       placeholder="optional"
@@ -114,7 +131,7 @@ export default function MetricsEditor({ metrics, onAdd, onRemove, onUpdate, onIm
                       type="button"
                       onClick={() => onRemove(i)}
                       disabled={metrics.length === 1}
-                      className="p-1.5 text-surface-500 hover:text-red-400 disabled:opacity-30"
+                      className="p-1.5 text-surface-450 hover:text-red-400 disabled:opacity-30"
                       title={metrics.length === 1 ? 'At least one metric required' : 'Remove row'}
                     >
                       <Trash2 className="w-3.5 h-3.5" />
@@ -133,8 +150,8 @@ export default function MetricsEditor({ metrics, onAdd, onRemove, onUpdate, onIm
       </div>
 
       <div>
-        <label className="block text-xs font-medium text-surface-400 mb-1">Step</label>
-        <input type="text" className="input py-2 text-sm w-32" value={step} onChange={(e) => onStepChange(e.target.value)} placeholder="15s" />
+        <label htmlFor="metrics-step" className="block text-xs font-medium text-surface-400 mb-1">Step</label>
+        <input type="text" id="metrics-step" className="input py-2 text-sm w-32" value={step} onChange={(e) => onStepChange(e.target.value)} placeholder="15s" />
       </div>
 
       <div className="border-t border-surface-700/50 pt-4">
@@ -144,8 +161,8 @@ export default function MetricsEditor({ metrics, onAdd, onRemove, onUpdate, onIm
             Metrics export → S3 config <code className="text-dfaas-400">{environment.s3ConfigRef.name}</code> (inherited from environment).
           </p>
         ) : (
-          <p className="text-xs text-surface-500">
-            No S3 config on environment → metrics will be dumped to exporter pod stdout.
+          <p className="text-xs text-surface-450">
+            No S3 config on environment → in-cluster SeaweedFS (default).
           </p>
         )}
       </div>

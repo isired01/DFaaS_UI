@@ -1,14 +1,38 @@
 import { Plus, Trash2, ChevronDown, ChevronUp, Image, X } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import NumberInput from './NumberInput';
 import InfoTooltip from './InfoTooltip';
 import { uploadLoadTestAsset } from '../api/client';
 
 const DEFAULT_STAGE = { duration: '10s', target: 10 };
 
-export function newScenario(idx = 0) {
+// Monotonic session counter behind both the stable scenario `id` and the default
+// name. Neither may be derived from scenarios.length: remove-then-add hands out
+// a name that is still in use, and the generated script keys its `scenarios`
+// object BY NAME — a duplicate key silently collapses two scenarios into one
+// (last write wins) and that load never runs.
+let scenarioSeq = 0;
+
+function nextSeq() {
+  scenarioSeq += 1;
+  return scenarioSeq;
+}
+
+// The timestamp keeps ids unique across a page reload, where the counter
+// restarts at 0 while older ids live on in the localStorage draft.
+function scenarioId(seq) {
+  return `scn-${seq}-${Date.now().toString(36)}`;
+}
+
+// newScenario builds a blank scenario with a stable id and a default name that
+// does not collide with any name already present in `existing`.
+export function newScenario(existing = []) {
+  const taken = new Set((existing || []).map(s => s?.name));
+  let seq = nextSeq();
+  while (taken.has(`scenario_${seq}`)) seq = nextSeq();
   return {
-    name: `scenario_${idx + 1}`,
+    id: scenarioId(seq),
+    name: `scenario_${seq}`,
     executor: 'ramping-arrival-rate',
     method: 'GET',
     targetURL: '',
@@ -25,72 +49,88 @@ export function newScenario(idx = 0) {
   };
 }
 
+// ensureScenarioIds backfills `id` on scenarios restored from a draft written
+// before ids existed. Without one the editor falls back to array position and
+// the per-scenario upload state follows the wrong scenario after a removal.
+export function ensureScenarioIds(scenarios) {
+  return (scenarios || []).map(s => (s?.id ? s : { ...s, id: scenarioId(nextSeq()) }));
+}
+
 export default function K6ScenariosEditor({ scenarios, onChange, availableUrls = [], envNs, envName }) {
-  const [expanded, setExpanded] = useState(scenarios.length > 0 ? [0] : []);
-  // Per-scenario index → { uploading, error } for the image picker.
+  const [expanded, setExpanded] = useState(() => (scenarios.length > 0 ? [scenarios[0].id] : []));
+  // Stable scenario id → { uploading, error } for the image picker. Keyed off
+  // the id, not the array index: after a removal the indices shift and the
+  // spinner/error would render on the wrong scenario.
   const [uploads, setUploads] = useState({});
 
-  const toggle = (i) => setExpanded(expanded.includes(i) ? expanded.filter(x => x !== i) : [...expanded, i]);
+  // Latest scenarios, for continuations that resume after an await. The props
+  // array captured before the await is stale by then, so patching on top of it
+  // would silently revert any edit made while the upload was in flight.
+  const scenariosRef = useRef(scenarios);
+  useEffect(() => { scenariosRef.current = scenarios; }, [scenarios]);
+
+  const toggle = (id) => setExpanded(expanded.includes(id) ? expanded.filter(x => x !== id) : [...expanded, id]);
 
   const addScenario = () => {
-    const idx = scenarios.length;
-    onChange([...scenarios, newScenario(idx)]);
-    setExpanded([...expanded, idx]);
+    const scen = newScenario(scenarios);
+    onChange([...scenarios, scen]);
+    setExpanded([...expanded, scen.id]);
   };
 
-  const removeScenario = (i) => {
-    onChange(scenarios.filter((_, idx) => idx !== i));
-    setExpanded(expanded.filter(x => x !== i).map(x => x > i ? x - 1 : x));
+  const removeScenario = (id) => {
+    onChange(scenarios.filter(s => s.id !== id));
+    setExpanded(expanded.filter(x => x !== id));
+    setUploads(prev => { const next = { ...prev }; delete next[id]; return next; });
   };
 
-  const updateScenario = (i, patch) => {
-    onChange(scenarios.map((s, idx) => idx === i ? { ...s, ...patch } : s));
+  const updateScenario = (id, patch) => {
+    onChange(scenariosRef.current.map(s => (s.id === id ? { ...s, ...patch } : s)));
   };
 
-  const addStage = (i) => updateScenario(i, { stages: [...scenarios[i].stages, { ...DEFAULT_STAGE }] });
-  const removeStage = (i, stIdx) => updateScenario(i, { stages: scenarios[i].stages.filter((_, x) => x !== stIdx) });
-  const updateStage = (i, stIdx, patch) => updateScenario(i, {
-    stages: scenarios[i].stages.map((st, x) => x === stIdx ? { ...st, ...patch } : st),
+  const addStage = (s) => updateScenario(s.id, { stages: [...(s.stages || []), { ...DEFAULT_STAGE }] });
+  const removeStage = (s, stIdx) => updateScenario(s.id, { stages: (s.stages || []).filter((_, x) => x !== stIdx) });
+  const updateStage = (s, stIdx, patch) => updateScenario(s.id, {
+    stages: (s.stages || []).map((st, x) => x === stIdx ? { ...st, ...patch } : st),
   });
 
-  const setUploadState = (i, patch) => setUploads(prev => ({ ...prev, [i]: { ...prev[i], ...patch } }));
+  const setUploadState = (id, patch) => setUploads(prev => ({ ...prev, [id]: { ...prev[id], ...patch } }));
 
-  const handleImageSelect = async (i, file) => {
+  const handleImageSelect = async (id, file) => {
     if (!file) return;
-    setUploadState(i, { uploading: true, error: null });
+    setUploadState(id, { uploading: true, error: null });
     try {
       const { url, contentType, filename } = await uploadLoadTestAsset(envNs, envName, file);
-      updateScenario(i, { payloadImageURL: url, payloadContentType: contentType, payloadFilename: filename });
-      setUploadState(i, { uploading: false, error: null });
+      updateScenario(id, { payloadImageURL: url, payloadContentType: contentType, payloadFilename: filename });
+      setUploadState(id, { uploading: false, error: null });
     } catch (err) {
-      setUploadState(i, { uploading: false, error: err.message });
+      setUploadState(id, { uploading: false, error: err.message });
     }
   };
 
-  const removeImage = (i) => {
-    updateScenario(i, { payloadImageURL: undefined, payloadContentType: undefined, payloadFilename: undefined });
-    setUploadState(i, { error: null });
+  const removeImage = (id) => {
+    updateScenario(id, { payloadImageURL: undefined, payloadContentType: undefined, payloadFilename: undefined });
+    setUploadState(id, { error: null });
   };
 
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <h4 className="text-xs font-semibold text-surface-300">Scenarios ({scenarios.length})</h4>
+        <h3 className="text-xs font-semibold text-surface-300">Scenarios ({scenarios.length})</h3>
       </div>
 
       {scenarios.map((scen, sIdx) => {
-        const isExpanded = expanded.includes(sIdx);
+        const isExpanded = expanded.includes(scen.id);
         return (
-          <div key={sIdx} className="border border-surface-700/50 rounded-xl overflow-hidden bg-surface-900/50">
-            <div className="flex items-center justify-between p-3 cursor-pointer hover:bg-surface-800/50 transition-colors" onClick={() => toggle(sIdx)}>
+          <div key={scen.id} className="border border-surface-700/50 rounded-xl overflow-hidden bg-surface-900/50">
+            <div className="flex items-center justify-between p-3 cursor-pointer hover:bg-surface-800/50 transition-colors" onClick={() => toggle(scen.id)}>
               <div className="flex items-center gap-3">
                 {isExpanded ? <ChevronUp className="w-4 h-4 text-surface-400" /> : <ChevronDown className="w-4 h-4 text-surface-400" />}
                 <span className="text-sm font-semibold text-white">{scen.name || `Scenario ${sIdx + 1}`}</span>
-                <span className="text-[12px] text-surface-500 font-mono px-2 py-0.5 bg-surface-800 rounded-md">
+                <span className="text-[12px] text-surface-450 font-mono px-2 py-0.5 bg-surface-800 rounded-md">
                   {scen.method} {scen.targetURL ? (() => { try { return new URL(scen.targetURL).pathname; } catch { return '...'; } })() : '...'}
                 </span>
               </div>
-              <button type="button" onClick={(e) => { e.stopPropagation(); removeScenario(sIdx); }} disabled={scenarios.length === 1} className="p-1.5 text-surface-500 hover:text-red-400 disabled:opacity-30">
+              <button type="button" onClick={(e) => { e.stopPropagation(); removeScenario(scen.id); }} disabled={scenarios.length === 1} aria-label={`Remove scenario ${scen.name}`} title="Remove scenario" className="p-1.5 text-surface-450 hover:text-red-400 disabled:opacity-30">
                 <Trash2 className="w-4 h-4" />
               </button>
             </div>
@@ -99,15 +139,15 @@ export default function K6ScenariosEditor({ scenarios, onChange, availableUrls =
               <div className="p-3 border-t border-surface-700/50 space-y-3 bg-surface-950/30">
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                   <div>
-                    <label className="block text-[12px] text-surface-400 mb-1">Name</label>
-                    <input type="text" className="input py-1.5 text-xs" value={scen.name} onChange={(e) => updateScenario(sIdx, { name: e.target.value })} required />
+                    <label htmlFor={`${scen.id}-name`} className="block text-[12px] text-surface-400 mb-1">Name</label>
+                    <input type="text" id={`${scen.id}-name`} className="input py-1.5 text-xs" value={scen.name} onChange={(e) => updateScenario(scen.id, { name: e.target.value })} required />
                   </div>
                   <div>
-                    <label className="flex items-center gap-1 text-[12px] text-surface-400 mb-1">
+                    <label htmlFor={`${scen.id}-executor`} className="flex items-center gap-1 text-[12px] text-surface-400 mb-1">
                       Executor
                       <InfoTooltip text="k6 execution model. Arrival-rate executors hold a target requests/sec (open model); VU executors hold a target number of virtual users (closed model). 'ramping-*' vary the target across stages; 'constant-*' hold it fixed." />
                     </label>
-                    <select className="input py-1.5 text-xs" value={scen.executor} onChange={(e) => updateScenario(sIdx, { executor: e.target.value })}>
+                    <select id={`${scen.id}-executor`} className="input py-1.5 text-xs" value={scen.executor} onChange={(e) => updateScenario(scen.id, { executor: e.target.value })}>
                       <option value="shared-iterations">Shared iterations</option>
                       <option value="per-vu-iterations">Per VU iterations</option>
                       <option value="constant-vus">Constant VUs</option>
@@ -117,53 +157,53 @@ export default function K6ScenariosEditor({ scenarios, onChange, availableUrls =
                     </select>
                   </div>
                   <div>
-                    <label className="block text-[12px] text-surface-400 mb-1">Start Time</label>
-                    <input type="text" className="input py-1.5 text-xs" value={scen.startTime} onChange={(e) => updateScenario(sIdx, { startTime: e.target.value })} required />
+                    <label htmlFor={`${scen.id}-startTime`} className="block text-[12px] text-surface-400 mb-1">Start Time</label>
+                    <input type="text" id={`${scen.id}-startTime`} className="input py-1.5 text-xs" value={scen.startTime} onChange={(e) => updateScenario(scen.id, { startTime: e.target.value })} required />
                   </div>
                 </div>
 
                 <div>
-                  <label className="block text-[12px] text-surface-400 mb-1">Method & Target URL</label>
+                  <label htmlFor={`${scen.id}-method`} className="block text-[12px] text-surface-400 mb-1">Method & Target URL</label>
                   <div className="flex gap-2">
-                    <select className="input py-1.5 text-xs w-24" value={scen.method} onChange={(e) => updateScenario(sIdx, { method: e.target.value })}>
+                    <select id={`${scen.id}-method`} aria-label="HTTP method" className="input py-1.5 text-xs w-24" value={scen.method} onChange={(e) => updateScenario(scen.id, { method: e.target.value })}>
                       <option>GET</option><option>POST</option><option>PUT</option><option>DELETE</option>
                     </select>
                     <div className="flex-1 flex flex-col gap-1.5">
                       {availableUrls.length > 0 && (
-                        <select className="input py-1.5 text-xs" value={scen.targetURL} onChange={(e) => updateScenario(sIdx, { targetURL: e.target.value })}>
+                        <select aria-label="Target URL preset" className="input py-1.5 text-xs" value={scen.targetURL} onChange={(e) => updateScenario(scen.id, { targetURL: e.target.value })}>
                           <option value="">-- Select or type below --</option>
                           {availableUrls.map((au, i) => <option key={i} value={au.url}>{au.label} ({au.url})</option>)}
                         </select>
                       )}
-                      <input type="url" className="input py-1.5 text-xs" placeholder="http://..." value={scen.targetURL} onChange={(e) => updateScenario(sIdx, { targetURL: e.target.value })} required />
+                      <input type="url" aria-label="Target URL" className="input py-1.5 text-xs" placeholder="http://..." value={scen.targetURL} onChange={(e) => updateScenario(scen.id, { targetURL: e.target.value })} required />
                     </div>
                   </div>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <div>
-                    <label className="flex items-center gap-1 text-[12px] text-surface-400 mb-1">
+                    <label htmlFor={`${scen.id}-preAllocatedVUs`} className="flex items-center gap-1 text-[12px] text-surface-400 mb-1">
                       PreAllocated VUs
                       <InfoTooltip text="Virtual users k6 spins up before the test starts. For arrival-rate executors these serve the request rate — too few and k6 can't reach the target." />
                     </label>
-                    <NumberInput className="input py-1.5 text-xs" value={scen.preAllocatedVUs} onChange={(v) => updateScenario(sIdx, { preAllocatedVUs: v })} required />
+                    <NumberInput id={`${scen.id}-preAllocatedVUs`} className="input py-1.5 text-xs" value={scen.preAllocatedVUs} onChange={(v) => updateScenario(scen.id, { preAllocatedVUs: v })} required />
                   </div>
                   <div>
-                    <label className="flex items-center gap-1 text-[12px] text-surface-400 mb-1">
+                    <label htmlFor={`${scen.id}-maxVUs`} className="flex items-center gap-1 text-[12px] text-surface-400 mb-1">
                       Max VUs
                       <InfoTooltip text="Upper bound on VUs k6 may allocate if the pre-allocated pool can't sustain the target rate." />
                     </label>
-                    <NumberInput className="input py-1.5 text-xs" value={scen.maxVUs} onChange={(v) => updateScenario(sIdx, { maxVUs: v })} required />
+                    <NumberInput id={`${scen.id}-maxVUs`} className="input py-1.5 text-xs" value={scen.maxVUs} onChange={(v) => updateScenario(scen.id, { maxVUs: v })} required />
                   </div>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-[12px] text-surface-400 mb-1">Headers (JSON)</label>
-                    <textarea className="input py-1.5 text-[13px] font-mono h-20" value={scen.headers} onChange={(e) => updateScenario(sIdx, { headers: e.target.value })} />
+                    <label htmlFor={`${scen.id}-headers`} className="block text-[12px] text-surface-400 mb-1">Headers (JSON)</label>
+                    <textarea id={`${scen.id}-headers`} className="input py-1.5 text-[13px] font-mono h-20" value={scen.headers} onChange={(e) => updateScenario(scen.id, { headers: e.target.value })} />
                   </div>
                   <div>
-                    <label className="flex items-center gap-1 text-[12px] text-surface-400 mb-1">
+                    <label htmlFor={`${scen.id}-body`} className="flex items-center gap-1 text-[12px] text-surface-400 mb-1">
                       Body / Payload
                       <InfoTooltip text="Free-text request body. Attach an image/file below to send binary bytes instead — the attachment then becomes the body and this field is disabled." />
                     </label>
@@ -172,11 +212,11 @@ export default function K6ScenariosEditor({ scenarios, onChange, availableUrls =
                         <Image className="w-4 h-4 text-dfaas-400 flex-shrink-0" />
                         <div className="min-w-0 flex-1">
                           <p className="text-[13px] text-white truncate">{scen.payloadFilename || 'attachment'}</p>
-                          <p className="text-[12px] text-surface-500 font-mono truncate">{scen.payloadContentType}</p>
+                          <p className="text-[12px] text-surface-450 font-mono truncate">{scen.payloadContentType}</p>
                         </div>
                         <button
                           type="button"
-                          onClick={() => removeImage(sIdx)}
+                          onClick={() => removeImage(scen.id)}
                           title="Remove attachment"
                           aria-label="Remove attachment"
                           className="p-1 rounded-md text-surface-400 hover:text-red-400 hover:bg-surface-800/60"
@@ -185,51 +225,51 @@ export default function K6ScenariosEditor({ scenarios, onChange, availableUrls =
                         </button>
                       </div>
                     ) : (
-                      <textarea className="input py-1.5 text-[13px] font-mono h-20" value={scen.body} onChange={(e) => updateScenario(sIdx, { body: e.target.value })} />
+                      <textarea id={`${scen.id}-body`} className="input py-1.5 text-[13px] font-mono h-20" value={scen.body} onChange={(e) => updateScenario(scen.id, { body: e.target.value })} />
                     )}
                     <div className="mt-1.5 flex items-center gap-2">
                       <label
-                        htmlFor={`img-${sIdx}`}
-                        className={`btn-secondary text-[12px] px-2.5 py-1 cursor-pointer ${uploads[sIdx]?.uploading ? 'opacity-50 pointer-events-none' : ''}`}
+                        htmlFor={`img-${scen.id}`}
+                        className={`btn-secondary text-[12px] px-2.5 py-1 cursor-pointer ${uploads[scen.id]?.uploading ? 'opacity-50 pointer-events-none' : ''}`}
                       >
-                        {uploads[sIdx]?.uploading
+                        {uploads[scen.id]?.uploading
                           ? <><span className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />Uploading…</>
                           : <><Image className="w-3.5 h-3.5" />{scen.payloadImageURL ? 'Replace attachment' : 'Attach image / file'}</>}
                       </label>
                       <input
-                        id={`img-${sIdx}`}
+                        id={`img-${scen.id}`}
                         type="file"
                         accept="image/*,*/*"
                         className="hidden"
-                        onChange={(e) => { const f = e.target.files[0]; e.target.value = ''; handleImageSelect(sIdx, f); }}
+                        onChange={(e) => { const f = e.target.files[0]; e.target.value = ''; handleImageSelect(scen.id, f); }}
                       />
                     </div>
-                    {uploads[sIdx]?.error && (
-                      <p className="mt-1 text-[12px] text-red-400">{uploads[sIdx].error}</p>
+                    {uploads[scen.id]?.error && (
+                      <p className="mt-1 text-[12px] text-red-400">{uploads[scen.id].error}</p>
                     )}
                   </div>
                 </div>
 
                 <div>
                   <div className="flex items-center justify-between mb-1">
-                    <label className="flex items-center gap-1 text-[12px] text-surface-400">
+                    <span className="flex items-center gap-1 text-[12px] text-surface-400">
                       Stages
                       <InfoTooltip text="Each stage ramps toward 'target' over its 'duration' (e.g. 30s), in order. target = requests/sec for arrival-rate executors, VU count for vus executors. A final stage with target 0 ramps down." />
-                    </label>
+                    </span>
                   </div>
                   <div className="space-y-1.5">
-                    {scen.stages.map((stage, stIdx) => (
+                    {(scen.stages || []).map((stage, stIdx) => (
                       <div key={stIdx} className="flex items-center gap-2">
-                        <input type="text" placeholder="Duration" className="input py-1 text-xs flex-1" value={stage.duration} onChange={(e) => updateStage(sIdx, stIdx, { duration: e.target.value })} required />
-                        <NumberInput placeholder="Target" className="input py-1 text-xs flex-1" value={stage.target} onChange={(v) => updateStage(sIdx, stIdx, { target: v })} required />
-                        <button type="button" onClick={() => removeStage(sIdx, stIdx)} disabled={scen.stages.length === 1} className="p-1.5 text-surface-500 hover:text-red-400 disabled:opacity-30">
+                        <input type="text" placeholder="Duration" aria-label={`Stage ${stIdx + 1} duration`} className="input py-1 text-xs flex-1" value={stage.duration} onChange={(e) => updateStage(scen, stIdx, { duration: e.target.value })} required />
+                        <NumberInput placeholder="Target" aria-label={`Stage ${stIdx + 1} target rate`} className="input py-1 text-xs flex-1" value={stage.target} onChange={(v) => updateStage(scen, stIdx, { target: v })} required />
+                        <button type="button" onClick={() => removeStage(scen, stIdx)} disabled={(scen.stages || []).length === 1} aria-label={`Remove stage ${stIdx + 1}`} title="Remove stage" className="p-1.5 text-surface-450 hover:text-red-400 disabled:opacity-30">
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
                       </div>
                     ))}
                   </div>
                   <div className="mt-2 flex justify-end">
-                    <button type="button" onClick={() => addStage(sIdx)} className="text-[12px] text-dfaas-400 hover:text-dfaas-300 font-medium">+ Add Stage</button>
+                    <button type="button" onClick={() => addStage(scen)} className="text-[12px] text-dfaas-400 hover:text-dfaas-300 font-medium">+ Add Stage</button>
                   </div>
                 </div>
               </div>

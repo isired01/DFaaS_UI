@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Network, Zap, TestTube2, AlertTriangle, Info, Plus, Trash2, Server, Cpu, Download, Pencil, RefreshCw, Database } from 'lucide-react';
+import { ArrowLeft, Network, Zap, TestTube2, AlertTriangle, Plus, Trash2, Server, Cpu, Download, Pencil, RefreshCw, Database } from 'lucide-react';
 import { fetchEnvironment, fetchLoadTests, deleteEnvironment, fetchEnvironmentYAML, downloadTextAsFile } from '../api/client';
 import PhaseBadge from '../components/PhaseBadge';
 import NodeCard from '../components/NodeCard';
@@ -8,6 +8,7 @@ import ConditionsList from '../components/ConditionsList';
 import ProvisioningConditionRow from '../components/ProvisioningConditionRow';
 import LoadingSpinner from '../components/LoadingSpinner';
 import { formatDateTime } from '../lib/format';
+import { DISPATCHABLE_ENV_PHASES } from '../lib/constants';
 
 export default function EnvironmentDetail() {
   const { namespace, name } = useParams();
@@ -69,7 +70,7 @@ export default function EnvironmentDetail() {
 
   if (!environment) return null;
 
-  const isReady = environment.phase === 'Ready';
+  const isDispatchable = DISPATCHABLE_ENV_PHASES.has(environment.phase);
   const dfaasNodes = (environment.nodes || []).filter(n => n.role === 'dfaas-worker');
   const k6StatusByID = Object.fromEntries((environment.k6Nodes || []).map(k => [k.nodeID, k]));
   const k6Nodes = (environment.nodes || [])
@@ -106,7 +107,7 @@ export default function EnvironmentDetail() {
                 <span className="text-[12px] text-orange-400 uppercase tracking-wider">cleanup on delete</span>
               )}
               {environment.lastHealthCheck && (
-                <span className="text-[12px] text-surface-500" id="environment-last-health-check">
+                <span className="text-[12px] text-surface-450" id="environment-last-health-check">
                   Last health check: {formatDateTime(environment.lastHealthCheck)}
                 </span>
               )}
@@ -132,11 +133,6 @@ export default function EnvironmentDetail() {
             </button>
           </div>
         </div>
-        {environment.message && (
-          <div className={`mt-4 p-3 rounded-xl flex items-start gap-2 text-sm ${environment.phase === 'Failed' ? 'bg-red-500/10 border border-red-500/30 text-red-400' : 'bg-surface-800/50 border border-surface-700/50 text-surface-300'}`}>
-            <Info className="w-4 h-4 mt-0.5 flex-shrink-0" />{environment.message}
-          </div>
-        )}
       </div>
 
       {environment.phase === 'ProvisioningInfra' && (
@@ -163,10 +159,10 @@ export default function EnvironmentDetail() {
       <div>
         <h2 className="text-lg font-semibold text-white flex items-center gap-2 mb-4" id="dfaas-nodes-section">
           <Cpu className="w-5 h-5 text-dfaas-400" />DFaaS Nodes
-          <span className="text-sm font-normal text-surface-500">({dfaasNodes.length})</span>
+          <span className="text-sm font-normal text-surface-450">({dfaasNodes.length})</span>
         </h2>
         {dfaasNodes.length === 0 ? (
-          <p className="text-sm text-surface-500 glass-card p-4">No DFaaS worker nodes in this environment.</p>
+          <p className="text-sm text-surface-450 glass-card p-4">No DFaaS worker nodes in this environment.</p>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
             {dfaasNodes.map((node, i) => (
@@ -179,10 +175,10 @@ export default function EnvironmentDetail() {
       <div>
         <h2 className="text-lg font-semibold text-white flex items-center gap-2 mb-4" id="k6-nodes-section">
           <Server className="w-5 h-5 text-amber-400" />k6 Generators
-          <span className="text-sm font-normal text-surface-500">({k6Nodes.length})</span>
+          <span className="text-sm font-normal text-surface-450">({k6Nodes.length})</span>
         </h2>
         {k6Nodes.length === 0 ? (
-          <p className="text-sm text-surface-500 glass-card p-4">No k6 generators in this environment.</p>
+          <p className="text-sm text-surface-450 glass-card p-4">No k6 generators in this environment.</p>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
             {k6Nodes.map((node, i) => (
@@ -204,7 +200,7 @@ export default function EnvironmentDetail() {
             >
               {environment.s3ConfigRef.name}
             </Link>
-            <span className="text-xs text-surface-500">
+            <span className="text-xs text-surface-450">
               every LoadTest export lands in <code>s3://{environment.name}-&lt;uid&gt;/metrics/...</code>
             </span>
           </div>
@@ -216,6 +212,12 @@ export default function EnvironmentDetail() {
           <h2 className="text-lg font-semibold text-white flex items-center gap-2 mb-4" id="topology-section">
             <Zap className="w-5 h-5 text-violet-400" />Network Topology
           </h2>
+          <div className="flex items-start gap-2 p-2.5 mb-4 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 text-[13px] leading-snug">
+            <AlertTriangle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
+            <span>
+              <strong>Not supported yet — placeholder.</strong> These links are stored on the Environment, but nothing applies latency shaping between the nodes, so the values below have no effect on the running federation.
+            </span>
+          </div>
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead>
@@ -247,11 +249,11 @@ export default function EnvironmentDetail() {
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-semibold text-white flex items-center gap-2">
             <TestTube2 className="w-5 h-5 text-amber-400" />Load Tests
-            <span className="text-sm font-normal text-surface-500">({loadtests.length})</span>
+            <span className="text-sm font-normal text-surface-450">({loadtests.length})</span>
           </h2>
           <Link
             to={`/environments/${namespace}/${name}/loadtests/new`}
-            title={isReady ? '' : 'Environment not Ready — you can configure but cannot launch yet'}
+            title={isDispatchable ? '' : 'Environment not dispatchable yet — you can configure and save a draft, but not launch'}
             className="btn-primary text-xs px-4 py-2"
             id="new-loadtest-btn"
           >
@@ -260,17 +262,17 @@ export default function EnvironmentDetail() {
           </Link>
         </div>
 
-        {!isReady && (
+        {!isDispatchable && (
           <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center gap-3 mb-4">
             <AlertTriangle className="w-5 h-5 text-amber-400 flex-shrink-0" />
             <span className="text-sm text-amber-300">
-              Load tests can be launched only when the environment is in phase <strong>Ready</strong>.
+              Load tests can be launched only while the environment is <strong>Ready</strong> or <strong>Degraded</strong>. You can still configure one and save it as a draft.
             </span>
           </div>
         )}
 
         {loadtests.length === 0 ? (
-          <p className="text-sm text-surface-500 text-center py-8">No load tests for this environment yet.</p>
+          <p className="text-sm text-surface-450 text-center py-8">No load tests for this environment yet.</p>
         ) : (
           <table className="w-full">
             <thead>

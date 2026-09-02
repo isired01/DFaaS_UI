@@ -6,7 +6,7 @@ import { Info } from 'lucide-react';
 export default function InfoTooltip({ text }) {
   return (
     <span className="group relative inline-flex align-middle" tabIndex={0}>
-      <Info className="w-3 h-3 text-surface-500 hover:text-surface-300 cursor-help" />
+      <Info className="w-3 h-3 text-surface-450 hover:text-surface-300 cursor-help" />
       <span
         role="tooltip"
         className="pointer-events-none absolute left-0 bottom-full z-30 mb-1.5

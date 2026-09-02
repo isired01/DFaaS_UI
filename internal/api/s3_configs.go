@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"log"
 	"net/http"
 	"regexp"
 	"strings"
@@ -32,10 +33,8 @@ func (h *Handler) ListS3Configs(c *gin.Context) {
 		LabelSelector: fmt.Sprintf("%s=true", S3ConfigLabel),
 	})
 	if err != nil {
-		if apierrors.IsNotFound(err) {
-			c.JSON(http.StatusOK, gin.H{"s3Configs": []S3ConfigSummary{}, "count": 0})
-			return
-		}
+		// No IsNotFound branch: a namespaced List of a missing namespace returns
+		// an empty 200, never a 404.
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("list s3-configs: %v", err)})
 		return
 	}
@@ -66,10 +65,13 @@ func (h *Handler) GetS3Config(c *gin.Context) {
 		return
 	}
 
-	summary := mapS3ConfigSummary(*obj)
-	fps := decodeSecretValue(obj.Object, "force_path_style")
+	fps, err := decodeSecretValue(obj.Object, "force_path_style")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("s3-config '%s': %v", name, err)})
+		return
+	}
 	detail := S3ConfigDetail{
-		S3ConfigSummary: summary,
+		S3ConfigSummary: mapS3ConfigSummary(*obj),
 		ForcePathStyle:  fps == "true",
 	}
 	c.JSON(http.StatusOK, detail)
@@ -154,6 +156,16 @@ func (h *Handler) CreateS3Config(c *gin.Context) {
 func (h *Handler) DeleteS3Config(c *gin.Context) {
 	name := c.Param("name")
 
+	// The built-in SeaweedFS config is the implicit sink for every Environment
+	// without an explicit s3ConfigRef, and the operator only recreates it at
+	// startup — deleting it silently breaks exports until the operator restarts.
+	// The UI hides the button; enforce it here too, since the API is reachable
+	// on its own.
+	if name == DefaultS3ConfigName {
+		c.JSON(http.StatusForbidden, gin.H{"error": fmt.Sprintf("s3-config '%s' is the built-in default and cannot be deleted", name)})
+		return
+	}
+
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
 	defer cancel()
 
@@ -170,12 +182,22 @@ func (h *Handler) DeleteS3Config(c *gin.Context) {
 }
 
 // mapS3ConfigSummary projects a Secret unstructured object onto S3ConfigSummary,
-// base64-decoding the endpoint/region fields from data.
+// base64-decoding the endpoint/region fields from data. A corrupt field is
+// logged and rendered as empty: this is a display path, and failing the whole
+// listing over one broken Secret would hide the healthy ones.
 func mapS3ConfigSummary(item unstructured.Unstructured) S3ConfigSummary {
+	endpoint, err := decodeSecretValue(item.Object, "endpoint")
+	if err != nil {
+		log.Printf("s3-config '%s': %v", item.GetName(), err)
+	}
+	region, rerr := decodeSecretValue(item.Object, "region")
+	if rerr != nil {
+		log.Printf("s3-config '%s': %v", item.GetName(), rerr)
+	}
 	return S3ConfigSummary{
 		Name:      item.GetName(),
-		Endpoint:  decodeSecretValue(item.Object, "endpoint"),
-		Region:    decodeSecretValue(item.Object, "region"),
+		Endpoint:  endpoint,
+		Region:    region,
 		CreatedAt: item.GetCreationTimestamp().Time,
 	}
 }
@@ -184,18 +206,24 @@ func mapS3ConfigSummary(item unstructured.Unstructured) S3ConfigSummary {
 // returns the decoded string. Falls back to stringData[key] if present (only
 // the gateway's own create path uses stringData on the way in; the API server
 // normalises everything to data on read).
-func decodeSecretValue(obj map[string]interface{}, key string) string {
+//
+// A corrupt base64 payload comes back as an error naming the field rather than
+// as an empty string: silently blanking a credential surfaces much later as an
+// opaque S3 "access denied", with nothing pointing at the real cause.
+func decodeSecretValue(obj map[string]interface{}, key string) (string, error) {
 	if data, ok := obj["data"].(map[string]interface{}); ok {
 		if raw, ok := data[key].(string); ok && raw != "" {
-			if decoded, err := base64.StdEncoding.DecodeString(raw); err == nil {
-				return string(decoded)
+			decoded, err := base64.StdEncoding.DecodeString(raw)
+			if err != nil {
+				return "", fmt.Errorf("field %q is not valid base64: %w", key, err)
 			}
+			return string(decoded), nil
 		}
 	}
 	if sd, ok := obj["stringData"].(map[string]interface{}); ok {
 		if raw, ok := sd[key].(string); ok {
-			return raw
+			return raw, nil
 		}
 	}
-	return ""
+	return "", nil
 }

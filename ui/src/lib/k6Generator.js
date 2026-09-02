@@ -1,21 +1,28 @@
 // k6 script generator. Pure function: scenarios -> JS script string.
 // Mirrors the layout previously rendered by internal/api/k6_generator.go.
-// The LoadTest CRD's spec.perNodeLoad[].vus and .duration drive the runner;
-// scenario-level VU options are intentionally omitted here.
+// Nothing outside this script controls the run: k6 reads options.scenarios and
+// nothing else. The LoadTest CRD's spec.perNodeLoad[].vus and .duration reach
+// neither k6 nor the k6-operator TestRun — .duration is derived back FROM the
+// stages below (see lib/duration.js) purely so the UI can draw a progress bar.
+// VUs are per scenario, via preAllocatedVUs / maxVUs.
 
+// jsString emits a safely quoted JS literal. EVERY user-supplied value spliced
+// into the script must go through it: an apostrophe in an otherwise valid URL
+// (e.g. ?q=O'Brien) closes a single-quoted literal early and the breakage only
+// surfaces when remote k6 parses the script.
 function jsString(s) {
   return JSON.stringify(s ?? '');
 }
 
 function renderScenario(s) {
-  const stages = (s.stages || []).map(st => `        { duration: '${st.duration}', target: ${st.target} },`).join('\n');
+  const stages = (s.stages || []).map(st => `        { duration: ${jsString(st.duration)}, target: ${st.target} },`).join('\n');
   return `    ${jsString(s.name)}: {
       executor: '${s.executor || 'ramping-arrival-rate'}',
       startRate: 0,
       timeUnit: '1s',
-      preAllocatedVUs: ${s.preAllocatedVUs || 10},
-      maxVUs: ${s.maxVUs || 50},
-      startTime: '${s.startTime || '0s'}',
+      preAllocatedVUs: ${s.preAllocatedVUs ?? 10},
+      maxVUs: ${s.maxVUs ?? 50},
+      startTime: ${jsString(s.startTime || '0s')},
       stages: [
 ${stages}
       ],
@@ -47,7 +54,7 @@ function renderConfig(s, idx) {
     // content type so the request builder can attach both.
     return `  ${jsString(s.name)}: {
     method: '${method}',
-    url: '${s.targetURL || ''}',
+    url: ${jsString(s.targetURL || '')},
     bodyLoader: __getImg_${idx},
     contentType: ${jsString(s.payloadContentType || 'application/octet-stream')},
     headers: ${headers},
@@ -56,7 +63,7 @@ function renderConfig(s, idx) {
   const body = s.body ? jsString(s.body) : 'null';
   return `  ${jsString(s.name)}: {
     method: '${method}',
-    url: '${s.targetURL || ''}',
+    url: ${jsString(s.targetURL || '')},
     body: ${body},
     headers: ${headers},
   },`;
@@ -120,6 +127,20 @@ function __getImg_${idx}(data) {
 
 export function generateK6Script(scenarios) {
   if (!scenarios || scenarios.length === 0) return '';
+
+  // Scenario names become object keys in both `options.scenarios` and the
+  // config map, so a duplicate silently drops a scenario from the run. The
+  // form validates uniqueness too, but callers that build scripts directly
+  // (tests, tooling) bypass it — fail loudly here rather than emit a script
+  // that runs fewer scenarios than it lists.
+  const seen = new Set();
+  for (const s of scenarios) {
+    const name = s?.name ?? '';
+    if (seen.has(name)) {
+      throw new Error(`duplicate scenario name '${name}': scenario names must be unique`);
+    }
+    seen.add(name);
+  }
 
   const imageScenarios = scenarios.filter(hasImage);
   const anyImage = imageScenarios.length > 0;
