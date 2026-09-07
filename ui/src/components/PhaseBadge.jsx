@@ -1,7 +1,4 @@
-import { Circle } from 'lucide-react';
-import { ENV_PHASE, LT_PHASE } from '../lib/constants';
-
-const MAPS = { env: ENV_PHASE, loadtest: LT_PHASE };
+import { phase } from '../lib/crstate';
 
 const SIZE_CLASSES = {
   sm: 'text-[12px] px-2 py-0.5',
@@ -15,17 +12,12 @@ const ICON_CLASSES = {
   lg: 'w-5 h-5',
 };
 
-export default function PhaseBadge({ phase, kind = 'env', size = 'md' }) {
-  const map = MAPS[kind] || MAPS.env;
-  // No `|| map['']` fallback: phase === '' already resolves via map[phase] (= map['']),
-  // and that empty-phase entry is labelled "Initializing" — letting it catch *unmapped*
-  // phases (e.g. a phase the UI doesn't know) would mislabel them as "Initializing".
-  // Unknown phases fall through to showing their literal name instead.
-  const config = map[phase] || { badge: 'badge-idle', icon: Circle, label: phase || 'Unknown' };
+export default function PhaseBadge({ phase: phaseValue, kind = 'env', size = 'md' }) {
+  const config = phase(kind, phaseValue);
   const Icon = config.icon;
 
   return (
-    <span className={`badge ${config.badge} ${SIZE_CLASSES[size]}`} id={`phase-badge-${phase || 'unknown'}`}>
+    <span className={`badge ${config.badge} ${SIZE_CLASSES[size]}`} id={`phase-badge-${phaseValue || 'unknown'}`}>
       <Icon className={`${ICON_CLASSES[size]} ${config.spin ? 'animate-spin' : ''}`} />
       {config.label}
     </span>

@@ -1,4 +1,5 @@
 import { formatGoDuration, parseGoDuration } from '../lib/duration';
+import { testRun } from '../lib/crstate';
 
 // GeneratorProgress renders one progress bar per k6 generator.
 //
@@ -18,7 +19,6 @@ import { formatGoDuration, parseGoDuration } from '../lib/duration';
 const TRACK = 'h-1.5 w-full rounded-full bg-surface-700/60 overflow-hidden';
 
 // Terminal remote stages, as reported by k6-operator.
-const DONE = new Set(['finished', 'stopped']);
 
 function Bar({ pct, className }) {
   return (
@@ -45,7 +45,7 @@ function state({ stage, phase, startTime, durationMs, nowMs }) {
   if (stage === 'error') {
     return { kind: 'error', label: 'runner error' };
   }
-  if (DONE.has(stage)) {
+  if (testRun.done(stage)) {
     return { kind: 'done', label: stage === 'stopped' ? 'stopped' : 'finished' };
   }
   // Aborted/Failed can leave a runner mid-flight; the test is over either way.

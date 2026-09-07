@@ -4,7 +4,7 @@ import { FlaskConical, Server, ChevronRight, Plus, Download } from 'lucide-react
 import { fetchEnvironments, fetchEnvironmentYAML, downloadTextAsFile, createEnvironmentFromYAML } from '../api/client';
 import PhaseBadge from '../components/PhaseBadge';
 import ResourceTable from '../components/ResourceTable';
-import { PROVISIONING_PHASES } from '../lib/constants';
+import { env as envState, phase, toneText } from '../lib/crstate';
 import { formatDate } from '../lib/format';
 
 const COLUMNS = [
@@ -105,13 +105,13 @@ export default function EnvironmentsList() {
     env.namespace.toLowerCase().includes(search.toLowerCase())
   );
 
-  const provisioningCount = environments.filter(e => PROVISIONING_PHASES.has(e.phase)).length;
+  const provisioningCount = environments.filter(e => envState.provisioning(e.phase)).length;
 
   const stats = [
     { label: 'Total', value: environments.length, color: 'text-white' },
-    { label: 'Ready', value: environments.filter(e => e.phase === 'Ready').length, color: 'text-emerald-400' },
+    { label: 'Ready', value: environments.filter(e => e.phase === 'Ready').length, color: toneText(phase('env', 'Ready').tone) },
     { label: 'Provisioning', value: provisioningCount, color: 'text-blue-400' },
-    { label: 'Failed', value: environments.filter(e => e.phase === 'Failed').length, color: 'text-red-400' },
+    { label: 'Failed', value: environments.filter(e => e.phase === 'Failed').length, color: toneText(phase('env', 'Failed').tone) },
   ];
 
   const renderRow = (env, i) => (

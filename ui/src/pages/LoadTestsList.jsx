@@ -6,7 +6,7 @@ import PhaseBadge from '../components/PhaseBadge';
 import ResourceTable from '../components/ResourceTable';
 import ErrorAlert from '../components/ErrorAlert';
 import { formatDate } from '../lib/format';
-import { DISPATCHABLE_ENV_PHASES } from '../lib/constants';
+import { env as envState, phase, toneText } from '../lib/crstate';
 
 const COLUMNS = [
   { label: 'Name' },
@@ -134,9 +134,9 @@ export default function LoadTestsList() {
   const stats = [
     { label: 'Total',      value: loadtests.length, color: 'text-white' },
     { label: 'Pending',    value: loadtests.filter(l => l.phase === 'Pending').length, color: 'text-surface-300' },
-    { label: 'Running',    value: loadtests.filter(l => l.phase === 'Running').length, color: 'text-amber-400' },
-    { label: 'Completed',  value: loadtests.filter(l => l.phase === 'Completed').length, color: 'text-emerald-400' },
-    { label: 'Failed',     value: loadtests.filter(l => l.phase === 'Failed').length, color: 'text-red-400' },
+    { label: 'Running',    value: loadtests.filter(l => l.phase === 'Running').length, color: toneText(phase('loadtest', 'Running').tone) },
+    { label: 'Completed',  value: loadtests.filter(l => l.phase === 'Completed').length, color: toneText(phase('loadtest', 'Completed').tone) },
+    { label: 'Failed',     value: loadtests.filter(l => l.phase === 'Failed').length, color: toneText(phase('loadtest', 'Failed').tone) },
     { label: 'Aborted',    value: loadtests.filter(l => l.phase === 'Aborted').length, color: 'text-slate-400' },
   ];
 
@@ -237,7 +237,7 @@ export default function LoadTestsList() {
           ) : (
             <ul className="space-y-2 max-h-80 overflow-y-auto">
               {envs.map((env) => {
-                const dispatchable = DISPATCHABLE_ENV_PHASES.has(env.phase);
+                const dispatchable = envState.dispatchable(env.phase);
                 return (
                   <li key={`${env.namespace}/${env.name}`}>
                     <button

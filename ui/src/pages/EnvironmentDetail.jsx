@@ -8,7 +8,7 @@ import ConditionsList from '../components/ConditionsList';
 import ProvisioningConditionRow from '../components/ProvisioningConditionRow';
 import LoadingSpinner from '../components/LoadingSpinner';
 import { formatDateTime } from '../lib/format';
-import { DISPATCHABLE_ENV_PHASES } from '../lib/constants';
+import { env as envState, lt as ltState } from '../lib/crstate';
 
 export default function EnvironmentDetail() {
   const { namespace, name } = useParams();
@@ -70,7 +70,7 @@ export default function EnvironmentDetail() {
 
   if (!environment) return null;
 
-  const isDispatchable = DISPATCHABLE_ENV_PHASES.has(environment.phase);
+  const isDispatchable = envState.dispatchable(environment.phase);
   const dfaasNodes = (environment.nodes || []).filter(n => n.role === 'dfaas-worker');
   const k6StatusByID = Object.fromEntries((environment.k6Nodes || []).map(k => [k.nodeID, k]));
   const k6Nodes = (environment.nodes || [])
@@ -86,10 +86,7 @@ export default function EnvironmentDetail() {
   // gateway answers 409 while any test still owns its generators. Surfaced here
   // so the user sees why Edit is unavailable instead of meeting that 409 after
   // filling in the whole form. Suspended Pending tests are parked and excluded.
-  const activeLoadtests = (loadtests || []).filter(lt => (
-    lt.phase === 'Running' || lt.phase === 'Exporting' ||
-    (lt.phase === 'Pending' && !lt.suspended)
-  ));
+  const activeLoadtests = (loadtests || []).filter(ltState.occupying);
   const editBlockReason = isUpdating
     ? 'Update in progress — wait for reconcile to settle'
     : activeLoadtests.length > 0

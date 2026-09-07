@@ -1,10 +1,11 @@
 import { Upload, Wand2, FileCode, Server } from 'lucide-react';
 import K6ScenariosEditor from './K6ScenariosEditor';
 import NumberInput from './NumberInput';
-import { formatGoDuration, perNodeTotalMs } from '../lib/duration';
+import { formatGoDuration } from '../lib/duration';
+import { perNodeTotalMs } from '../lib/scenarios';
 
-export const SOURCE_GENERATE = 'generate';
-export const SOURCE_RAW = 'raw';
+import { SOURCE_GENERATE, SOURCE_RAW } from '../lib/payloads/loadtest';
+export { SOURCE_GENERATE, SOURCE_RAW };
 
 // NodeLoadConfig renders one k6 node's load configuration: enable toggle, VUs /
 // duration, the script-source switch, and either the scenarios editor or the

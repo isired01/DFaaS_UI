@@ -7,11 +7,6 @@ const CAPACITY_STYLES = {
   HIGH: { border: 'border-red-500/40', bg: 'bg-red-500/10', text: 'text-red-400', label: 'High' },
 };
 
-const ROLE_LABEL = {
-  'dfaas-worker': 'DFaaS Worker',
-  'k6-load-generator': 'k6 Generator',
-};
-
 export default function NodeCard({ node, index, variant, onConfigureLoad, configureDisabled, configureDisabledReason }) {
   const schema = useSchema();
   const capacity = CAPACITY_STYLES[node.capacity] || CAPACITY_STYLES.MEDIUM;
@@ -39,7 +34,7 @@ export default function NodeCard({ node, index, variant, onConfigureLoad, config
           </span>
           {node.role && (
             <span className="text-[12px] text-surface-450 uppercase tracking-wider">
-              {ROLE_LABEL[node.role] || node.role}
+              {enumLabel(schema?.node.roles, node.role)}
             </span>
           )}
         </div>

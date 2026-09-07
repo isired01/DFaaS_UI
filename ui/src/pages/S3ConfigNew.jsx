@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Save, Database, Info } from 'lucide-react';
 import { createS3Config } from '../api/client';
-import { loadSchema, re } from '../lib/schema';
+import { loadSchema, re, useSchema } from '../lib/schema';
 import FormField from '../components/FormField';
 import ErrorAlert from '../components/ErrorAlert';
 import SubmitButton from '../components/SubmitButton';
@@ -11,6 +11,7 @@ import SubmitButton from '../components/SubmitButton';
 const PATH_STYLE_HINTS = ['seaweedfs', 'minio', 'localhost', '127.0.0.1', '.svc'];
 
 export default function S3ConfigNew() {
+  const nameMax = useSchema()?.s3Config.nameMaxLength;
   const navigate = useNavigate();
   const [name, setName] = useState('');
   const [endpoint, setEndpoint] = useState('');
@@ -83,7 +84,7 @@ export default function S3ConfigNew() {
         <h2 className="text-sm font-semibold text-surface-300 uppercase tracking-wider">Identity</h2>
         <FormField
           label="Name"
-          hint={<>DNS-1123: lowercase letters, digits and <code>-</code>. Max 63 characters. Immutable once created (delete + recreate to rename).</>}
+          hint={<>DNS-1123: lowercase letters, digits and <code>-</code>. {nameMax ? `Max ${nameMax} characters. ` : ''}Immutable once created (delete + recreate to rename).</>}
         >
           <input
             type="text"
@@ -92,7 +93,7 @@ export default function S3ConfigNew() {
             onChange={(e) => setName(e.target.value)}
             placeholder="s3-eu-west-1"
             required
-            maxLength={63}
+            maxLength={nameMax}
           />
         </FormField>
       </div>

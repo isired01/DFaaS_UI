@@ -30,7 +30,7 @@ func (h *Handler) exportResourceYAML(c *gin.Context, gvr schema.GroupVersionReso
 
 	obj, err := h.client.Resource(gvr).Namespace(namespace).Get(ctx, name, metav1.GetOptions{})
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": fmt.Sprintf("%s '%s/%s' not found: %v", kind, namespace, name, err)})
+		writeK8sError(c, err, fmt.Sprintf("%s '%s/%s'", kind, namespace, name))
 		return
 	}
 

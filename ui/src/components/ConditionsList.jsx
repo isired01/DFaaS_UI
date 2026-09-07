@@ -1,3 +1,5 @@
+import { reason as reasonOf, toneText } from '../lib/crstate';
+
 // ConditionsList renders the "Conditions" panel shared by the LoadTest and
 // Environment detail pages: a titled card with one row per status condition.
 export default function ConditionsList({ conditions }) {
@@ -11,7 +13,7 @@ export default function ConditionsList({ conditions }) {
             <div className="flex items-center gap-3 min-w-0 shrink-0">
               <div className={`w-2 h-2 rounded-full ${c.status === 'True' ? 'bg-emerald-400' : 'bg-amber-400'}`} />
               <span className="text-sm font-medium text-white">{c.type}</span>
-              <span className="text-xs text-surface-450">{c.reason}</span>
+              <span className={`text-xs ${toneText(reasonOf(c.reason).tone)}`} title={c.reason}>{reasonOf(c.reason).label}</span>
             </div>
             <span className="text-xs text-surface-400 text-right break-words">{c.message}</span>
           </div>

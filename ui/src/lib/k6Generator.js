@@ -6,43 +6,18 @@
 // stages below (see lib/duration.js) purely so the UI can draw a progress bar.
 // VUs are per scenario, via preAllocatedVUs / maxVUs.
 
-// jsString emits a safely quoted JS literal. EVERY user-supplied value spliced
-// into the script must go through it: an apostrophe in an otherwise valid URL
-// (e.g. ?q=O'Brien) closes a single-quoted literal early and the breakage only
-// surfaces when remote k6 parses the script.
-function jsString(s) {
-  return JSON.stringify(s ?? '');
-}
+import { EXECUTORS, DEFAULT_EXECUTOR, executorOf, hasImage, effectiveMethod, jsString, validateScenarios } from './scenarios.js';
 
-// renderScenario emits one k6 scenario. Option sets are NOT interchangeable
-// between executors: k6 validates them and rejects missing or unknown keys, and
-// that rejection lands on the remote runner after dispatch, where nobody sees
-// it. So each supported executor gets its own branch emitting exactly its own
-// options.
-//
-//   ramping-arrival-rate  → startRate + stages   (rate varies across stages)
-//   constant-arrival-rate → rate + duration      (rate held flat; NO stages)
-//
-// Adding a third means a branch here AND a matching case in lib/duration.js,
-// which totals a node's runtime from these same fields.
+// renderScenario emits one k6 scenario. The executor-specific option block
+// comes from the scenario registry (lib/scenarios.js), which is also where the
+// runtime totaliser and the editor read the same shape — so the three cannot
+// drift. k6 rejects an option set that does not match its executor, and that
+// rejection lands on the remote runner after dispatch, where nobody sees it.
 function renderScenario(s) {
-  let specific;
-  if (s.executor === 'constant-arrival-rate') {
-    specific =
-      `      rate: ${s.rate ?? 10},\n` +
-      `      duration: ${jsString(s.duration || '1m')},`;
-  } else {
-    const stages = (s.stages || [])
-      .map(st => `        { duration: ${jsString(st.duration)}, target: ${st.target} },`)
-      .join('\n');
-    specific =
-      `      startRate: 0,\n` +
-      `      stages: [\n${stages}\n      ],`;
-  }
-
+  const executor = EXECUTORS[s.executor] ? s.executor : DEFAULT_EXECUTOR;
   return `    ${jsString(s.name)}: {
-      executor: '${s.executor || 'ramping-arrival-rate'}',
-${specific}
+      executor: '${executor}',
+${executorOf(s).renderOptions(s)}
       timeUnit: '1s',
       preAllocatedVUs: ${s.preAllocatedVUs ?? 10},
       maxVUs: ${s.maxVUs ?? 50},
@@ -50,20 +25,6 @@ ${specific}
       exec: 'runScenario',
       env: { SCENARIO_ID: ${jsString(s.name)} },
     },`;
-}
-
-// hasImage reports whether a scenario carries an uploaded payload to use as the
-// request body (instead of the free-text body).
-function hasImage(s) {
-  return !!(s && s.payloadImageURL);
-}
-
-// effectiveMethod forces POST when a scenario has an image but is configured as
-// GET — a GET cannot carry a binary body in k6.
-function effectiveMethod(s) {
-  const m = (s.method || 'GET').toUpperCase();
-  if (hasImage(s) && (m === 'GET' || m === 'DELETE')) return 'POST';
-  return m;
 }
 
 function renderConfig(s, idx) {
@@ -149,19 +110,11 @@ function __getImg_${idx}(data) {
 export function generateK6Script(scenarios) {
   if (!scenarios || scenarios.length === 0) return '';
 
-  // Scenario names become object keys in both `options.scenarios` and the
-  // config map, so a duplicate silently drops a scenario from the run. The
-  // form validates uniqueness too, but callers that build scripts directly
-  // (tests, tooling) bypass it — fail loudly here rather than emit a script
-  // that runs fewer scenarios than it lists.
-  const seen = new Set();
-  for (const s of scenarios) {
-    const name = s?.name ?? '';
-    if (seen.has(name)) {
-      throw new Error(`duplicate scenario name '${name}': scenario names must be unique`);
-    }
-    seen.add(name);
-  }
+  // One enforcement point for the scenario rules. The form validates too, but
+  // callers that build scripts directly (tests, tooling) bypass it — fail
+  // loudly rather than emit a script that runs fewer scenarios than it lists.
+  const errs = validateScenarios(scenarios);
+  if (errs.length > 0) throw new Error(errs[0]);
 
   const imageScenarios = scenarios.filter(hasImage);
   const anyImage = imageScenarios.length > 0;

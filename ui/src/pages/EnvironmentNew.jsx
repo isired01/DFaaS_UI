@@ -2,7 +2,8 @@ import { useState, useEffect } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, Save, Database } from 'lucide-react';
 import { createEnvironment, fetchEnvironment, updateEnvironment, listS3Configs } from '../api/client';
-import { loadSchema, re } from '../lib/schema';
+import { loadSchema } from '../lib/schema';
+import { buildEnvironmentPayload } from '../lib/payloads/environment';
 import NodeList from '../components/NodeList';
 import LinkEditor from '../components/LinkEditor';
 import FormField from '../components/FormField';
@@ -110,106 +111,16 @@ export default function EnvironmentNew({ mode = 'create' }) {
     setSubmitting(true);
     setError(null);
     try {
-      const R = (await loadSchema()).node;
-      const NODE_ID_RE = re(R.nodeIDPattern);
-      if (!name) throw new Error('Environment name is required');
-      if (nodes.length === 0) throw new Error('At least one node is required');
-      if (nodes.length > R.maxNodes) throw new Error(`At most ${R.maxNodes} nodes per environment`);
-      const seen = new Set();
-      const seenIPs = new Map();
-      nodes.forEach((n, idx) => {
-        const nid = (n.nodeID || '').trim();
-        if (!nid) throw new Error(`Node #${idx + 1} is missing a nodeID`);
-        if (!NODE_ID_RE.test(nid)) throw new Error(`Node '${nid}': nodeID must be lowercase letters, digits and '-' only (e.g. 'g3', not 'G3' — it becomes part of Kubernetes object names)`);
-        if (nid.length > R.nodeIDMaxLength) throw new Error(`Node '${nid}': nodeID must be at most ${R.nodeIDMaxLength} characters`);
-        if (seen.has(nid)) throw new Error(`Duplicate nodeID '${nid}'`);
-        seen.add(nid);
-        if (!n.role) throw new Error(`Node '${nid}' is missing a role`);
-        const ip = (n.ipAddress || '').trim();
-        if (!ip) throw new Error(`Node '${nid}' is missing ipAddress`);
-        if (ip.length > R.ipAddressMaxLength) throw new Error(`Node '${nid}': ipAddress must be at most ${R.ipAddressMaxLength} characters`);
-        // Mirrors the CRD's CEL rule on spec.nodes: one machine is one node.
-        // Two nodes on the same box get two libp2p identities, and the Ansible
-        // run installs dfaas-agent twice with different keys — the last one
-        // wins and every peer ends up dialling a dead peer ID.
-        if (R.uniqueIPAddress && seenIPs.has(ip)) throw new Error(`Nodes '${seenIPs.get(ip)}' and '${nid}' share the ipAddress ${ip} — one machine can only be one node`);
-        seenIPs.set(ip, nid);
-        if (!(n.username || '').trim()) throw new Error(`Node '${nid}' is missing username`);
-        if (!n.password) throw new Error(`Node '${nid}' is missing password`);
-      });
-
-      const payload = {
-        namespace,
-        name,
-        nodes: nodes.map(n => {
-          const node = {
-            nodeID: n.nodeID.trim(),
-            ipAddress: n.ipAddress.trim(),
-            role: n.role,
-            capacity: n.capacity,
-            username: n.username.trim(),
-            password: n.password,
-          };
-          if (n.role === 'dfaas-worker') {
-            node.balancingStrategy = n.balancingStrategy;
-            if (n.functions.length > 0) {
-              node.functions = n.functions.map(f => {
-                const fn = { name: f.name, image: f.image };
-                // Omit numeric fields the user cleared so the CRD default
-                // applies. NumberInput reports a cleared box as 0, and none of
-                // these accept 0 (maxRate has a CEL Minimum=1, the others are
-                // timeouts/limits), so non-positive means "unset". maxRate is
-                // always emitted when set, regardless of balancing strategy, so
-                // a tuned value survives an edit.
-                const execTimeout = parseInt(f.execTimeout);
-                if (execTimeout > 0) fn.execTimeout = execTimeout;
-                const maxInflight = parseInt(f.maxInflight);
-                if (maxInflight > 0) fn.maxInflight = maxInflight;
-                const timeoutMs = parseInt(f.timeoutMs);
-                if (timeoutMs > 0) fn.timeoutMs = timeoutMs;
-                const maxRate = parseInt(f.maxRate);
-                if (maxRate > 0) fn.maxRate = maxRate;
-                return fn;
-              });
-            }
-          }
-          return node;
-        }),
-        topology: {
-          links: links.map(l => ({
-            nodeA: l.nodeA,
-            nodeB: l.nodeB,
-            latencyMs: parseInt(l.latencyMs) || 0,
-          })),
-        },
-      };
-      const trimmedS3 = (s3ConfigName || '').trim();
-      if (trimmedS3) {
-        payload.s3ConfigRef = { name: trimmedS3 };
-      }
-
+      const rules = (await loadSchema()).node;
+      const { payload, patch, flipped, errors } = buildEnvironmentPayload(
+        { namespace, name, nodes, links, s3ConfigName, mode }, rules);
+      if (errors.length > 0) throw new Error(errors[0]);
       if (isEdit) {
-        const flipped = nodes
-          .filter(n => n._originalRole && n.role !== n._originalRole)
-          .map(n => `${n.nodeID}: ${n._originalRole} \u2192 ${n.role}`);
         if (flipped.length > 0 && !window.confirm(
           `Changing a node's role wipes its k3s cluster and everything installed on it, then reprovisions it from scratch:\n\n${flipped.join('\n')}\n\nThis takes several minutes per node and cannot be undone. Continue?`
         )) {
           setSubmitting(false);
           return;
-        }
-        const patch = {
-          nodes: payload.nodes,
-          topology: payload.topology,
-        };
-        if (trimmedS3) {
-          patch.s3ConfigRef = { name: trimmedS3 };
-        } else {
-          // Explicit clear: the gateway patches s3ConfigRef to null so K8s
-          // deletes the field and the environment falls back to the operator
-          // default (seaweedfs-default). Omitting the field would leave the
-          // previous reference untouched on a merge-patch.
-          patch.clearS3ConfigRef = true;
         }
         await updateEnvironment(namespace, name, patch);
       } else {

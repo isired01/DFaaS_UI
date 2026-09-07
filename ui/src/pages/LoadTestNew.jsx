@@ -2,12 +2,11 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams, Link } from 'react-router-dom';
 import { ArrowLeft, Play, Info } from 'lucide-react';
 import { createLoadTest, fetchEnvironment } from '../api/client';
-import { loadSchema, re } from '../lib/schema';
-import { newScenario, ensureScenarioIds } from '../components/K6ScenariosEditor';
-import { generateK6Script } from '../lib/k6Generator';
+import { loadSchema } from '../lib/schema';
+import { newScenario, ensureScenarioIds } from '../lib/scenarios';
+import { buildLoadTestPayload } from '../lib/payloads/loadtest';
 import MetricsEditor, { DEFAULT_METRICS, emptyMetric } from '../components/MetricsEditor';
 import { parseMetricsCsv } from '../lib/metricsCsv';
-import { formatGoDuration, perNodeTotalMs } from '../lib/duration';
 import NodeLoadConfig, { SOURCE_GENERATE, SOURCE_RAW } from '../components/NodeLoadConfig';
 import LoadingSpinner from '../components/LoadingSpinner';
 import ErrorAlert from '../components/ErrorAlert';
@@ -160,131 +159,11 @@ export default function LoadTestNew() {
     setSubmitting(true);
     setError(null);
     try {
-      const S = (await loadSchema()).loadTest;
-      const cleanMetrics = metrics
-        .map(m => ({
-          type: m.type,
-          metricName: (m.metricName || '').trim(),
-          query: (m.query || '').trim(),
-          comment: (m.comment || '').trim(),
-        }))
-        .filter(m => m.query || m.metricName);
-      if (cleanMetrics.length === 0) throw new Error('At least one metric row is required');
-      cleanMetrics.forEach((m, i) => {
-        if (!S.metricTypes.some(t => t.value === m.type)) {
-          throw new Error(`metrics[${i}]: invalid type`);
-        }
-        if (!m.query) throw new Error(`metrics[${i}]: query is required`);
-        if (m.type === 'custom-promql' && !m.metricName) {
-          throw new Error(`metrics[${i}]: metric name is required for 'Custom PromQL query'`);
-        }
-      });
-      const nameCounts = cleanMetrics.reduce((acc, m) => {
-        if (m.metricName) acc[m.metricName] = (acc[m.metricName] || 0) + 1;
-        return acc;
-      }, {});
-      const dupes = Object.keys(nameCounts).filter(n => nameCounts[n] > 1);
-      if (dupes.length > 0) {
-        // Warn-only per contract; do not block.
-        console.warn(`[metrics] duplicate metricName(s):`, dupes);
-      }
-
-      const perNodeLoad = [];
-      for (const [nodeID, draft] of Object.entries(perNode)) {
-        if (!draft.enabled) continue;
-        if (!draft.vus || draft.vus < 1) throw new Error(`Node '${nodeID}' needs vus >= 1`);
-
-        // Duration is derived for generated scripts and typed only for raw ones.
-        // k6 never reads the CRD field either way (the operator just copies it
-        // onto an unread annotation), so its only real job is to be truthful
-        // enough to drive the progress bar.
-        let duration;
-        if (draft.source === SOURCE_RAW) {
-          if (!draft.duration) throw new Error(`Node '${nodeID}' needs a duration`);
-          // Same pattern the gateway and CRD enforce, so "5 minutes" fails inline.
-          if (!re(S.goDurationPattern).test(draft.duration)) {
-            throw new Error(`Node '${nodeID}': duration must be a Go duration like '30s', '5m' or '1h30m' (got '${draft.duration}')`);
-          }
-          duration = draft.duration;
-        } else {
-          // Also the only validation stage durations get: they live inside the
-          // generated script, so neither the CRD nor the API server can check them.
-          const totalMs = perNodeTotalMs(draft.scenarios);
-          if (totalMs === null || totalMs <= 0) {
-            throw new Error(`Node '${nodeID}': cannot compute the run length — every scenario needs a valid startTime and stage durations like '30s' or '1m30s'`);
-          }
-          duration = formatGoDuration(totalMs);
-        }
-
-        let script = '';
-        if (draft.source === SOURCE_RAW) {
-          script = draft.rawScript || '';
-          if (!script.trim()) throw new Error(`Node '${nodeID}' has no raw script`);
-        } else {
-          if (!draft.scenarios || draft.scenarios.length === 0) throw new Error(`Node '${nodeID}' has no scenarios`);
-          // Names key the generated `scenarios` object: a duplicate is legal JS
-          // but the later entry overwrites the earlier one, silently dropping a
-          // whole scenario from the test.
-          const seenNames = new Set();
-          for (const s of draft.scenarios) {
-            const scenName = (s.name || '').trim();
-            if (!scenName) throw new Error(`Node '${nodeID}' has a scenario with an empty name`);
-            if (seenNames.has(scenName)) throw new Error(`Node '${nodeID}' has two scenarios named '${scenName}' — scenario names must be unique`);
-            seenNames.add(scenName);
-            if (!s.targetURL) throw new Error(`Node '${nodeID}' scenario '${scenName}' missing targetURL`);
-            if (!s.preAllocatedVUs || s.preAllocatedVUs < 1) throw new Error(`Node '${nodeID}' scenario '${scenName}' needs preAllocatedVUs >= 1`);
-            if (!s.maxVUs || s.maxVUs < 1) throw new Error(`Node '${nodeID}' scenario '${scenName}' needs maxVUs >= 1`);
-            if (s.headers) {
-              let parsedHeaders;
-              try { parsedHeaders = JSON.parse(s.headers); } catch { throw new Error(`Node '${nodeID}' scenario '${scenName}' has invalid headers JSON`); }
-              // Parseable is not enough: `null` and `[]` are valid JSON but not
-              // header maps, and the generator splices the text in verbatim.
-              if (parsedHeaders === null || typeof parsedHeaders !== 'object' || Array.isArray(parsedHeaders)) {
-                throw new Error(`Node '${nodeID}' scenario '${scenName}': headers must be a JSON object like {"Content-Type": "application/json"}`);
-              }
-            }
-          }
-          script = generateK6Script(draft.scenarios);
-        }
-
-        perNodeLoad.push({
-          nodeID,
-          vus: parseInt(draft.vus) || 1,
-          duration,
-          script,
-        });
-      }
-
-      if (perNodeLoad.length === 0) throw new Error('Enable at least one k6 node and configure its load');
-
-      const metricsExport = {
-        metrics: cleanMetrics.map(m => {
-          const out = { type: m.type, query: m.query };
-          if (m.metricName) out.metricName = m.metricName;
-          if (m.comment) out.comment = m.comment;
-          return out;
-        }),
-        step: step || '15s',
-      };
-
-      const payload = {
-        namespace,
-        targetEnvironment: envName,
-        perNodeLoad,
-        metricsExport,
-        syncStart,
-      };
-      if (nameSuffix.trim()) payload.nameSuffix = nameSuffix.trim();
-      payload.suspended = true;
-
-      if (submitMode === 'schedule') {
-        if (!startAt) throw new Error('Pick a start time or switch to Save as Draft');
-        const d = new Date(startAt);
-        if (isNaN(d.getTime())) throw new Error('startAt is not a valid timestamp');
-        if (d.getTime() < Date.now()) throw new Error('startAt must be in the future');
-        payload.startAt = d.toISOString();
-      }
-
+      const rules = (await loadSchema()).loadTest;
+      const { payload, errors, warnings } = buildLoadTestPayload(
+        { namespace, envName, metrics, perNode, step, nameSuffix, syncStart, submitMode, startAt }, rules);
+      for (const w of warnings) console.warn('[loadtest]', w);
+      if (errors.length > 0) throw new Error(errors[0]);
       const created = await createLoadTest(payload);
       navigate(`/loadtests/${created.namespace}/${created.name}`);
     } catch (err) {

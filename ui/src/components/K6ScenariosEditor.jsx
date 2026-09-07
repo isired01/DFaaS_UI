@@ -4,82 +4,14 @@ import NumberInput from './NumberInput';
 import InfoTooltip from './InfoTooltip';
 import { uploadLoadTestAsset } from '../api/client';
 
-const DEFAULT_STAGE = { duration: '10s', target: 10 };
+import { EXECUTORS, newScenario, ensureScenarioIds, effectiveMethod } from '../lib/scenarios';
 
-// Monotonic session counter behind both the stable scenario `id` and the default
-// name. Neither may be derived from scenarios.length: remove-then-add hands out
-// a name that is still in use, and the generated script keys its `scenarios`
-// object BY NAME — a duplicate key silently collapses two scenarios into one
-// (last write wins) and that load never runs.
-let scenarioSeq = 0;
-
-function nextSeq() {
-  scenarioSeq += 1;
-  return scenarioSeq;
-}
-
-// The timestamp keeps ids unique across a page reload, where the counter
-// restarts at 0 while older ids live on in the localStorage draft.
-function scenarioId(seq) {
-  return `scn-${seq}-${Date.now().toString(36)}`;
-}
-
-// newScenario builds a blank scenario with a stable id and a default name that
-// does not collide with any name already present in `existing`.
-// SUPPORTED_EXECUTORS are the k6 executors renderScenario() has a branch for.
-// The VU-based ones are absent on purpose: the generator does not emit their
-// options (vus/iterations/maxDuration), so a script naming one fails k6's own
-// validation on the remote runner, after dispatch, where the error is invisible.
-// Extend this only together with renderScenario() and lib/duration.js.
-export const SUPPORTED_EXECUTORS = ['ramping-arrival-rate', 'constant-arrival-rate'];
+// Re-exported for existing importers; the definitions live in lib/scenarios.
+export { newScenario, ensureScenarioIds };
+export const SUPPORTED_EXECUTORS = Object.keys(EXECUTORS);
 export const DEFAULT_EXECUTOR = 'ramping-arrival-rate';
 
-export function newScenario(existing = []) {
-  const taken = new Set((existing || []).map(s => s?.name));
-  let seq = nextSeq();
-  while (taken.has(`scenario_${seq}`)) seq = nextSeq();
-  return {
-    id: scenarioId(seq),
-    name: `scenario_${seq}`,
-    executor: DEFAULT_EXECUTOR,
-    // Used only by constant-arrival-rate; carried always so switching executor
-    // in the picker never lands on an undefined field.
-    rate: 10,
-    duration: '1m',
-    method: 'GET',
-    targetURL: '',
-    startTime: '0s',
-    preAllocatedVUs: 10,
-    maxVUs: 50,
-    body: '',
-    headers: '{\n  "Content-Type": "application/json"\n}',
-    stages: [
-      { duration: '10s', target: 10 },
-      { duration: '30s', target: 10 },
-      { duration: '10s', target: 0 },
-    ],
-  };
-}
-
-// ensureScenarioIds backfills `id` on scenarios restored from a draft written
-// before ids existed. Without one the editor falls back to array position and
-// the per-scenario upload state follows the wrong scenario after a removal.
-//
-// It also rewrites any executor the generator cannot emit. Drafts saved while
-// the picker still offered the VU-based executors carry a value with no
-// matching <option>, which renders the select blank and would generate a script
-// k6 rejects. Coercing to the default keeps an old draft usable instead of
-// silently broken, and backfills the constant-arrival-rate fields so switching
-// to it in the picker never reads undefined.
-export function ensureScenarioIds(scenarios) {
-  return (scenarios || []).map(s => {
-    const out = s?.id ? { ...s } : { ...s, id: scenarioId(nextSeq()) };
-    if (!SUPPORTED_EXECUTORS.includes(out.executor)) out.executor = DEFAULT_EXECUTOR;
-    if (out.rate === undefined) out.rate = 10;
-    if (out.duration === undefined) out.duration = '1m';
-    return out;
-  });
-}
+const DEFAULT_STAGE = { duration: '10s', target: 10 };
 
 export default function K6ScenariosEditor({ scenarios, onChange, availableUrls = [], envNs, envName }) {
   const [expanded, setExpanded] = useState(() => (scenarios.length > 0 ? [scenarios[0].id] : []));
@@ -173,11 +105,7 @@ export default function K6ScenariosEditor({ scenarios, onChange, availableUrls =
                       <InfoTooltip text="k6 execution model, open both ways: the target is a request rate, not a VU count. Ramping varies that rate across the stages below; Constant holds it flat for a fixed duration. The VU-based executors (constant-vus, ramping-vus, shared-iterations, per-vu-iterations) are not offered because the generator does not emit their options — use 'Paste raw JS' for those." />
                     </label>
                     <select id={`${scen.id}-executor`} className="input py-1.5 text-xs" value={scen.executor} onChange={(e) => updateScenario(scen.id, { executor: e.target.value })}>
-                      {/* Only executors renderScenario() has a branch for. Adding one here without
-                          its branch there — and its case in lib/duration.js — emits a script the
-                          remote runner rejects, and the failure surfaces only after dispatch. */}
-                      <option value="ramping-arrival-rate">Ramping Arrival Rate</option>
-                      <option value="constant-arrival-rate">Constant Arrival Rate</option>
+                      {Object.entries(EXECUTORS).map(([value, e]) => <option key={value} value={value}>{e.label}</option>)}
                     </select>
                     <p className="mt-1 text-[11px] text-surface-450">
                       VU-based executors are not generated. Use{' '}
@@ -196,6 +124,9 @@ export default function K6ScenariosEditor({ scenarios, onChange, availableUrls =
                     <select id={`${scen.id}-method`} aria-label="HTTP method" className="input py-1.5 text-xs w-24" value={scen.method} onChange={(e) => updateScenario(scen.id, { method: e.target.value })}>
                       <option>GET</option><option>POST</option><option>PUT</option><option>DELETE</option>
                     </select>
+                    {effectiveMethod(scen) !== (scen.method || 'GET').toUpperCase() && (
+                      <p className="mt-1 text-[11px] text-amber-400">Sent as POST: an uploaded payload cannot ride on a {scen.method} request.</p>
+                    )}
                     <div className="flex-1 flex flex-col gap-1.5">
                       {availableUrls.length > 0 && (
                         <select aria-label="Target URL preset" className="input py-1.5 text-xs" value={scen.targetURL} onChange={(e) => updateScenario(scen.id, { targetURL: e.target.value })}>
@@ -278,7 +209,7 @@ export default function K6ScenariosEditor({ scenarios, onChange, availableUrls =
                   </div>
                 </div>
 
-                {scen.executor === 'constant-arrival-rate' ? (
+                {(EXECUTORS[scen.executor] || EXECUTORS['ramping-arrival-rate']).fields === 'rate-duration' ? (
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <label htmlFor={`${scen.id}-rate`} className="flex items-center gap-1 text-[12px] text-surface-400 mb-1">

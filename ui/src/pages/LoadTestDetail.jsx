@@ -3,12 +3,11 @@ import { useParams, Link, useNavigate } from 'react-router-dom';
 import { ArrowLeft, TestTube2, Trash2, AlertTriangle, Info, Server, BarChart3, FileCode, Download, Play, FileEdit, Ban, Loader2 } from 'lucide-react';
 import { fetchLoadTest, deleteLoadTest, fetchLoadTestYAML, downloadTextAsFile, activateLoadTest, abortLoadTest, fetchEnvironment } from '../api/client';
 import PhaseBadge from '../components/PhaseBadge';
-import TestRunBadge from '../components/TestRunBadge';
 import GeneratorProgress from '../components/GeneratorProgress';
 import ScheduledStartCard from '../components/ScheduledStartCard';
 import ConditionsList from '../components/ConditionsList';
 import LoadingSpinner from '../components/LoadingSpinner';
-import { ABORTABLE_PHASES, ACTIVE_PHASES } from '../lib/constants';
+import { lt as ltState, reason as reasonOf, testRun } from '../lib/crstate';
 import { formatDateTime } from '../lib/format';
 
 export default function LoadTestDetail() {
@@ -52,7 +51,7 @@ export default function LoadTestDetail() {
     };
     load();
     const interval = setInterval(() => {
-      if (!loadtest || ACTIVE_PHASES.has(loadtest.phase)) load();
+      if (!loadtest || ltState.inFlight(loadtest.phase)) load();
     }, 5000);
     return () => { cancelled = true; clearInterval(interval); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -120,9 +119,9 @@ export default function LoadTestDetail() {
   // Desired state from spec.suspended is the source of truth (Conditions[Suspended]
   // is derived and may be empty during the first reconcile after creation).
   const isDraft = loadtest.suspended === true;
-  const isTerminal = ['Completed', 'Failed', 'Aborted'].includes(loadtest.phase);
+  const isTerminal = ltState.terminal(loadtest.phase);
   const abortRequested = loadtest.stop === true;
-  const canAbort = ABORTABLE_PHASES.has(loadtest.phase) && !abortRequested;
+  const canAbort = ltState.abortable(loadtest.phase) && !abortRequested;
   const isRunning = loadtest.phase === 'Running';
   // Tooltip on terminal Aborted: surface operator-stamped Ready=False reason=UserAborted message.
   const abortedMsg = loadtest.phase === 'Aborted'
@@ -293,7 +292,7 @@ export default function LoadTestDetail() {
                       </div>
                     </div>
                     <div className="flex items-center gap-3 text-xs">
-                      <TestRunBadge phase={tr?.phase} />
+                      <span className={`badge text-[12px] px-2 py-0.5 border ${testRun.style(tr?.phase)}`}>{tr?.phase || '—'}</span>
                       <span className="text-surface-450 font-mono">{tr?.name || pn.scriptConfigMap}</span>
                       <button
                         type="button"

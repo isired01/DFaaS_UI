@@ -1,11 +1,6 @@
-// Go-duration helpers.
-//
-// The CRD validates spec.perNodeLoad[].duration against
-// ^([0-9]+(\.[0-9]+)?(ns|us|ms|s|m|h))+$ — but nothing ever checked that the
-// value matched what the script actually does, because the operator only
-// copies it onto an annotation nobody reads. These helpers let the form derive
-// a node's real runtime from its k6 scenario stages, so the field stops being
-// decorative and can drive the per-generator progress bar.
+// Go-duration parse/format. The scenario-level totals that drive the progress
+// bar live in lib/scenarios.js next to each executor's option block, so the
+// emitted script and the computed runtime cannot drift.
 //
 // Self-check: `node src/lib/duration.selfcheck.mjs`
 
@@ -52,46 +47,4 @@ export function formatGoDuration(ms) {
   if (s) out += `${s}s`;
   if (rest) out += `${rest}ms`;
   return out || '0s';
-}
-
-// scenarioTotalMs is how long one scenario runs from t=0 of the test: its
-// startTime offset plus every stage, which k6 walks in order. null when any
-// piece is unparsable.
-export function scenarioTotalMs(scen) {
-  const start = parseGoDuration(scen?.startTime || '0s');
-  if (start === null) return null;
-
-  // constant-arrival-rate has no stages: it holds a flat rate for a single
-  // `duration`. Falling through to the stages loop would total 0 and pin the
-  // progress bar at 100% for the whole run. Mirrors the executor branch in
-  // k6Generator.renderScenario — change one, change the other.
-  if (scen?.executor === 'constant-arrival-rate') {
-    const d = parseGoDuration(scen?.duration);
-    if (d === null) return null;
-    return start + d;
-  }
-
-  let sum = 0;
-  for (const st of scen?.stages || []) {
-    const d = parseGoDuration(st?.duration);
-    if (d === null) return null;
-    sum += d;
-  }
-  return start + sum;
-}
-
-// perNodeTotalMs is the runtime of a whole generator: scenarios run
-// concurrently, each offset by its own startTime, so the node stays busy until
-// the LAST one ends — hence max, not sum. null when any scenario is
-// unparsable, so callers can refuse rather than guess.
-export function perNodeTotalMs(scenarios) {
-  const list = scenarios || [];
-  if (list.length === 0) return null;
-  let max = 0;
-  for (const scen of list) {
-    const t = scenarioTotalMs(scen);
-    if (t === null) return null;
-    if (t > max) max = t;
-  }
-  return max;
 }

@@ -5,7 +5,8 @@
 // progress bar at the wrong percentage for the whole run.
 
 import assert from 'node:assert/strict';
-import { parseGoDuration, formatGoDuration, scenarioTotalMs, perNodeTotalMs } from './duration.js';
+import { parseGoDuration, formatGoDuration } from './duration.js';
+import { scenarioTotalMs, perNodeTotalMs } from './scenarios.js';
 
 // --- parseGoDuration: the same grammar the CRD pattern accepts -------------
 assert.equal(parseGoDuration('30s'), 30_000);

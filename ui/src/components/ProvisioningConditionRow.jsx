@@ -1,11 +1,5 @@
 import { CheckCircle2, Loader2, XCircle } from 'lucide-react';
-
-// Condition reasons that mean the stream is dead, not still working. Without
-// JobCreationFailed the row keeps spinning the amber in-progress icon forever.
-// CheckFailed means readiness could not be evaluated at all (e.g. an RBAC
-// regression) — the operator raises it precisely so it stops looking like
-// "still starting", so it must not render as an in-progress spinner.
-const FAILED_REASONS = new Set(['AnsibleFailed', 'HelmFailed', 'JobCreationFailed', 'CheckFailed']);
+import { reason as reasonOf } from '../lib/crstate';
 
 // ProvisioningConditionRow renders a single provisioning-progress row on the
 // Environment detail page: it picks the matching status condition by `type` and
@@ -23,7 +17,8 @@ export default function ProvisioningConditionRow({ conditions, type, label }) {
     Icon = CheckCircle2;
     iconClass = 'text-emerald-400';
     bgClass = 'bg-emerald-500/10 border-emerald-500/30';
-  } else if (FAILED_REASONS.has(reason)) {
+  } else if (reasonOf(reason).tone === 'error') {
+    // A terminal reason must not render as the in-progress spinner forever.
     Icon = XCircle;
     iconClass = 'text-red-400';
     bgClass = 'bg-red-500/10 border-red-500/30';
@@ -35,7 +30,7 @@ export default function ProvisioningConditionRow({ conditions, type, label }) {
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
           <span className="text-sm font-semibold text-white">{label}</span>
-          {reason && <span className="text-[12px] text-surface-400 uppercase tracking-wider">{reason}</span>}
+          {reason && <span className="text-[12px] text-surface-400" title={reason}>{reasonOf(reason).label}</span>}
         </div>
         {message && <p className="text-xs text-surface-300 mt-1 truncate">{message}</p>}
       </div>
