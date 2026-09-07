@@ -47,4 +47,24 @@ assert.equal(perNodeTotalMs([]), null);
 assert.equal(perNodeTotalMs(null), null);
 assert.equal(perNodeTotalMs([{ startTime: '0s', stages: [{ duration: 'x' }] }]), null, 'one bad scenario poisons the total');
 
+// --- constant-arrival-rate: no stages, the total comes from `duration` ------
+const car = (o) => ({ executor: 'constant-arrival-rate', ...o });
+assert.equal(scenarioTotalMs(car({ startTime: '0s', duration: '2m' })), 120_000);
+assert.equal(scenarioTotalMs(car({ startTime: '30s', duration: '1m' })), 90_000, 'startTime still offsets');
+assert.equal(scenarioTotalMs(car({ duration: '45s' })), 45_000, 'missing startTime defaults to 0s');
+assert.equal(scenarioTotalMs(car({ startTime: '0s', duration: '5 minutes' })), null, 'unparsable duration refuses');
+assert.equal(scenarioTotalMs(car({ startTime: '0s' })), null, 'missing duration refuses rather than totalling 0');
+// A stale stages array left over from switching executor must be ignored:
+// reading it would return 10s instead of the real 2m and pin the bar at 100%.
+assert.equal(
+  scenarioTotalMs(car({ startTime: '0s', duration: '2m', stages: [{ duration: '10s' }] })),
+  120_000,
+  'stages are ignored for constant-arrival-rate',
+);
+// Mixed node: a ramping and a constant scenario still take the max.
+assert.equal(perNodeTotalMs([
+  { startTime: '0s', stages: [{ duration: '1m' }] },        // ends at 60s
+  car({ startTime: '30s', duration: '2m' }),                 // ends at 150s
+]), 150_000, 'max across mixed executors');
+
 console.log('duration.js self-check: all assertions passed');

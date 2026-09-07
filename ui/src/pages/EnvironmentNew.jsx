@@ -39,7 +39,6 @@ export default function EnvironmentNew({ mode = 'create' }) {
   // carried through create and edit: an Environment set to true via kubectl or
   // YAML import must not be silently flipped to false by saving the form.
   // Defaults to false on create, matching the CRD default.
-  const [cleanupOnDelete, setCleanupOnDelete] = useState(false);
   const [nodes, setNodes] = useState([emptyNode()]);
   const [links, setLinks] = useState([]);
   const [s3ConfigName, setS3ConfigName] = useState('');
@@ -58,7 +57,6 @@ export default function EnvironmentNew({ mode = 'create' }) {
     if (!isEdit) return;
     fetchEnvironment(params.namespace, params.name)
       .then(env => {
-        setCleanupOnDelete(!!env.cleanupOnDelete);
         setS3ConfigName(env.s3ConfigRef?.name || '');
         const prefilledNodes = (env.nodes || []).map(n => ({
           nodeID: n.nodeID || '',
@@ -77,6 +75,11 @@ export default function EnvironmentNew({ mode = 'create' }) {
             maxRate: fn.maxRate ?? 100,
           })),
           _locked: true,
+          // The role the node is currently provisioned with. Changing it makes
+          // the operator wipe the machine's k3s and reprovision from scratch,
+          // so the form warns before that happens. UI-only: the payload is
+          // rebuilt field-by-field below, so this never reaches the wire.
+          _originalRole: n.role || '',
         }));
         setNodes(prefilledNodes.length > 0 ? prefilledNodes : [emptyNode()]);
         setLinks((env.topology?.links || []).map(l => ({
@@ -111,7 +114,11 @@ export default function EnvironmentNew({ mode = 'create' }) {
       // Mirrors the CRD's CEL rule: nodeID is embedded in Kubernetes object
       // names (kubeconfig Secrets, remote TestRuns), so DNS-1123 lowercase.
       const NODE_ID_RE = /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/;
+      // The CRD caps spec.nodes at 50: the CEL uniqueness rule below is O(n²)
+      // and an unbounded array blows the schema cost budget.
+      if (nodes.length > 50) throw new Error('At most 50 nodes per environment');
       const seen = new Set();
+      const seenIPs = new Map();
       nodes.forEach((n, idx) => {
         const nid = (n.nodeID || '').trim();
         if (!nid) throw new Error(`Node #${idx + 1} is missing a nodeID`);
@@ -120,7 +127,15 @@ export default function EnvironmentNew({ mode = 'create' }) {
         if (seen.has(nid)) throw new Error(`Duplicate nodeID '${nid}'`);
         seen.add(nid);
         if (!n.role) throw new Error(`Node '${nid}' is missing a role`);
-        if (!(n.ipAddress || '').trim()) throw new Error(`Node '${nid}' is missing ipAddress`);
+        const ip = (n.ipAddress || '').trim();
+        if (!ip) throw new Error(`Node '${nid}' is missing ipAddress`);
+        if (ip.length > 45) throw new Error(`Node '${nid}': ipAddress must be at most 45 characters`);
+        // Mirrors the CRD's CEL rule on spec.nodes: one machine is one node.
+        // Two nodes on the same box get two libp2p identities, and the Ansible
+        // run installs dfaas-agent twice with different keys — the last one
+        // wins and every peer ends up dialling a dead peer ID.
+        if (seenIPs.has(ip)) throw new Error(`Nodes '${seenIPs.get(ip)}' and '${nid}' share the ipAddress ${ip} — one machine can only be one node`);
+        seenIPs.set(ip, nid);
         if (!(n.username || '').trim()) throw new Error(`Node '${nid}' is missing username`);
         if (!n.password) throw new Error(`Node '${nid}' is missing password`);
       });
@@ -128,7 +143,6 @@ export default function EnvironmentNew({ mode = 'create' }) {
       const payload = {
         namespace,
         name,
-        cleanupOnDelete,
         nodes: nodes.map(n => {
           const node = {
             nodeID: n.nodeID.trim(),
@@ -177,8 +191,16 @@ export default function EnvironmentNew({ mode = 'create' }) {
       }
 
       if (isEdit) {
+        const flipped = nodes
+          .filter(n => n._originalRole && n.role !== n._originalRole)
+          .map(n => `${n.nodeID}: ${n._originalRole} \u2192 ${n.role}`);
+        if (flipped.length > 0 && !window.confirm(
+          `Changing a node's role wipes its k3s cluster and everything installed on it, then reprovisions it from scratch:\n\n${flipped.join('\n')}\n\nThis takes several minutes per node and cannot be undone. Continue?`
+        )) {
+          setSubmitting(false);
+          return;
+        }
         const patch = {
-          cleanupOnDelete: payload.cleanupOnDelete,
           nodes: payload.nodes,
           topology: payload.topology,
         };

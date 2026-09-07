@@ -46,7 +46,6 @@ func mapEnvDetail(item unstructured.Unstructured) EnvironmentDetail {
 		ObservedGeneration: observedGen,
 	}
 
-	d.CleanupOnDelete, _, _ = unstructured.NestedBool(item.Object, "spec", "cleanupOnDelete")
 	d.LastHealthCheck = getNestedString(item.Object, "status", "lastHealthCheck")
 
 	conditions, _, _ := unstructured.NestedSlice(item.Object, "status", "conditions")

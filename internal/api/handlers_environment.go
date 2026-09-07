@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -78,7 +79,9 @@ func (h *Handler) CreateEnvironment(c *gin.Context) {
 // Server forwards the user-supplied {"spec":{...}} payload verbatim as
 // application/merge-patch+json. nodeID immutability for existing nodes is
 // enforced UI-side (form renders nodeID readOnly on existing nodes); the gateway
-// validates the node array shape (enum/required-fields/duplicates) only.
+// validates the node array shape (enum/required-fields/duplicates/role
+// composition) and refuses node or topology edits while a load test on this
+// environment is still active — see the comment on that check below.
 func (h *Handler) UpdateEnvironment(c *gin.Context) {
 	namespace := c.Param("namespace")
 	name := c.Param("name")
@@ -102,15 +105,36 @@ func (h *Handler) UpdateEnvironment(c *gin.Context) {
 		}
 	}
 
+	// Editing spec.nodes or spec.topology bumps metadata.generation, and
+	// handleGenerationDrift then restarts the provisioning FSM from
+	// ProvisioningVMs and re-runs Ansible against every node — regardless of
+	// what actually changed. Since a role change now wipes the node's k3s
+	// outright (the repave block in the playbooks), doing that under a live
+	// experiment destroys it. Neither the CRD nor the operator guards this, so
+	// the gateway is the gate. s3ConfigRef-only patches are unaffected.
+	if req.Spec.Nodes != nil || req.Spec.Topology != nil {
+		ltCtx, ltCancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
+		defer ltCancel()
+
+		lts, err := h.client.Resource(LoadTestGVR).Namespace(namespace).List(ltCtx, metav1.ListOptions{})
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("list loadtests: %v", err)})
+			return
+		}
+		if active := activeLoadTestNames(lts.Items, namespace, name); len(active) > 0 {
+			c.JSON(http.StatusConflict, gin.H{"error": fmt.Sprintf(
+				"environment has active load tests: %s; abort them or wait for completion before editing nodes or topology",
+				strings.Join(active, ", "))})
+			return
+		}
+	}
+
 	// Build the merge patch as a map so an explicit s3ConfigRef clear survives
 	// re-marshalling: ClearS3ConfigRef sets s3ConfigRef to JSON null (which the
 	// merge-patch deletes on the cluster object), whereas the omitempty struct
 	// field would silently drop the null. Other fields mirror the DTO's
 	// pointer/omitempty semantics.
 	specPatch := map[string]interface{}{}
-	if req.Spec.CleanupOnDelete != nil {
-		specPatch["cleanupOnDelete"] = *req.Spec.CleanupOnDelete
-	}
 	if len(req.Spec.Nodes) > 0 {
 		specPatch["nodes"] = req.Spec.Nodes
 	}
@@ -147,10 +171,39 @@ func (h *Handler) UpdateEnvironment(c *gin.Context) {
 	})
 }
 
+// activeLoadTestNames returns "<name> (<phase>)" for every LoadTest in items
+// that targets namespace/envName and still owns its k6 nodes.
+//
+// Running and Exporting are self-evident. Pending counts too, because dispatch
+// is imminent and a repave mid-dispatch is just as destructive — except when
+// the test is suspended, which means it is parked waiting for /activate and
+// owns nothing; blocking edits on those would block them indefinitely.
+func activeLoadTestNames(items []unstructured.Unstructured, namespace, envName string) []string {
+	var active []string
+	for _, item := range items {
+		s := mapLoadTestSummary(item)
+		if s.Namespace != namespace || s.TargetEnvironment != envName {
+			continue
+		}
+		switch s.Phase {
+		case "Running", "Exporting":
+		case "Pending":
+			if s.Suspended {
+				continue
+			}
+		default:
+			continue
+		}
+		active = append(active, fmt.Sprintf("%s (%s)", s.Name, s.Phase))
+	}
+	return active
+}
+
 // validateEnvNodes runs the same per-node shape checks Create uses,
 // shared with the PATCH path.
 func validateEnvNodes(nodes []NodeInfo) error {
 	seen := map[string]struct{}{}
+	var workers, generators int
 	for i, n := range nodes {
 		if n.NodeID == "" || n.IpAddress == "" || n.Role == "" || n.Capacity == "" {
 			return fmt.Errorf("node[%d]: nodeID, ipAddress, role, capacity required", i)
@@ -159,7 +212,12 @@ func validateEnvNodes(nodes []NodeInfo) error {
 			return fmt.Errorf("node[%d]: duplicate nodeID '%s'", i, n.NodeID)
 		}
 		seen[n.NodeID] = struct{}{}
-		if n.Role != "dfaas-worker" && n.Role != "k6-load-generator" {
+		switch n.Role {
+		case "dfaas-worker":
+			workers++
+		case "k6-load-generator":
+			generators++
+		default:
 			return fmt.Errorf("node[%d]: role must be dfaas-worker or k6-load-generator", i)
 		}
 		switch n.Capacity {
@@ -182,6 +240,19 @@ func validateEnvNodes(nodes []NodeInfo) error {
 				return fmt.Errorf("node[%d]: balancingStrategy must be one of staticstrategy|nodemarginstrategy|recalcstrategy|alllocalstrategy|rlagentstrategy", i)
 			}
 		}
+	}
+
+	// Role composition. Nothing downstream rejects a single-role Environment:
+	// ensureAnsibleJob skips a role with zero nodes and reports its condition
+	// True, so the Environment reaches Ready and only fails obscurely once a
+	// LoadTest is dispatched at it. Editing roles on an existing Environment
+	// makes this easy to hit by accident, so it is caught here — on create,
+	// patch and YAML import alike, since all three share this validator.
+	if workers == 0 {
+		return fmt.Errorf("at least one node must have role dfaas-worker: an environment with no workers has nothing to load-test")
+	}
+	if generators == 0 {
+		return fmt.Errorf("at least one node must have role k6-load-generator: an environment with no generators cannot run a load test")
 	}
 	return nil
 }
@@ -259,8 +330,7 @@ func buildEnvironmentUnstructured(req CreateEnvironmentRequest) *unstructured.Un
 	}
 
 	spec := map[string]interface{}{
-		"nodes":           nodes,
-		"cleanupOnDelete": req.CleanupOnDelete,
+		"nodes": nodes,
 	}
 	if len(links) > 0 {
 		spec["topology"] = map[string]interface{}{"links": links}

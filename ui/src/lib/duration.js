@@ -60,6 +60,17 @@ export function formatGoDuration(ms) {
 export function scenarioTotalMs(scen) {
   const start = parseGoDuration(scen?.startTime || '0s');
   if (start === null) return null;
+
+  // constant-arrival-rate has no stages: it holds a flat rate for a single
+  // `duration`. Falling through to the stages loop would total 0 and pin the
+  // progress bar at 100% for the whole run. Mirrors the executor branch in
+  // k6Generator.renderScenario — change one, change the other.
+  if (scen?.executor === 'constant-arrival-rate') {
+    const d = parseGoDuration(scen?.duration);
+    if (d === null) return null;
+    return start + d;
+  }
+
   let sum = 0;
   for (const st of scen?.stages || []) {
     const d = parseGoDuration(st?.duration);

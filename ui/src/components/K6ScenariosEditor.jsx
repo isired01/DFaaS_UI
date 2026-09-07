@@ -26,6 +26,14 @@ function scenarioId(seq) {
 
 // newScenario builds a blank scenario with a stable id and a default name that
 // does not collide with any name already present in `existing`.
+// SUPPORTED_EXECUTORS are the k6 executors renderScenario() has a branch for.
+// The VU-based ones are absent on purpose: the generator does not emit their
+// options (vus/iterations/maxDuration), so a script naming one fails k6's own
+// validation on the remote runner, after dispatch, where the error is invisible.
+// Extend this only together with renderScenario() and lib/duration.js.
+export const SUPPORTED_EXECUTORS = ['ramping-arrival-rate', 'constant-arrival-rate'];
+export const DEFAULT_EXECUTOR = 'ramping-arrival-rate';
+
 export function newScenario(existing = []) {
   const taken = new Set((existing || []).map(s => s?.name));
   let seq = nextSeq();
@@ -33,7 +41,11 @@ export function newScenario(existing = []) {
   return {
     id: scenarioId(seq),
     name: `scenario_${seq}`,
-    executor: 'ramping-arrival-rate',
+    executor: DEFAULT_EXECUTOR,
+    // Used only by constant-arrival-rate; carried always so switching executor
+    // in the picker never lands on an undefined field.
+    rate: 10,
+    duration: '1m',
     method: 'GET',
     targetURL: '',
     startTime: '0s',
@@ -52,8 +64,21 @@ export function newScenario(existing = []) {
 // ensureScenarioIds backfills `id` on scenarios restored from a draft written
 // before ids existed. Without one the editor falls back to array position and
 // the per-scenario upload state follows the wrong scenario after a removal.
+//
+// It also rewrites any executor the generator cannot emit. Drafts saved while
+// the picker still offered the VU-based executors carry a value with no
+// matching <option>, which renders the select blank and would generate a script
+// k6 rejects. Coercing to the default keeps an old draft usable instead of
+// silently broken, and backfills the constant-arrival-rate fields so switching
+// to it in the picker never reads undefined.
 export function ensureScenarioIds(scenarios) {
-  return (scenarios || []).map(s => (s?.id ? s : { ...s, id: scenarioId(nextSeq()) }));
+  return (scenarios || []).map(s => {
+    const out = s?.id ? { ...s } : { ...s, id: scenarioId(nextSeq()) };
+    if (!SUPPORTED_EXECUTORS.includes(out.executor)) out.executor = DEFAULT_EXECUTOR;
+    if (out.rate === undefined) out.rate = 10;
+    if (out.duration === undefined) out.duration = '1m';
+    return out;
+  });
 }
 
 export default function K6ScenariosEditor({ scenarios, onChange, availableUrls = [], envNs, envName }) {
@@ -145,16 +170,19 @@ export default function K6ScenariosEditor({ scenarios, onChange, availableUrls =
                   <div>
                     <label htmlFor={`${scen.id}-executor`} className="flex items-center gap-1 text-[12px] text-surface-400 mb-1">
                       Executor
-                      <InfoTooltip text="k6 execution model. Arrival-rate executors hold a target requests/sec (open model); VU executors hold a target number of virtual users (closed model). 'ramping-*' vary the target across stages; 'constant-*' hold it fixed." />
+                      <InfoTooltip text="k6 execution model, open both ways: the target is a request rate, not a VU count. Ramping varies that rate across the stages below; Constant holds it flat for a fixed duration. The VU-based executors (constant-vus, ramping-vus, shared-iterations, per-vu-iterations) are not offered because the generator does not emit their options — use 'Paste raw JS' for those." />
                     </label>
                     <select id={`${scen.id}-executor`} className="input py-1.5 text-xs" value={scen.executor} onChange={(e) => updateScenario(scen.id, { executor: e.target.value })}>
-                      <option value="shared-iterations">Shared iterations</option>
-                      <option value="per-vu-iterations">Per VU iterations</option>
-                      <option value="constant-vus">Constant VUs</option>
-                      <option value="ramping-vus">Ramping VUs</option>
-                      <option value="constant-arrival-rate">Constant Arrival Rate</option>
+                      {/* Only executors renderScenario() has a branch for. Adding one here without
+                          its branch there — and its case in lib/duration.js — emits a script the
+                          remote runner rejects, and the failure surfaces only after dispatch. */}
                       <option value="ramping-arrival-rate">Ramping Arrival Rate</option>
+                      <option value="constant-arrival-rate">Constant Arrival Rate</option>
                     </select>
+                    <p className="mt-1 text-[11px] text-surface-450">
+                      VU-based executors are not generated. Use{' '}
+                      <span className="font-medium">Paste raw JS</span> for those.
+                    </p>
                   </div>
                   <div>
                     <label htmlFor={`${scen.id}-startTime`} className="block text-[12px] text-surface-400 mb-1">Start Time</label>
@@ -250,11 +278,29 @@ export default function K6ScenariosEditor({ scenarios, onChange, availableUrls =
                   </div>
                 </div>
 
+                {scen.executor === 'constant-arrival-rate' ? (
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label htmlFor={`${scen.id}-rate`} className="flex items-center gap-1 text-[12px] text-surface-400 mb-1">
+                        Rate (req/s)
+                        <InfoTooltip text="Requests per second k6 holds for the whole duration. Constant, not ramped — if the pre-allocated VUs cannot sustain it, k6 reports dropped iterations rather than slowing down." />
+                      </label>
+                      <NumberInput id={`${scen.id}-rate`} className="input py-1.5 text-xs" value={scen.rate ?? 10} onChange={(v) => updateScenario(scen.id, { rate: v })} required />
+                    </div>
+                    <div>
+                      <label htmlFor={`${scen.id}-duration`} className="flex items-center gap-1 text-[12px] text-surface-400 mb-1">
+                        Duration
+                        <InfoTooltip text="How long this scenario holds its rate, as a Go duration (e.g. 30s, 5m, 1h30m). Together with Start Time it also drives the progress bar." />
+                      </label>
+                      <input type="text" id={`${scen.id}-duration`} placeholder="1m" className="input py-1.5 text-xs" value={scen.duration ?? '1m'} onChange={(e) => updateScenario(scen.id, { duration: e.target.value })} required />
+                    </div>
+                  </div>
+                ) : (
                 <div>
                   <div className="flex items-center justify-between mb-1">
                     <span className="flex items-center gap-1 text-[12px] text-surface-400">
                       Stages
-                      <InfoTooltip text="Each stage ramps toward 'target' over its 'duration' (e.g. 30s), in order. target = requests/sec for arrival-rate executors, VU count for vus executors. A final stage with target 0 ramps down." />
+                      <InfoTooltip text="Each stage ramps toward 'target' requests/sec over its 'duration' (e.g. 30s), in order. A final stage with target 0 ramps down." />
                     </span>
                   </div>
                   <div className="space-y-1.5">
@@ -272,6 +318,7 @@ export default function K6ScenariosEditor({ scenarios, onChange, availableUrls =
                     <button type="button" onClick={() => addStage(scen)} className="text-[12px] text-dfaas-400 hover:text-dfaas-300 font-medium">+ Add Stage</button>
                   </div>
                 </div>
+                )}
               </div>
             )}
           </div>

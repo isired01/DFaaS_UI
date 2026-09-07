@@ -14,18 +14,39 @@ function jsString(s) {
   return JSON.stringify(s ?? '');
 }
 
+// renderScenario emits one k6 scenario. Option sets are NOT interchangeable
+// between executors: k6 validates them and rejects missing or unknown keys, and
+// that rejection lands on the remote runner after dispatch, where nobody sees
+// it. So each supported executor gets its own branch emitting exactly its own
+// options.
+//
+//   ramping-arrival-rate  → startRate + stages   (rate varies across stages)
+//   constant-arrival-rate → rate + duration      (rate held flat; NO stages)
+//
+// Adding a third means a branch here AND a matching case in lib/duration.js,
+// which totals a node's runtime from these same fields.
 function renderScenario(s) {
-  const stages = (s.stages || []).map(st => `        { duration: ${jsString(st.duration)}, target: ${st.target} },`).join('\n');
+  let specific;
+  if (s.executor === 'constant-arrival-rate') {
+    specific =
+      `      rate: ${s.rate ?? 10},\n` +
+      `      duration: ${jsString(s.duration || '1m')},`;
+  } else {
+    const stages = (s.stages || [])
+      .map(st => `        { duration: ${jsString(st.duration)}, target: ${st.target} },`)
+      .join('\n');
+    specific =
+      `      startRate: 0,\n` +
+      `      stages: [\n${stages}\n      ],`;
+  }
+
   return `    ${jsString(s.name)}: {
       executor: '${s.executor || 'ramping-arrival-rate'}',
-      startRate: 0,
+${specific}
       timeUnit: '1s',
       preAllocatedVUs: ${s.preAllocatedVUs ?? 10},
       maxVUs: ${s.maxVUs ?? 50},
       startTime: ${jsString(s.startTime || '0s')},
-      stages: [
-${stages}
-      ],
       exec: 'runScenario',
       env: { SCENARIO_ID: ${jsString(s.name)} },
     },`;

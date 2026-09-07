@@ -254,7 +254,7 @@ func publicURLOverride() string {
 //   - SEAWEEDFS_ENDPOINT set        → explicit override, always wins.
 //   - default in-cluster SeaweedFS:
 //   - gateway in-cluster          → the Secret's internal DNS endpoint
-//     (seaweedfs.monitoring.svc…:8333) — the canonical ClusterIP path.
+//     (seaweedfs-all-in-one.monitoring.svc…:8333) — the canonical ClusterIP path.
 //   - gateway outside the cluster → http://<nodeIP>:<seaweedfsNodePort>; the
 //     internal DNS would fail to resolve ("no such host"), so dial the
 //     node IP + NodePort instead (reachable from outside).

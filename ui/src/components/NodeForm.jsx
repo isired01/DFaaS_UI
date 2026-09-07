@@ -1,4 +1,4 @@
-import { Trash2, Lock } from 'lucide-react';
+import { Trash2, Lock, AlertTriangle } from 'lucide-react';
 import { BALANCING_STRATEGIES } from '../lib/constants';
 import FormField from './FormField';
 import InfoTooltip from './InfoTooltip';
@@ -72,6 +72,12 @@ export default function NodeForm({
           <select className="input py-2 text-sm" value={node.role} onChange={(e) => handleRoleChange(e.target.value)}>
             {ROLES.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
           </select>
+          {node._originalRole && node.role !== node._originalRole && (
+            <p role="status" className="mt-1.5 flex items-start gap-1 text-xs text-amber-400">
+              <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-px" aria-hidden="true" />
+              <span>Wipes this node's k3s and everything installed on it, then reprovisions for the new role.</span>
+            </p>
+          )}
         </FormField>
       </div>
 

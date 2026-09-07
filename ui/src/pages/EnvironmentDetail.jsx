@@ -47,7 +47,7 @@ export default function EnvironmentDetail() {
   };
 
   const handleDelete = async () => {
-    if (!confirm(`Delete environment '${name}'? The operator finalizer will tear down VMs if cleanupOnDelete is true.`)) return;
+    if (!confirm(`Delete environment '${name}'? The VMs are left running — the finalizer only removes the operator's own resources.`)) return;
     setDeleting(true);
     try {
       await deleteEnvironment(namespace, name);
@@ -81,6 +81,21 @@ export default function EnvironmentDetail() {
   const observedGen = environment.observedGeneration ?? 0;
   const isUpdating = observedGen > 0 && gen > observedGen;
 
+  // Mirrors activeLoadTestNames in the gateway: a node or topology edit re-runs
+  // Ansible on every node, and a role change wipes the node outright, so the
+  // gateway answers 409 while any test still owns its generators. Surfaced here
+  // so the user sees why Edit is unavailable instead of meeting that 409 after
+  // filling in the whole form. Suspended Pending tests are parked and excluded.
+  const activeLoadtests = (loadtests || []).filter(lt => (
+    lt.phase === 'Running' || lt.phase === 'Exporting' ||
+    (lt.phase === 'Pending' && !lt.suspended)
+  ));
+  const editBlockReason = isUpdating
+    ? 'Update in progress — wait for reconcile to settle'
+    : activeLoadtests.length > 0
+      ? `Cannot edit nodes while a load test is active: ${activeLoadtests.map(lt => `${lt.name} (${lt.phase})`).join(', ')}. Abort it or wait for it to finish.`
+      : '';
+
   return (
     <div className="space-y-8 animate-fade-in">
       <div>
@@ -103,9 +118,6 @@ export default function EnvironmentDetail() {
                   Updating (gen {observedGen} → {gen})
                 </span>
               )}
-              {environment.cleanupOnDelete && (
-                <span className="text-[12px] text-orange-400 uppercase tracking-wider">cleanup on delete</span>
-              )}
               {environment.lastHealthCheck && (
                 <span className="text-[12px] text-surface-450" id="environment-last-health-check">
                   Last health check: {formatDateTime(environment.lastHealthCheck)}
@@ -116,8 +128,9 @@ export default function EnvironmentDetail() {
           <div className="flex items-center gap-2">
             <Link
               to={`/environments/${environment.namespace}/${environment.name}/edit`}
-              className={`btn-secondary ${isUpdating ? 'opacity-50 pointer-events-none' : ''}`}
-              title={isUpdating ? 'Update in progress — wait for reconcile to settle' : 'Edit spec (PATCH)'}
+              className={`btn-secondary ${editBlockReason ? 'opacity-50 pointer-events-none' : ''}`}
+              aria-disabled={editBlockReason ? 'true' : undefined}
+              title={editBlockReason || 'Edit spec (PATCH)'}
               id="edit-environment-btn"
             >
               <Pencil className="w-4 h-4" />

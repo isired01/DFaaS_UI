@@ -33,7 +33,6 @@ type EnvironmentDetail struct {
 	Conditions         []ConditionInfo  `json:"conditions,omitempty"`
 	Nodes              []NodeInfo       `json:"nodes"`
 	Topology           TopologyInfo     `json:"topology"`
-	CleanupOnDelete    bool             `json:"cleanupOnDelete"`
 	K6Nodes            []K6NodeStatus   `json:"k6Nodes,omitempty"`
 	DfaasNodes         []string         `json:"dfaasNodes,omitempty"`
 	S3ConfigRef        *S3ConfigRefView `json:"s3ConfigRef,omitempty"`
@@ -99,13 +98,12 @@ type CreateEnvironmentRequest struct {
 	Name            string           `json:"name" binding:"required"`
 	Nodes           []NodeInfo       `json:"nodes" binding:"required,min=1"`
 	Topology        TopologyInfo     `json:"topology"`
-	CleanupOnDelete bool             `json:"cleanupOnDelete"`
 	S3ConfigRef     *S3ConfigRefView `json:"s3ConfigRef,omitempty"`
 }
 
 // UpdateEnvironmentRequest is the body for PATCH /api/environments/:ns/:name.
 // Mirrors the merge-patch shape Kubernetes expects: { "spec": { ... } }.
-// Pointer fields (CleanupOnDelete, Topology, S3ConfigRef) use "absent in the
+// Pointer fields (Topology, S3ConfigRef) use "absent in the
 // patch" vs "set" semantics: nil is omitted and preserved on the cluster object.
 type UpdateEnvironmentRequest struct {
 	Spec UpdateEnvironmentSpec `json:"spec" binding:"required"`
@@ -123,7 +121,6 @@ type UpdateEnvironmentRequest struct {
 // ClearS3ConfigRef=true instead, which patches s3ConfigRef to JSON null (the
 // omitempty pointer alone cannot express an explicit null).
 type UpdateEnvironmentSpec struct {
-	CleanupOnDelete  *bool            `json:"cleanupOnDelete,omitempty"`
 	Nodes            []NodeInfo       `json:"nodes,omitempty"`
 	Topology         *TopologyInfo    `json:"topology,omitempty"`
 	S3ConfigRef      *S3ConfigRefView `json:"s3ConfigRef,omitempty"`
