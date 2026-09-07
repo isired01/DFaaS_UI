@@ -29,7 +29,7 @@ func (h *Handler) ListEnvironments(c *gin.Context) {
 		out = append(out, mapEnvSummary(item))
 	}
 
-	c.JSON(http.StatusOK, gin.H{"environments": out, "count": len(out)})
+	c.JSON(http.StatusOK, out)
 }
 
 func (h *Handler) GetEnvironment(c *gin.Context) {

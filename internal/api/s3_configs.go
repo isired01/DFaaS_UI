@@ -44,7 +44,7 @@ func (h *Handler) ListS3Configs(c *gin.Context) {
 		out = append(out, mapS3ConfigSummary(item))
 	}
 
-	c.JSON(http.StatusOK, gin.H{"s3Configs": out, "count": len(out)})
+	c.JSON(http.StatusOK, out)
 }
 
 // GetS3Config returns endpoint, region, forcePathStyle, createdAt for one

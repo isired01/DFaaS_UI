@@ -50,7 +50,7 @@ func (h *Handler) ListLoadTests(c *gin.Context) {
 		out = append(out, s)
 	}
 
-	c.JSON(http.StatusOK, gin.H{"loadtests": out, "count": len(out)})
+	c.JSON(http.StatusOK, out)
 }
 
 func (h *Handler) GetLoadTest(c *gin.Context) {

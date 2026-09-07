@@ -55,8 +55,7 @@ async function request(endpoint, options = {}) {
 // --- Environments ---
 
 export async function fetchEnvironments({ signal } = {}) {
-  const data = await request('/environments', { signal });
-  return data.environments || [];
+  return (await request('/environments', { signal })) || [];
 }
 
 export async function fetchEnvironment(namespace, name) {
@@ -85,8 +84,7 @@ export async function updateEnvironment(namespace, name, specPatch) {
 
 export async function fetchLoadTests({ environment, signal } = {}) {
   const qs = environment ? `?environment=${encodeURIComponent(environment)}` : '';
-  const data = await request(`/loadtests${qs}`, { signal });
-  return data.loadtests || [];
+  return (await request(`/loadtests${qs}`, { signal })) || [];
 }
 
 export async function fetchLoadTest(namespace, name) {
@@ -136,8 +134,7 @@ export async function abortLoadTest(namespace, name) {
 // --- S3 server configurations ---
 
 export async function listS3Configs() {
-  const data = await request('/s3-configs');
-  return data.s3Configs || [];
+  return (await request('/s3-configs')) || [];
 }
 
 export async function fetchS3Config(name) {
