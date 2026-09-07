@@ -2,12 +2,10 @@ import { useState, useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Save, Database, Info } from 'lucide-react';
 import { createS3Config } from '../api/client';
+import { loadSchema, re } from '../lib/schema';
 import FormField from '../components/FormField';
 import ErrorAlert from '../components/ErrorAlert';
 import SubmitButton from '../components/SubmitButton';
-
-// DNS-1123: lowercase alphanumeric and '-', start/end alphanumeric, max 63.
-const DNS1123_RE = /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/;
 
 // Heuristic for endpoints that almost always want path-style addressing.
 const PATH_STYLE_HINTS = ['seaweedfs', 'minio', 'localhost', '127.0.0.1', '.svc'];
@@ -32,10 +30,11 @@ export default function S3ConfigNew() {
     e.preventDefault();
     setError(null);
     try {
+      const R = (await loadSchema()).s3Config;
       const trimmedName = name.trim();
       if (!trimmedName) throw new Error('Name is required');
-      if (trimmedName.length > 63) throw new Error('Name must be 63 characters or fewer');
-      if (!DNS1123_RE.test(trimmedName)) {
+      if (trimmedName.length > R.nameMaxLength) throw new Error(`Name must be ${R.nameMaxLength} characters or fewer`);
+      if (!re(R.namePattern).test(trimmedName)) {
         throw new Error('Name must be DNS-1123: lowercase letters, digits and "-", start/end alphanumeric.');
       }
       if (!region.trim()) throw new Error('Region is required');

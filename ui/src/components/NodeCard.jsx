@@ -1,5 +1,5 @@
 import { Server, Cpu, Zap, Box, Clock, Layers, Key, Play } from 'lucide-react';
-import { STRATEGY_LABELS } from '../lib/constants';
+import { useSchema, enumLabel } from '../lib/schema';
 
 const CAPACITY_STYLES = {
   LOW: { border: 'border-blue-500/40', bg: 'bg-blue-500/10', text: 'text-blue-400', label: 'Low' },
@@ -13,6 +13,7 @@ const ROLE_LABEL = {
 };
 
 export default function NodeCard({ node, index, variant, onConfigureLoad, configureDisabled, configureDisabledReason }) {
+  const schema = useSchema();
   const capacity = CAPACITY_STYLES[node.capacity] || CAPACITY_STYLES.MEDIUM;
   const isK6 = variant === 'k6' || node.role === 'k6-load-generator';
 
@@ -48,7 +49,7 @@ export default function NodeCard({ node, index, variant, onConfigureLoad, config
         {isK6 ? (
           <InfoItem icon={Key} label="Kubeconfig Secret" value={node.kubeconfigSecret || '—'} />
         ) : (
-          <InfoItem icon={Layers} label="Strategy" value={formatStrategy(node.balancingStrategy)} />
+          <InfoItem icon={Layers} label="Strategy" value={formatStrategy(schema, node.balancingStrategy)} />
         )}
         <InfoItem icon={Cpu} label="Username" value={node.username} />
       </div>
@@ -118,6 +119,6 @@ function FunctionRow({ fn }) {
   );
 }
 
-function formatStrategy(strategy) {
-  return STRATEGY_LABELS[strategy] || strategy || '—';
+function formatStrategy(schema, strategy) {
+  return strategy ? enumLabel(schema?.node.balancingStrategies, strategy, 'shortLabel') : '—';
 }

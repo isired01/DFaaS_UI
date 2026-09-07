@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"regexp"
 	"strings"
 	"time"
 
@@ -15,12 +14,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
-
-// dns1123Name is the standard k8s name regex; we use it to validate the
-// user-supplied Name field (which becomes the Secret name) before talking to
-// the API server. The validator covers the binding length tags; this regex
-// covers character set + structure.
-var dns1123Name = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`)
 
 // ListS3Configs returns Secrets in the dfaas-s3 namespace labeled
 // dfaas.io/s3-config=true. The endpoint/region fields are base64-decoded
@@ -94,7 +87,7 @@ func (h *Handler) CreateS3Config(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "name contains invalid characters"})
 		return
 	}
-	if !dns1123Name.MatchString(req.Name) {
+	if !dns1123Re.MatchString(req.Name) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "name must match DNS-1123 (lowercase alphanumeric and '-', start/end alphanumeric)"})
 		return
 	}

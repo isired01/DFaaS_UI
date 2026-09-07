@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, Save, Database } from 'lucide-react';
 import { createEnvironment, fetchEnvironment, updateEnvironment, listS3Configs } from '../api/client';
+import { loadSchema, re } from '../lib/schema';
 import NodeList from '../components/NodeList';
 import LinkEditor from '../components/LinkEditor';
 import FormField from '../components/FormField';
@@ -109,32 +110,29 @@ export default function EnvironmentNew({ mode = 'create' }) {
     setSubmitting(true);
     setError(null);
     try {
+      const R = (await loadSchema()).node;
+      const NODE_ID_RE = re(R.nodeIDPattern);
       if (!name) throw new Error('Environment name is required');
       if (nodes.length === 0) throw new Error('At least one node is required');
-      // Mirrors the CRD's CEL rule: nodeID is embedded in Kubernetes object
-      // names (kubeconfig Secrets, remote TestRuns), so DNS-1123 lowercase.
-      const NODE_ID_RE = /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/;
-      // The CRD caps spec.nodes at 50: the CEL uniqueness rule below is O(n²)
-      // and an unbounded array blows the schema cost budget.
-      if (nodes.length > 50) throw new Error('At most 50 nodes per environment');
+      if (nodes.length > R.maxNodes) throw new Error(`At most ${R.maxNodes} nodes per environment`);
       const seen = new Set();
       const seenIPs = new Map();
       nodes.forEach((n, idx) => {
         const nid = (n.nodeID || '').trim();
         if (!nid) throw new Error(`Node #${idx + 1} is missing a nodeID`);
         if (!NODE_ID_RE.test(nid)) throw new Error(`Node '${nid}': nodeID must be lowercase letters, digits and '-' only (e.g. 'g3', not 'G3' — it becomes part of Kubernetes object names)`);
-        if (nid.length > 63) throw new Error(`Node '${nid}': nodeID must be at most 63 characters`);
+        if (nid.length > R.nodeIDMaxLength) throw new Error(`Node '${nid}': nodeID must be at most ${R.nodeIDMaxLength} characters`);
         if (seen.has(nid)) throw new Error(`Duplicate nodeID '${nid}'`);
         seen.add(nid);
         if (!n.role) throw new Error(`Node '${nid}' is missing a role`);
         const ip = (n.ipAddress || '').trim();
         if (!ip) throw new Error(`Node '${nid}' is missing ipAddress`);
-        if (ip.length > 45) throw new Error(`Node '${nid}': ipAddress must be at most 45 characters`);
+        if (ip.length > R.ipAddressMaxLength) throw new Error(`Node '${nid}': ipAddress must be at most ${R.ipAddressMaxLength} characters`);
         // Mirrors the CRD's CEL rule on spec.nodes: one machine is one node.
         // Two nodes on the same box get two libp2p identities, and the Ansible
         // run installs dfaas-agent twice with different keys — the last one
         // wins and every peer ends up dialling a dead peer ID.
-        if (seenIPs.has(ip)) throw new Error(`Nodes '${seenIPs.get(ip)}' and '${nid}' share the ipAddress ${ip} — one machine can only be one node`);
+        if (R.uniqueIPAddress && seenIPs.has(ip)) throw new Error(`Nodes '${seenIPs.get(ip)}' and '${nid}' share the ipAddress ${ip} — one machine can only be one node`);
         seenIPs.set(ip, nid);
         if (!(n.username || '').trim()) throw new Error(`Node '${nid}' is missing username`);
         if (!n.password) throw new Error(`Node '${nid}' is missing password`);

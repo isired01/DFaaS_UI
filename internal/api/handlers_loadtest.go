@@ -220,6 +220,9 @@ func validatePerNodeLoad(perNodeLoad []CreatePerNodeLoad) (status int, msg strin
 		if pn.Script != "" && pn.ScriptConfigMap != "" {
 			return http.StatusBadRequest, fmt.Sprintf("perNodeLoad[%d]: only one of script or scriptConfigMap allowed", i), false
 		}
+		if err := validateGoDuration(fmt.Sprintf("perNodeLoad[%d].duration", i), pn.Duration); err != nil {
+			return http.StatusBadRequest, err.Error(), false
+		}
 	}
 	return 0, "", true
 }
@@ -230,7 +233,10 @@ func validatePerNodeLoad(perNodeLoad []CreatePerNodeLoad) (status int, msg strin
 // is false in that case.
 func validateMetricsExport(export CreateMetricsExport) (status int, msg string, ok bool) {
 	for i, m := range export.Metrics {
-		if m.Type == "custom-promql" && m.MetricName == "" {
+		if !hasEnum(rules.LoadTest.MetricTypes, m.Type) {
+			return http.StatusBadRequest, fmt.Sprintf("metricsExport.metrics[%d]: type must be %s", i, enumValues(rules.LoadTest.MetricTypes)), false
+		}
+		if m.Type == metricPromQL && m.MetricName == "" {
 			return http.StatusBadRequest, fmt.Sprintf("metricsExport.metrics[%d]: metricName required when type='custom-promql'", i), false
 		}
 	}

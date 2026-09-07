@@ -199,64 +199,6 @@ func activeLoadTestNames(items []unstructured.Unstructured, namespace, envName s
 	return active
 }
 
-// validateEnvNodes runs the same per-node shape checks Create uses,
-// shared with the PATCH path.
-func validateEnvNodes(nodes []NodeInfo) error {
-	seen := map[string]struct{}{}
-	var workers, generators int
-	for i, n := range nodes {
-		if n.NodeID == "" || n.IpAddress == "" || n.Role == "" || n.Capacity == "" {
-			return fmt.Errorf("node[%d]: nodeID, ipAddress, role, capacity required", i)
-		}
-		if _, dup := seen[n.NodeID]; dup {
-			return fmt.Errorf("node[%d]: duplicate nodeID '%s'", i, n.NodeID)
-		}
-		seen[n.NodeID] = struct{}{}
-		switch n.Role {
-		case "dfaas-worker":
-			workers++
-		case "k6-load-generator":
-			generators++
-		default:
-			return fmt.Errorf("node[%d]: role must be dfaas-worker or k6-load-generator", i)
-		}
-		switch n.Capacity {
-		case "LOW", "MEDIUM", "HIGH":
-		default:
-			return fmt.Errorf("node[%d]: capacity must be LOW|MEDIUM|HIGH", i)
-		}
-		if n.Role == "k6-load-generator" {
-			if n.BalancingStrategy != "" {
-				return fmt.Errorf("node[%d]: balancingStrategy must be empty for k6-load-generator", i)
-			}
-			if len(n.Functions) > 0 {
-				return fmt.Errorf("node[%d]: functions not allowed on k6-load-generator", i)
-			}
-		}
-		if n.Role == "dfaas-worker" && n.BalancingStrategy != "" {
-			switch n.BalancingStrategy {
-			case "staticstrategy", "nodemarginstrategy", "recalcstrategy", "alllocalstrategy", "rlagentstrategy":
-			default:
-				return fmt.Errorf("node[%d]: balancingStrategy must be one of staticstrategy|nodemarginstrategy|recalcstrategy|alllocalstrategy|rlagentstrategy", i)
-			}
-		}
-	}
-
-	// Role composition. Nothing downstream rejects a single-role Environment:
-	// ensureAnsibleJob skips a role with zero nodes and reports its condition
-	// True, so the Environment reaches Ready and only fails obscurely once a
-	// LoadTest is dispatched at it. Editing roles on an existing Environment
-	// makes this easy to hit by accident, so it is caught here — on create,
-	// patch and YAML import alike, since all three share this validator.
-	if workers == 0 {
-		return fmt.Errorf("at least one node must have role dfaas-worker: an environment with no workers has nothing to load-test")
-	}
-	if generators == 0 {
-		return fmt.Errorf("at least one node must have role k6-load-generator: an environment with no generators cannot run a load test")
-	}
-	return nil
-}
-
 func (h *Handler) DeleteEnvironment(c *gin.Context) {
 	namespace := c.Param("namespace")
 	name := c.Param("name")

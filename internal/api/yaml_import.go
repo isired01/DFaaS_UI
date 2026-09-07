@@ -204,7 +204,26 @@ func (h *Handler) validateLoadTestYAML(ctx context.Context, namespace string, ob
 		if getStringFromMap(cmRef, "name") == "" {
 			return http.StatusBadRequest, fmt.Sprintf("spec.perNodeLoad[%d]: scriptConfigMap.name required (the CRD carries no inline script)", i), false
 		}
+		if err := validateGoDuration(fmt.Sprintf("spec.perNodeLoad[%d].duration", i), getStringFromMap(entry, "duration")); err != nil {
+			return http.StatusBadRequest, err.Error(), false
+		}
 		nodeIDs = append(nodeIDs, nodeID)
+	}
+
+	// Same metric rules as the JSON path. Before this the custom-promql rule gave
+	// a readable 400 on POST /loadtests and a raw CEL rejection here.
+	for i, raw := range nestedSliceNoCopy(obj, "spec", "metricsExport", "metrics") {
+		m, ok := raw.(map[string]interface{})
+		if !ok {
+			return http.StatusBadRequest, fmt.Sprintf("spec.metricsExport.metrics[%d] is not an object", i), false
+		}
+		mt := getStringFromMap(m, "type")
+		if !hasEnum(rules.LoadTest.MetricTypes, mt) {
+			return http.StatusBadRequest, fmt.Sprintf("spec.metricsExport.metrics[%d]: type must be %s", i, enumValues(rules.LoadTest.MetricTypes)), false
+		}
+		if mt == metricPromQL && getStringFromMap(m, "metricName") == "" {
+			return http.StatusBadRequest, fmt.Sprintf("spec.metricsExport.metrics[%d]: metricName required when type='%s'", i, metricPromQL), false
+		}
 	}
 
 	target := getNestedString(obj, "spec", "targetEnvironment")

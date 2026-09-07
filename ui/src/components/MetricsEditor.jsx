@@ -2,16 +2,11 @@ import { useRef } from 'react';
 import { Plus, Trash2, BarChart3, Upload } from 'lucide-react';
 import { metricsCsvTemplate } from '../lib/metricsCsv';
 import { downloadTextAsFile } from '../api/client';
+import { useSchema } from '../lib/schema';
 
 function downloadCsvTemplate() {
   downloadTextAsFile(metricsCsvTemplate(), 'metrics-template.csv', 'text/csv');
 }
-
-// Metric `type` values are protocol enums sent to the operator — do not translate.
-export const METRIC_TYPES = [
-  { value: 'raw', label: 'Raw metric' },
-  { value: 'custom-promql', label: 'Custom PromQL query' },
-];
 
 export function emptyMetric() {
   return { type: 'custom-promql', metricName: '', query: '', comment: '' };
@@ -37,6 +32,8 @@ export const DEFAULT_METRICS = [
 // MetricsEditor renders the metrics-export table editor plus the step input and
 // inherited-destination hint. State lives in the parent (LoadTestNew).
 export default function MetricsEditor({ metrics, onAdd, onRemove, onUpdate, onImportCsv, step, onStepChange, environment }) {
+  const schema = useSchema();
+  const METRIC_TYPES = schema?.loadTest.metricTypes ?? [];
   const fileInputRef = useRef(null);
 
   return (

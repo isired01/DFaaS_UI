@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams, Link } from 'react-router-dom';
 import { ArrowLeft, Play, Info } from 'lucide-react';
 import { createLoadTest, fetchEnvironment } from '../api/client';
+import { loadSchema, re } from '../lib/schema';
 import { newScenario, ensureScenarioIds } from '../components/K6ScenariosEditor';
 import { generateK6Script } from '../lib/k6Generator';
 import MetricsEditor, { DEFAULT_METRICS, emptyMetric } from '../components/MetricsEditor';
@@ -12,10 +13,6 @@ import LoadingSpinner from '../components/LoadingSpinner';
 import ErrorAlert from '../components/ErrorAlert';
 import SubmitButton from '../components/SubmitButton';
 
-// Go duration grammar, kept in sync by hand with the CRD pattern on
-// spec.perNodeLoad[].duration and spec.metricsExport.step. ASCII only: the CRD
-// pattern deliberately omits the 'µs' spelling.
-const GO_DURATION_RE = /^([0-9]+(\.[0-9]+)?(ns|us|ms|s|m|h))+$/;
 
 function defaultPerNode() {
   return {
@@ -163,6 +160,7 @@ export default function LoadTestNew() {
     setSubmitting(true);
     setError(null);
     try {
+      const S = (await loadSchema()).loadTest;
       const cleanMetrics = metrics
         .map(m => ({
           type: m.type,
@@ -173,7 +171,7 @@ export default function LoadTestNew() {
         .filter(m => m.query || m.metricName);
       if (cleanMetrics.length === 0) throw new Error('At least one metric row is required');
       cleanMetrics.forEach((m, i) => {
-        if (m.type !== 'raw' && m.type !== 'custom-promql') {
+        if (!S.metricTypes.some(t => t.value === m.type)) {
           throw new Error(`metrics[${i}]: invalid type`);
         }
         if (!m.query) throw new Error(`metrics[${i}]: query is required`);
@@ -203,10 +201,8 @@ export default function LoadTestNew() {
         let duration;
         if (draft.source === SOURCE_RAW) {
           if (!draft.duration) throw new Error(`Node '${nodeID}' needs a duration`);
-          // Mirrors the CRD pattern on spec.perNodeLoad[].duration (source of truth:
-          // DFaaSOperator api/v1/loadtest_types.go). Checked here so "5 minutes"
-          // fails inline instead of coming back as a raw API-server 422.
-          if (!GO_DURATION_RE.test(draft.duration)) {
+          // Same pattern the gateway and CRD enforce, so "5 minutes" fails inline.
+          if (!re(S.goDurationPattern).test(draft.duration)) {
             throw new Error(`Node '${nodeID}': duration must be a Go duration like '30s', '5m' or '1h30m' (got '${draft.duration}')`);
           }
           duration = draft.duration;

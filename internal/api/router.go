@@ -45,6 +45,9 @@ func writeK8sError(c *gin.Context, err error, resource string) {
 func (h *Handler) RegisterRoutes(r *gin.Engine) {
 	api := r.Group("/api")
 	{
+		// The rule set the SPA validates against; same value the handlers enforce.
+		api.GET("/meta/schema", h.GetSchema)
+
 		api.GET("/environments", h.ListEnvironments)
 		api.GET("/environments/:namespace/:name", h.GetEnvironment)
 		api.GET("/environments/:namespace/:name/yaml", h.GetEnvironmentYAML)

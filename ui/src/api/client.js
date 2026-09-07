@@ -10,7 +10,7 @@ const API_BASE = '/api';
 // distinguishes "the cluster is unreachable" from an ordinary application 500.
 const CLUSTER_UNREACHABLE_RE = /cluster|kubernetes|connection refused|timeout|deadline exceeded|no such host/i;
 
-async function request(endpoint, options = {}) {
+export async function request(endpoint, options = {}) {
   const url = `${API_BASE}${endpoint}`;
 
   let res;

@@ -1,17 +1,11 @@
 import { Trash2, Lock, AlertTriangle } from 'lucide-react';
-import { BALANCING_STRATEGIES } from '../lib/constants';
+import { useSchema } from '../lib/schema';
 import FormField from './FormField';
 import InfoTooltip from './InfoTooltip';
 import NumberInput from './NumberInput';
 
-const CAPACITIES = ['LOW', 'MEDIUM', 'HIGH'];
-
-// Role `value`s are kebab-case protocol enums consumed by the operator CRD.
-const ROLES = [
-  { value: '', label: '— select role —' },
-  { value: 'dfaas-worker', label: 'DFaaS Worker' },
-  { value: 'k6-load-generator', label: 'k6 Load Generator' },
-];
+// Enum lists (roles, capacities, strategies) come from GET /api/meta/schema so
+// the form offers exactly what the gateway and CRD accept.
 
 const FN_LABEL = 'block text-[12px] text-surface-450 mb-1';
 
@@ -29,6 +23,10 @@ export default function NodeForm({
   onUpdateFunction,
 }) {
   const isRecalc = node.balancingStrategy === 'recalcstrategy';
+  const schema = useSchema();
+  const ROLES = [{ value: '', label: '— select role —' }, ...(schema?.node.roles ?? [])];
+  const CAPACITIES = schema?.node.capacities ?? [];
+  const STRATEGIES = schema?.node.balancingStrategies ?? [];
 
   const handleRoleChange = (role) => {
     if (role === 'k6-load-generator') {
@@ -99,7 +97,7 @@ export default function NodeForm({
         <>
           <FormField label="Balancing Strategy">
             <select className="input py-2 text-sm" value={node.balancingStrategy} onChange={(e) => onUpdate({ balancingStrategy: e.target.value })}>
-              {BALANCING_STRATEGIES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+              {STRATEGIES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
             </select>
           </FormField>
 

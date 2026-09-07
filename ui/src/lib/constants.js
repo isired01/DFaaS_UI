@@ -7,25 +7,6 @@ import {
   CheckCircle, Play, CheckCheck, XCircle, LineChart, Clock, Ban, RefreshCw,
 } from 'lucide-react';
 
-// dfaas-worker balancing strategies, used by the EnvironmentNew form.
-// Strategy `value`s are protocol enums consumed by the operator CRD.
-export const BALANCING_STRATEGIES = [
-  { value: 'staticstrategy',     label: 'Static — fixed routing weights' },
-  { value: 'recalcstrategy',     label: 'Recalc — rate-based (requires maxRate per fn)' },
-  { value: 'alllocalstrategy',   label: 'All Local — keep traffic local' },
-  { value: 'nodemarginstrategy', label: 'Node Margin (experimental)' },
-  { value: 'rlagentstrategy',    label: 'RL Agent (experimental)' },
-];
-
-// Short labels for the same strategies, used by NodeCard.
-export const STRATEGY_LABELS = {
-  staticstrategy: 'Static',
-  nodemarginstrategy: 'Node Margin',
-  recalcstrategy: 'Recalc',
-  alllocalstrategy: 'All Local',
-  rlagentstrategy: 'RL Agent',
-};
-
 // LoadTest phases that warrant continued polling on the detail page.
 export const ACTIVE_PHASES = new Set(['Pending', 'Running', 'Exporting', '']);
 
