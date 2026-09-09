@@ -95,6 +95,18 @@ const TONE_TEXT = { ok: 'text-emerald-400', warn: 'text-amber-400', error: 'text
 /** Text colour class for a tone — the one place phase/reason colour lives. */
 export const toneText = (tone) => TONE_TEXT[tone] || TONE_TEXT.neutral;
 
+const TONE_PANEL = {
+  ok: 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300',
+  warn: 'bg-amber-500/10 border-amber-500/30 text-amber-300',
+  error: 'bg-red-500/10 border-red-500/30 text-red-300',
+  info: 'bg-dfaas-500/10 border-dfaas-500/30 text-dfaas-300',
+  idle: 'bg-surface-500/10 border-surface-500/30 text-surface-300',
+  neutral: 'bg-surface-500/10 border-surface-500/30 text-surface-400',
+};
+
+/** Panel classes for a tone: the banner form of toneText. */
+export const tonePanel = (tone) => TONE_PANEL[tone] || TONE_PANEL.neutral;
+
 // Hand-written labels only for the reasons the UI already treated specially;
 // everything else is humanised from the identifier. A new operator reason
 // therefore renders readably on day one, and gets a curated label only if the
@@ -129,4 +141,23 @@ const humanise = (id) => (id || '').replace(/([a-z0-9])([A-Z])/g, '$1 $2').repla
 /** Label and tone for a Condition reason. */
 export function reason(r) {
   return REASONS[r] || { label: humanise(r), tone: 'neutral' };
+}
+
+/** True when this reason has a hand-written label rather than the humanised
+ *  default. The selfcheck uses it to hold every reason the UI groups on to a
+ *  curated entry. */
+export const isCurated = (r) => Object.prototype.hasOwnProperty.call(REASONS, r);
+
+/** The reasons the operator stamps on the Scheduled Condition. Grouped here
+ *  rather than at the page, because a reason list re-typed at a call site is
+ *  how LoadTestDetail ended up printing the raw identifier while
+ *  ConditionsList, on the same page, printed the curated label. */
+export const SCHEDULED_REASONS = ['ScheduledArmed', 'ScheduledFired', 'ScheduledDelayedEnvNotReady'];
+
+/** The Condition of this type whose reason is in `reasons`, or undefined.
+ *  Null-safe on a CR whose status has not been written yet. */
+export function conditionOf(conditions, type, reasons) {
+  return (conditions || []).find(
+    (c) => c.type === type && (!reasons || reasons.includes(c.reason)),
+  );
 }

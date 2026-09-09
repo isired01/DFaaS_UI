@@ -1,14 +1,15 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { ArrowLeft, TestTube2, Trash2, AlertTriangle, Info, Server, BarChart3, FileCode, Download, Play, FileEdit, Ban, Loader2 } from 'lucide-react';
+import { ArrowLeft, TestTube2, Trash2, Server, BarChart3, FileCode, Download, Play, FileEdit, Ban, Loader2 } from 'lucide-react';
 import { fetchLoadTest, deleteLoadTest, fetchLoadTestYAML, downloadTextAsFile, activateLoadTest, abortLoadTest, fetchEnvironment } from '../api/client';
 import PhaseBadge from '../components/PhaseBadge';
 import GeneratorProgress from '../components/GeneratorProgress';
 import ScheduledStartCard from '../components/ScheduledStartCard';
+import ConditionBanner from '../components/ConditionBanner';
 import ConditionsList from '../components/ConditionsList';
 import LoadingSpinner from '../components/LoadingSpinner';
 import PageError from '../components/PageError';
-import { lt as ltState, reason as reasonOf, testRun } from '../lib/crstate';
+import { lt as ltState, testRun, conditionOf, SCHEDULED_REASONS } from '../lib/crstate';
 import { formatDateTime } from '../lib/format';
 import { useResource } from '../lib/useResource';
 
@@ -116,7 +117,7 @@ export default function LoadTestDetail() {
   const isRunning = loadtest.phase === 'Running';
   // Tooltip on terminal Aborted: surface operator-stamped Ready=False reason=UserAborted message.
   const abortedMsg = loadtest.phase === 'Aborted'
-    ? (loadtest.conditions || []).find(c => c.type === 'Ready' && c.reason === 'UserAborted')?.message || ''
+    ? conditionOf(loadtest.conditions, 'Ready', ['UserAborted'])?.message || ''
     : '';
   const pendingTooltip = loadtest.phase === 'Pending'
     ? (isDraft ? 'Draft saved' : 'Waiting for Environment Ready')
@@ -220,23 +221,11 @@ export default function LoadTestDetail() {
         {loadtest.startAt && <ScheduledStartCard startAt={loadtest.startAt} nowMs={nowMs} />}
       </div>
 
-      {loadtest.phase === 'Pending' && (() => {
-        const c = (loadtest.conditions || []).find(
-          (x) => x.type === 'Scheduled' && ['ScheduledArmed', 'ScheduledFired', 'ScheduledDelayedEnvNotReady'].includes(x.reason)
-        );
-        if (!c) return null;
-        const tone = c.reason === 'ScheduledDelayedEnvNotReady'
-          ? 'bg-amber-500/10 border-amber-500/30 text-amber-300'
-          : c.reason === 'ScheduledFired'
-            ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
-            : 'bg-violet-500/10 border-violet-500/30 text-violet-300';
-        return (
-          <div className={`p-3 rounded-xl border text-sm flex items-start gap-2 ${tone}`}>
-            <Info className="w-4 h-4 mt-0.5 flex-shrink-0" />
-            <span><strong>{c.reason}</strong> — {c.message}</span>
-          </div>
-        );
-      })()}
+      {loadtest.phase === 'Pending' && (
+        <ConditionBanner
+          condition={conditionOf(loadtest.conditions, 'Scheduled', SCHEDULED_REASONS)}
+        />
+      )}
 
       {loadtest.results && (
         <div className="glass-card p-5">
