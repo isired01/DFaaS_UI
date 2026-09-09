@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "check": "node src/lib/duration.selfcheck.mjs && node src/lib/scenarios.selfcheck.mjs && node src/lib/payloads/loadtest.selfcheck.mjs && node src/lib/payloads/environment.selfcheck.mjs"
+    "check": "node src/lib/resourcePoll.selfcheck.mjs && node src/lib/duration.selfcheck.mjs && node src/lib/scenarios.selfcheck.mjs && node src/lib/payloads/loadtest.selfcheck.mjs && node src/lib/payloads/environment.selfcheck.mjs"
   },
   "dependencies": {
     "lucide-react": "^0.460.0",

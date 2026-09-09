@@ -1,9 +1,10 @@
-import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { ArrowLeft, Database, Cloud, Server, AlertTriangle, Info } from 'lucide-react';
+import { ArrowLeft, Database, Cloud, Server, Info } from 'lucide-react';
 import { fetchS3Config } from '../api/client';
 import LoadingSpinner from '../components/LoadingSpinner';
+import PageError from '../components/PageError';
 import { formatDate } from '../lib/format';
+import { useResource } from '../lib/useResource';
 
 // Built-in S3 config the operator provisions at startup for the in-cluster
 // SeaweedFS. The API does not flag it explicitly, so we derive it by name the
@@ -12,36 +13,14 @@ const DEFAULT_S3_CONFIG = 'seaweedfs-default';
 
 export default function S3ConfigDetail() {
   const { name } = useParams();
-  const [config, setConfig] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    const load = async () => {
-      try {
-        setError(null);
-        const data = await fetchS3Config(name);
-        if (!cancelled) setConfig(data);
-      } catch (err) {
-        if (!cancelled) setError(err.message);
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    };
-    load();
-    return () => { cancelled = true; };
-  }, [name]);
+  const { data: config, loading, error } = useResource(
+    ({ signal }) => fetchS3Config(name, { signal }),
+    { deps: [name] },
+  );
 
   if (loading) return <LoadingSpinner />;
 
-  if (error) return (
-    <div className="glass-card p-8 text-center border-red-500/30 bg-red-500/5">
-      <AlertTriangle className="w-10 h-10 text-red-400 mx-auto mb-3" />
-      <p className="text-red-400">{error}</p>
-      <Link to="/s3-configs" className="btn-secondary mt-4 inline-flex">← Back to S3 Configurations</Link>
-    </div>
-  );
+  if (error) return <PageError message={error} back={{ to: '/s3-configs', label: 'Back to S3 Configurations' }} />;
 
   if (!config) return null;
 

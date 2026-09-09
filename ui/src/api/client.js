@@ -58,8 +58,8 @@ export async function fetchEnvironments({ signal } = {}) {
   return (await request('/environments', { signal })) || [];
 }
 
-export async function fetchEnvironment(namespace, name) {
-  return request(`/environments/${namespace}/${name}`);
+export async function fetchEnvironment(namespace, name, { signal } = {}) {
+  return request(`/environments/${namespace}/${name}`, { signal });
 }
 
 export async function createEnvironment(payload) {
@@ -87,8 +87,8 @@ export async function fetchLoadTests({ environment, signal } = {}) {
   return (await request(`/loadtests${qs}`, { signal })) || [];
 }
 
-export async function fetchLoadTest(namespace, name) {
-  return request(`/loadtests/${namespace}/${name}`);
+export async function fetchLoadTest(namespace, name, { signal } = {}) {
+  return request(`/loadtests/${namespace}/${name}`, { signal });
 }
 
 export async function createLoadTest(payload) {
@@ -133,12 +133,12 @@ export async function abortLoadTest(namespace, name) {
 
 // --- S3 server configurations ---
 
-export async function listS3Configs() {
-  return (await request('/s3-configs')) || [];
+export async function listS3Configs({ signal } = {}) {
+  return (await request('/s3-configs', { signal })) || [];
 }
 
-export async function fetchS3Config(name) {
-  return request(`/s3-configs/${encodeURIComponent(name)}`);
+export async function fetchS3Config(name, { signal } = {}) {
+  return request(`/s3-configs/${encodeURIComponent(name)}`, { signal });
 }
 
 export async function createS3Config(payload) {

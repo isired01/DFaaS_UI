@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { TestTube2, ChevronRight, Download, Plus, X } from 'lucide-react';
 import { fetchLoadTests, fetchLoadTestYAML, downloadTextAsFile, createLoadTestFromYAML, fetchEnvironments } from '../api/client';
@@ -7,6 +7,7 @@ import ResourceTable from '../components/ResourceTable';
 import ErrorAlert from '../components/ErrorAlert';
 import { formatDate } from '../lib/format';
 import { env as envState, phase, toneText } from '../lib/crstate';
+import { useResource } from '../lib/useResource';
 
 const COLUMNS = [
   { label: 'Name' },
@@ -18,12 +19,15 @@ const COLUMNS = [
 ];
 
 export default function LoadTestsList() {
-  const [loadtests, setLoadtests] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
   const [search, setSearch] = useState('');
   const [uploading, setUploading] = useState(false);
   const navigate = useNavigate();
+
+  const { data, loading, error, reload, setError } = useResource(
+    ({ signal }) => fetchLoadTests({ signal }),
+    { pollMs: 5000 },
+  );
+  const loadtests = data || [];
 
   // New-LoadTest flow: a LoadTest is scoped to a Ready Environment, so the
   // create button first opens a modal to pick one, then routes to that env's form.
@@ -56,45 +60,6 @@ export default function LoadTestsList() {
     if (e.target === dialogRef.current) dialogRef.current.close();
   };
 
-  // Same guard as EnvironmentsList: skip overlapping polls, cancel on unmount,
-  // and clear the error only on success so a failure stays readable instead of
-  // being wiped by the next tick.
-  const inFlight = useRef(false);
-  const abortRef = useRef(null);
-
-  const load = useCallback(async () => {
-    if (inFlight.current) return;
-    inFlight.current = true;
-    const controller = new AbortController();
-    abortRef.current = controller;
-    try {
-      const data = await fetchLoadTests({ signal: controller.signal });
-      setLoadtests(data);
-      setError(null);
-    } catch (err) {
-      if (err?.name !== 'AbortError') setError(err.message);
-    } finally {
-      // Only the newest request may clear the guard — see EnvironmentsList.
-      if (abortRef.current === controller) {
-        inFlight.current = false;
-        setLoading(false);
-      }
-    }
-  }, []);
-
-  useEffect(() => {
-    load();
-    const interval = setInterval(load, 5000);
-    return () => {
-      clearInterval(interval);
-      abortRef.current?.abort();
-      // Release the guard synchronously so StrictMode's second mount loads
-      // immediately instead of waiting out the 5s interval.
-      abortRef.current = null;
-      inFlight.current = false;
-    };
-  }, [load]);
-
   const handleDownloadYAML = async (e, lt) => {
     e.preventDefault();
     e.stopPropagation();
@@ -114,7 +79,7 @@ export default function LoadTestsList() {
       setError(null);
       const text = await file.text();
       const summary = await createLoadTestFromYAML(text);
-      await load();
+      await reload();
       navigate(`/loadtests/${summary.namespace}/${summary.name}`);
     } catch (err) {
       setError(err.message);
@@ -176,7 +141,7 @@ export default function LoadTestsList() {
         subtitle="k6 load tests across all environments"
         titleIcon={TestTube2}
         titleIconClassName="w-7 h-7 text-amber-400"
-        onRefresh={() => { setLoading(true); load(); }}
+        onRefresh={reload}
         loading={loading}
         actions={(
           <button type="button" onClick={openNewDialog} className="btn-primary" id="new-loadtest-btn">

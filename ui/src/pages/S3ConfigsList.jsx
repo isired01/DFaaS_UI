@@ -1,30 +1,22 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Database, RefreshCw, Search, ChevronRight, Plus, Trash2, Cloud, Server, Info } from 'lucide-react';
 import { listS3Configs, deleteS3Config } from '../api/client';
 import { formatDate } from '../lib/format';
+import { useResource } from '../lib/useResource';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 // Built-in S3 config the operator provisions at startup for the in-cluster SeaweedFS.
 const DEFAULT_S3_CONFIG = 'seaweedfs-default';
 
 export default function S3ConfigsList() {
-  const [configs, setConfigs] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
   const [search, setSearch] = useState('');
   const [deletingName, setDeletingName] = useState(null);
 
-  const load = async () => {
-    try {
-      setError(null);
-      const data = await listS3Configs();
-      setConfigs(data);
-    } catch (err) { setError(err.message); }
-    finally { setLoading(false); }
-  };
-
-  useEffect(() => { load(); }, []);
+  const { data, loading, error, reload, setError } = useResource(
+    ({ signal }) => listS3Configs({ signal }),
+  );
+  const configs = data || [];
 
   const handleDelete = async (e, cfg) => {
     e.preventDefault();
@@ -33,7 +25,7 @@ export default function S3ConfigsList() {
     setDeletingName(cfg.name);
     try {
       await deleteS3Config(cfg.name);
-      await load();
+      await reload();
     } catch (err) {
       setError(err.message);
     } finally {
@@ -68,7 +60,7 @@ export default function S3ConfigsList() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <button onClick={() => { setLoading(true); load(); }} className="btn-secondary" id="refresh-s3-btn">
+          <button onClick={reload} className="btn-secondary" id="refresh-s3-btn">
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
             Refresh
           </button>

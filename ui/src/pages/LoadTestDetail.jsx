@@ -7,21 +7,42 @@ import GeneratorProgress from '../components/GeneratorProgress';
 import ScheduledStartCard from '../components/ScheduledStartCard';
 import ConditionsList from '../components/ConditionsList';
 import LoadingSpinner from '../components/LoadingSpinner';
+import PageError from '../components/PageError';
 import { lt as ltState, reason as reasonOf, testRun } from '../lib/crstate';
 import { formatDateTime } from '../lib/format';
+import { useResource } from '../lib/useResource';
 
 export default function LoadTestDetail() {
   const { namespace, name } = useParams();
   const navigate = useNavigate();
-  const [loadtest, setLoadtest] = useState(null);
-  const [environment, setEnvironment] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
   const [deleting, setDeleting] = useState(false);
   const [expandedScript, setExpandedScript] = useState(null);
   const [activating, setActivating] = useState(false);
   const [aborting, setAborting] = useState(false);
   const [nowMs, setNowMs] = useState(() => Date.now());
+
+  const {
+    data: loadtest, setData: setLoadtest, loading, error, setError,
+  } = useResource(
+    ({ signal }) => fetchLoadTest(namespace, name, { signal }),
+    {
+      pollMs: 5000,
+      // Stop polling a terminal LoadTest. The predicate reads the newest data
+      // from inside the hook, so the Phase is not an effect dependency here.
+      shouldPoll: (lt) => ltState.inFlight(lt.phase),
+      deps: [namespace, name],
+    },
+  );
+
+  // The Environment is a hint on this page (its S3 config), never fatal, and
+  // deliberately not part of the read above: awaiting it would hold the whole
+  // page on the spinner.
+  const { data: environment } = useResource(
+    ({ signal }) => (loadtest?.targetEnvironment
+      ? fetchEnvironment(namespace, loadtest.targetEnvironment, { signal })
+      : Promise.resolve(null)),
+    { deps: [namespace, loadtest?.targetEnvironment] },
+  );
 
   // 1 Hz ticker: drives the scheduled-start countdown and the per-generator
   // progress bars. Gated so a finished test does not re-render once a second
@@ -32,30 +53,6 @@ export default function LoadTestDetail() {
     const id = setInterval(() => setNowMs(Date.now()), 1000);
     return () => clearInterval(id);
   }, [ticking]);
-
-  useEffect(() => {
-    let cancelled = false;
-    const load = async () => {
-      try {
-        setError(null);
-        const data = await fetchLoadTest(namespace, name);
-        if (cancelled) return;
-        setLoadtest(data);
-        if (data?.targetEnvironment) {
-          fetchEnvironment(namespace, data.targetEnvironment)
-            .then((env) => { if (!cancelled) setEnvironment(env); })
-            .catch(() => { /* non-fatal — hint just hidden */ });
-        }
-      } catch (err) { if (!cancelled) setError(err.message); }
-      finally { if (!cancelled) setLoading(false); }
-    };
-    load();
-    const interval = setInterval(() => {
-      if (!loadtest || ltState.inFlight(loadtest.phase)) load();
-    }, 5000);
-    return () => { cancelled = true; clearInterval(interval); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [namespace, name, loadtest?.phase]);
 
   const handleDownloadYAML = async () => {
     try {
@@ -106,13 +103,7 @@ export default function LoadTestDetail() {
 
   if (loading) return <LoadingSpinner />;
 
-  if (error) return (
-    <div className="glass-card p-8 text-center border-red-500/30 bg-red-500/5">
-      <AlertTriangle className="w-10 h-10 text-red-400 mx-auto mb-3" />
-      <p className="text-red-400">{error}</p>
-      <Link to="/loadtests" className="btn-secondary mt-4 inline-flex">← Back to Load Tests</Link>
-    </div>
-  );
+  if (error) return <PageError message={error} back={{ to: '/loadtests', label: 'Back to Load Tests' }} />;
 
   if (!loadtest) return null;
 

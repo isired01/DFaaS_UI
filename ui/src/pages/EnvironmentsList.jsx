@@ -1,10 +1,11 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { FlaskConical, Server, ChevronRight, Plus, Download } from 'lucide-react';
 import { fetchEnvironments, fetchEnvironmentYAML, downloadTextAsFile, createEnvironmentFromYAML } from '../api/client';
 import PhaseBadge from '../components/PhaseBadge';
 import ResourceTable from '../components/ResourceTable';
 import { env as envState, phase, toneText } from '../lib/crstate';
+import { useResource } from '../lib/useResource';
 import { formatDate } from '../lib/format';
 
 const COLUMNS = [
@@ -17,58 +18,15 @@ const COLUMNS = [
 ];
 
 export default function EnvironmentsList() {
-  const [environments, setEnvironments] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
   const [search, setSearch] = useState('');
   const [uploading, setUploading] = useState(false);
   const navigate = useNavigate();
 
-  // One poll in flight at a time, cancelled on unmount. The 5s interval used to
-  // fire unconditionally, so against a slow or unreachable cluster requests piled
-  // up and never resolved. The error was also cleared at the *start* of each poll,
-  // which wiped the message before it could be read — leaving the table stuck on
-  // "Loading environments…" with nothing explaining why. Clear it only on success.
-  const inFlight = useRef(false);
-  const abortRef = useRef(null);
-
-  const load = useCallback(async () => {
-    if (inFlight.current) return;
-    inFlight.current = true;
-    const controller = new AbortController();
-    abortRef.current = controller;
-    try {
-      const data = await fetchEnvironments({ signal: controller.signal });
-      setEnvironments(data);
-      setError(null);
-    } catch (err) {
-      if (err?.name !== 'AbortError') setError(err.message);
-    } finally {
-      // Only the newest request may clear the guard. An aborted request settles
-      // AFTER its replacement has already started, so an unconditional reset
-      // here would free the guard while a live request is still running.
-      if (abortRef.current === controller) {
-        inFlight.current = false;
-        setLoading(false);
-      }
-    }
-  }, []);
-
-  useEffect(() => {
-    load();
-    const interval = setInterval(load, 5000);
-    return () => {
-      clearInterval(interval);
-      abortRef.current?.abort();
-      // Release the guard synchronously. abort() only rejects the fetch on a
-      // later tick, so under StrictMode's mount/cleanup/mount the second mount
-      // used to find inFlight still true and skip its own load — leaving the
-      // table empty until the 5s interval fired. Measured before the fix:
-      // request aborted at 129ms, next request only at 5131ms.
-      abortRef.current = null;
-      inFlight.current = false;
-    };
-  }, [load]);
+  const { data, loading, error, reload, setError } = useResource(
+    ({ signal }) => fetchEnvironments({ signal }),
+    { pollMs: 5000 },
+  );
+  const environments = data || [];
 
   const handleDownloadYAML = async (e, env) => {
     e.preventDefault();
@@ -89,7 +47,7 @@ export default function EnvironmentsList() {
       setError(null);
       const text = await file.text();
       const summary = await createEnvironmentFromYAML(text);
-      await load();
+      await reload();
       navigate(`/environments/${summary.namespace}/${summary.name}`);
     } catch (err) {
       setError(err.message);
@@ -158,7 +116,7 @@ export default function EnvironmentsList() {
       subtitle="DFaaS infrastructure federations across all namespaces"
       titleIcon={FlaskConical}
       titleId="environments-title"
-      onRefresh={() => { setLoading(true); load(); }}
+      onRefresh={reload}
       loading={loading}
       refreshId="refresh-btn"
       upload={{

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Network, Zap, TestTube2, AlertTriangle, Plus, Trash2, Server, Cpu, Download, Pencil, RefreshCw, Database } from 'lucide-react';
 import { fetchEnvironment, fetchLoadTests, deleteEnvironment, fetchEnvironmentYAML, downloadTextAsFile } from '../api/client';
@@ -7,37 +7,30 @@ import NodeCard from '../components/NodeCard';
 import ConditionsList from '../components/ConditionsList';
 import ProvisioningConditionRow from '../components/ProvisioningConditionRow';
 import LoadingSpinner from '../components/LoadingSpinner';
+import PageError from '../components/PageError';
 import { formatDateTime } from '../lib/format';
 import { env as envState, lt as ltState } from '../lib/crstate';
+import { useResource } from '../lib/useResource';
 
 export default function EnvironmentDetail() {
   const { namespace, name } = useParams();
   const navigate = useNavigate();
-  const [environment, setEnvironment] = useState(null);
-  const [loadtests, setLoadtests] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
   const [deleting, setDeleting] = useState(false);
 
-  useEffect(() => {
-    let cancelled = false;
-    const load = async () => {
-      try {
-        setError(null);
-        const [env, lts] = await Promise.all([
-          fetchEnvironment(namespace, name),
-          fetchLoadTests({ environment: `${namespace}/${name}` }).catch(() => []),
-        ]);
-        if (cancelled) return;
-        setEnvironment(env);
-        setLoadtests(lts);
-      } catch (err) { if (!cancelled) setError(err.message); }
-      finally { if (!cancelled) setLoading(false); }
-    };
-    load();
-    const interval = setInterval(load, 5000);
-    return () => { cancelled = true; clearInterval(interval); };
-  }, [namespace, name]);
+  // One read, one error, one spinner: the LoadTest list is a non-fatal extra on
+  // the Environment read, exactly as before.
+  const { data, loading, error, setError } = useResource(
+    async ({ signal }) => {
+      const [env, lts] = await Promise.all([
+        fetchEnvironment(namespace, name, { signal }),
+        fetchLoadTests({ environment: `${namespace}/${name}`, signal }).catch(() => []),
+      ]);
+      return { env, lts };
+    },
+    { pollMs: 5000, deps: [namespace, name] },
+  );
+  const environment = data?.env || null;
+  const loadtests = data?.lts || [];
 
   const handleDownloadYAML = async () => {
     try {
@@ -60,13 +53,7 @@ export default function EnvironmentDetail() {
 
   if (loading) return <LoadingSpinner />;
 
-  if (error) return (
-    <div className="glass-card p-8 text-center border-red-500/30 bg-red-500/5">
-      <AlertTriangle className="w-10 h-10 text-red-400 mx-auto mb-3" />
-      <p className="text-red-400">{error}</p>
-      <Link to="/" className="btn-secondary mt-4 inline-flex">← Back to Environments</Link>
-    </div>
-  );
+  if (error) return <PageError message={error} back={{ to: '/', label: 'Back to Environments' }} />;
 
   if (!environment) return null;
 
