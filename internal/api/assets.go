@@ -134,7 +134,7 @@ func (h *Handler) UploadLoadTestAsset(c *gin.Context) {
 	// resolve, and the failure would only surface at test runtime as an opaque
 	// DNS error. Skipped entirely when explicit overrides cover both uses.
 	var nodeIP string
-	if configName == DefaultS3ConfigName && (publicURLOverride() == "" || (connectEndpointOverride() == "" && !inCluster())) {
+	if h.addressing.NeedsNodeIP(configName) {
 		ip, nerr := h.firstNodeIP(ctx)
 		if nerr != nil {
 			c.JSON(http.StatusBadGateway, gin.H{"error": fmt.Sprintf("resolve a cluster node address for the in-cluster SeaweedFS: %v — grant the gateway 'list nodes', or set SEAWEEDFS_PUBLIC_URL to the address remote k6 runners can reach", nerr)})
@@ -189,9 +189,9 @@ func (h *Handler) UploadLoadTestAsset(c *gin.Context) {
 	// The gateway must DIAL a reachable endpoint. For the in-cluster SeaweedFS the
 	// Secret holds the internal cluster DNS, unreachable when the gateway runs
 	// outside the cluster (dev mode) — resolve a node-IP:NodePort fallback.
-	connectEndpoint := resolveConnectEndpoint(configName, endpoint, nodeIP)
+	connectEndpoint := h.addressing.ConnectEndpoint(configName, endpoint, nodeIP)
 
-	s3Client, err := newS3Client(ctx, region, connectEndpoint, accessKey, secretKey, forcePathStyle)
+	s3Client, err := h.store()(ctx, region, connectEndpoint, accessKey, secretKey, forcePathStyle)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("build s3 client: %v", err)})
 		return
@@ -221,7 +221,7 @@ func (h *Handler) UploadLoadTestAsset(c *gin.Context) {
 		return
 	}
 
-	publicURL := resolvePublicURL(configName, endpoint, bucket, key, nodeIP)
+	publicURL := h.addressing.PublicURL(configName, endpoint, bucket, key, nodeIP)
 
 	c.JSON(http.StatusCreated, gin.H{
 		"url":         publicURL,
@@ -230,24 +230,77 @@ func (h *Handler) UploadLoadTestAsset(c *gin.Context) {
 	})
 }
 
+// objectStore is exactly the four calls the asset-upload path makes. newS3Client
+// returned a concrete *s3.Client and every consumer took that concrete type, so
+// the whole upload path needed a live S3 to execute even once -- while the
+// Kubernetes half of the same handler was already fakeable. What sat behind that
+// wall is the file's most load-bearing knowledge, comment-only: that SeaweedFS
+// answers HeadBucket with 403 for a bucket that does not exist yet, and that a
+// genuine auth failure must therefore fall through to CreateBucket.
+type objectStore interface {
+	HeadBucket(ctx context.Context, in *s3.HeadBucketInput, opts ...func(*s3.Options)) (*s3.HeadBucketOutput, error)
+	CreateBucket(ctx context.Context, in *s3.CreateBucketInput, opts ...func(*s3.Options)) (*s3.CreateBucketOutput, error)
+	PutBucketPolicy(ctx context.Context, in *s3.PutBucketPolicyInput, opts ...func(*s3.Options)) (*s3.PutBucketPolicyOutput, error)
+	PutObject(ctx context.Context, in *s3.PutObjectInput, opts ...func(*s3.Options)) (*s3.PutObjectOutput, error)
+}
+
+var _ objectStore = (*s3.Client)(nil)
+
+// storeFactory builds a store for one resolved S3 config.
+type storeFactory func(ctx context.Context, region, endpoint, accessKey, secretKey string, forcePathStyle bool) (objectStore, error)
+
+// liveStore is the production factory.
+func liveStore(ctx context.Context, region, endpoint, accessKey, secretKey string, forcePathStyle bool) (objectStore, error) {
+	return newS3Client(ctx, region, endpoint, accessKey, secretKey, forcePathStyle)
+}
+
+// store is the nil-safe accessor for Handler.newStore.
+func (h *Handler) store() storeFactory {
+	if h.newStore != nil {
+		return h.newStore
+	}
+	return liveStore
+}
+
+// assetAddressing holds the environment-derived inputs of the two URL
+// resolutions. resolveConnectEndpoint and resolvePublicURL used to read
+// os.Getenv inside themselves, so they looked pure and were not.
+type assetAddressing struct {
+	// ConnectOverride is SEAWEEDFS_ENDPOINT: what the gateway dials.
+	ConnectOverride string
+	// PublicOverride is SEAWEEDFS_PUBLIC_URL: what the k6 VMs dial.
+	PublicOverride string
+	// InCluster is whether this process runs inside a Pod.
+	InCluster bool
+}
+
+// addressingFromEnv reads the environment once, at handler construction.
+func addressingFromEnv() assetAddressing {
+	return assetAddressing{
+		ConnectOverride: strings.TrimRight(os.Getenv("SEAWEEDFS_ENDPOINT"), "/"),
+		PublicOverride:  strings.TrimRight(os.Getenv("SEAWEEDFS_PUBLIC_URL"), "/"),
+		InCluster:       os.Getenv("KUBERNETES_SERVICE_HOST") != "",
+	}
+}
+
+// isDefault reports whether configName names the built-in in-cluster SeaweedFS.
+// The comparison was re-derived at four sites.
+func isDefaultS3Config(configName string) bool { return configName == DefaultS3ConfigName }
+
+// NeedsNodeIP reports whether this upload has to resolve a cluster node address
+// before it can hand back a URL a remote k6 runner can reach. Both overrides
+// together make it unnecessary; in-cluster, only the public one is needed.
+func (a assetAddressing) NeedsNodeIP(configName string) bool {
+	if !isDefaultS3Config(configName) {
+		return false
+	}
+	return a.PublicOverride == "" || (a.ConnectOverride == "" && !a.InCluster)
+}
+
 // inCluster reports whether this process runs inside a Kubernetes Pod. The
 // kubelet injects KUBERNETES_SERVICE_HOST into every Pod and it is absent in
 // local/dev runs — the same signal rest.InClusterConfig() keys off (see
 // NewK8sClient in k8s_client.go).
-func inCluster() bool {
-	return os.Getenv("KUBERNETES_SERVICE_HOST") != ""
-}
-
-// connectEndpointOverride returns the SEAWEEDFS_ENDPOINT override, trimmed.
-func connectEndpointOverride() string {
-	return strings.TrimRight(os.Getenv("SEAWEEDFS_ENDPOINT"), "/")
-}
-
-// publicURLOverride returns the SEAWEEDFS_PUBLIC_URL override, trimmed.
-func publicURLOverride() string {
-	return strings.TrimRight(os.Getenv("SEAWEEDFS_PUBLIC_URL"), "/")
-}
-
 // resolveConnectEndpoint returns the endpoint the GATEWAY dials to reach the
 // object store — auto-detected, so the common cases need no configuration:
 //
@@ -265,11 +318,11 @@ func publicURLOverride() string {
 //
 // This is distinct from resolvePublicURL (the k6-facing asset URL); the two
 // endpoints are resolved independently.
-func resolveConnectEndpoint(configName, endpoint, nodeIP string) string {
-	if e := connectEndpointOverride(); e != "" {
-		return e
+func (a assetAddressing) ConnectEndpoint(configName, endpoint, nodeIP string) string {
+	if a.ConnectOverride != "" {
+		return a.ConnectOverride
 	}
-	if configName == DefaultS3ConfigName && !inCluster() && nodeIP != "" {
+	if isDefaultS3Config(configName) && !a.InCluster && nodeIP != "" {
 		return fmt.Sprintf("http://%s:%s", nodeIP, seaweedfsNodePort)
 	}
 	return endpoint
@@ -286,11 +339,11 @@ func resolveConnectEndpoint(configName, endpoint, nodeIP string) string {
 // There is no internal-DNS fallback for the default config: the caller refuses
 // the upload outright when no node IP is available, rather than handing back a
 // URL that only fails later, on a remote k6 VM.
-func resolvePublicURL(configName, endpoint, bucket, key, nodeIP string) string {
-	if base := publicURLOverride(); base != "" {
-		return fmt.Sprintf("%s/%s/%s", base, bucket, key)
+func (a assetAddressing) PublicURL(configName, endpoint, bucket, key, nodeIP string) string {
+	if a.PublicOverride != "" {
+		return fmt.Sprintf("%s/%s/%s", a.PublicOverride, bucket, key)
 	}
-	if configName == DefaultS3ConfigName && nodeIP != "" {
+	if isDefaultS3Config(configName) && nodeIP != "" {
 		return fmt.Sprintf("http://%s:%s/%s/%s", nodeIP, seaweedfsNodePort, bucket, key)
 	}
 	return fmt.Sprintf("%s/%s/%s", strings.TrimRight(endpoint, "/"), bucket, key)
@@ -358,7 +411,7 @@ func newS3Client(ctx context.Context, region, endpoint, accessKey, secretKey str
 
 // ensureBucket HeadBuckets and, on a missing bucket, CreateBuckets it. Mirrors
 // the exporter's idempotent create path.
-func ensureBucket(ctx context.Context, client *s3.Client, bucket, region string) error {
+func ensureBucket(ctx context.Context, client objectStore, bucket, region string) error {
 	_, err := client.HeadBucket(ctx, &s3.HeadBucketInput{Bucket: aws.String(bucket)})
 	if err == nil {
 		return nil
@@ -408,7 +461,7 @@ func assetsPublicPolicy(bucket string) string {
 // ensureAssetsPublicPolicy sets the anonymous-read policy on assets/*. It is
 // idempotent — PutBucketPolicy overwrites, so re-applying the same document is a
 // no-op from the consumer's perspective.
-func ensureAssetsPublicPolicy(ctx context.Context, client *s3.Client, bucket string) error {
+func ensureAssetsPublicPolicy(ctx context.Context, client objectStore, bucket string) error {
 	if _, err := client.PutBucketPolicy(ctx, &s3.PutBucketPolicyInput{
 		Bucket: aws.String(bucket),
 		Policy: aws.String(assetsPublicPolicy(bucket)),

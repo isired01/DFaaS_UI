@@ -27,7 +27,7 @@ func (h *Handler) resolveResultsURLs(ctx context.Context, envNamespace, envName,
 	if err != nil {
 		return nil
 	}
-	if ref := getNestedString(env.Object, "spec", "s3ConfigRef", "name"); ref != "" && ref != DefaultS3ConfigName {
+	if ref := getNestedString(env.Object, "spec", "s3ConfigRef", "name"); ref != "" && !isDefaultS3Config(ref) {
 		// External S3: artifacts live outside the in-cluster SeaweedFS.
 		return nil
 	}

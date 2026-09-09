@@ -12,11 +12,17 @@ import (
 // Handler wires the dynamic Kubernetes client into the HTTP layer.
 type Handler struct {
 	client dynamic.Interface
+	// newStore builds the object store the asset-upload path writes to.
+	// Nil-safe: h.store() falls back to the live S3 client.
+	newStore storeFactory
+	// addressing holds the SeaweedFS URL overrides, read from the environment
+	// once here rather than inside the resolvers on every call.
+	addressing assetAddressing
 }
 
 // NewHandler builds a Handler bound to the provided dynamic client.
 func NewHandler(client dynamic.Interface) *Handler {
-	return &Handler{client: client}
+	return &Handler{client: client, addressing: addressingFromEnv()}
 }
 
 // writeK8sError maps a Kubernetes API error to a JSON gin response.
