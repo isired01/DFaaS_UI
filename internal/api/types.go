@@ -94,11 +94,11 @@ type K6NodeStatus struct {
 
 // CreateEnvironmentRequest is the body for POST /api/environments.
 type CreateEnvironmentRequest struct {
-	Namespace       string           `json:"namespace" binding:"required"`
-	Name            string           `json:"name" binding:"required"`
-	Nodes           []NodeInfo       `json:"nodes" binding:"required,min=1"`
-	Topology        TopologyInfo     `json:"topology"`
-	S3ConfigRef     *S3ConfigRefView `json:"s3ConfigRef,omitempty"`
+	Namespace   string           `json:"namespace" binding:"required"`
+	Name        string           `json:"name" binding:"required"`
+	Nodes       []NodeInfo       `json:"nodes" binding:"required,min=1"`
+	Topology    TopologyInfo     `json:"topology"`
+	S3ConfigRef *S3ConfigRefView `json:"s3ConfigRef,omitempty"`
 }
 
 // UpdateEnvironmentRequest is the body for PATCH /api/environments/:ns/:name.
