@@ -1,0 +1,31 @@
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - run: go vet ./...
+      - run: go test ./...
+
+      # `npm run check` is a hand-written chain of selfchecks: a new one runs
+      # only if it was appended to that chain in package.json.
+      - run: npm ci
+        working-directory: ui
+      - run: npm run check
+        working-directory: ui
