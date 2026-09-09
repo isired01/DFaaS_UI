@@ -90,11 +90,6 @@ func (h *Handler) CreateLoadTest(c *gin.Context) {
 		return
 	}
 
-	if req.StartAt != nil && !req.Suspended {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "startAt requires suspended=true"})
-		return
-	}
-
 	// Every pure input-shape check runs before the first cluster write, so an
 	// invalid submission never creates ConfigMaps only to roll them back.
 	if status, msg, ok := validatePerNodeLoad(req.PerNodeLoad); !ok {
@@ -116,11 +111,14 @@ func (h *Handler) CreateLoadTest(c *gin.Context) {
 		return
 	}
 
-	// The operator dispatches against Ready or Degraded environments, so gate on
-	// both. Draft/scheduled tests skip the gate (they run later once the env settles).
+	intent := LoadTestIntent{
+		TargetEnvironment: req.TargetEnvironment,
+		Suspended:         req.Suspended,
+		Scheduled:         req.StartAt != nil,
+	}
 	phase := getNestedString(envObj.Object, "status", "phase")
-	if !req.Suspended && req.StartAt == nil && phase != "Ready" && phase != "Degraded" {
-		c.JSON(http.StatusConflict, gin.H{"error": fmt.Sprintf("environment '%s' is not dispatchable (current phase: %s; requires Ready or Degraded)", req.TargetEnvironment, phase)})
+	if status, msg, ok := AdmitLoadTest(intent, phase); !ok {
+		c.JSON(status, gin.H{"error": msg})
 		return
 	}
 

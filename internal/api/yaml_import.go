@@ -239,16 +239,19 @@ func (h *Handler) validateLoadTestYAML(ctx context.Context, namespace string, ob
 		return http.StatusInternalServerError, fmt.Sprintf("read environment '%s/%s': %v", namespace, target, err), false
 	}
 
-	// Draft/scheduled tests skip the dispatchability gate — they run later, once
-	// the environment settles (same rule as the structured path). "Scheduled" is
+	// Same admission rules as the structured path, same module. "Scheduled" is
 	// decided on key presence: yaml.v3 resolves an unquoted RFC3339 value to a
 	// time.Time, not to a string.
 	suspended, _, _ := unstructured.NestedBool(obj, "spec", "suspended")
 	spec, _ := obj["spec"].(map[string]interface{})
-	scheduled := spec["startAt"] != nil
+	intent := LoadTestIntent{
+		TargetEnvironment: target,
+		Suspended:         suspended,
+		Scheduled:         spec["startAt"] != nil,
+	}
 	phase := getNestedString(envObj.Object, "status", "phase")
-	if !suspended && !scheduled && phase != "Ready" && phase != "Degraded" {
-		return http.StatusConflict, fmt.Sprintf("environment '%s' is not dispatchable (current phase: %s; requires Ready or Degraded)", target, phase), false
+	if status, msg, ok := AdmitLoadTest(intent, phase); !ok {
+		return status, msg, false
 	}
 
 	k6IDs := buildK6NodeIndex(envObj)
