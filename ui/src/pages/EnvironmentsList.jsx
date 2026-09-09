@@ -142,7 +142,11 @@ export default function EnvironmentsList() {
           >
             <Download className="w-4 h-4" />
           </button>
-          <Link to={`/environments/${env.namespace}/${env.name}`} className="opacity-0 group-hover:opacity-100 transition-opacity"><ChevronRight className="w-5 h-5 text-surface-450" /></Link>
+          {/* Hover affordance only: the name cell is already a named link to the
+              same URL, so naming this one announces the destination twice.
+              aria-hidden needs tabIndex=-1 beside it — an aria-hidden element
+              that can still take focus is itself a violation. */}
+          <Link to={`/environments/${env.namespace}/${env.name}`} aria-hidden="true" tabIndex={-1} className="opacity-0 group-hover:opacity-100 transition-opacity"><ChevronRight className="w-5 h-5 text-surface-450" /></Link>
         </div>
       </td>
     </tr>

@@ -1,0 +1,10 @@
+# `COPY ui/ .` would otherwise drop the host's node_modules (~100 MB, with
+# platform-specific esbuild/rollup binaries) on top of the ones npm ci just
+# installed in the image.
+ui/node_modules
+ui/dist
+node_modules
+
+.git
+.github
+*.md

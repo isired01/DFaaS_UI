@@ -162,7 +162,8 @@ export default function LoadTestsList() {
           >
             <Download className="w-4 h-4" />
           </button>
-          <Link to={`/loadtests/${lt.namespace}/${lt.name}`} className="opacity-0 group-hover:opacity-100 transition-opacity"><ChevronRight className="w-5 h-5 text-surface-450" /></Link>
+          {/* Hover affordance only — see the twin in EnvironmentsList. */}
+          <Link to={`/loadtests/${lt.namespace}/${lt.name}`} aria-hidden="true" tabIndex={-1} className="opacity-0 group-hover:opacity-100 transition-opacity"><ChevronRight className="w-5 h-5 text-surface-450" /></Link>
         </div>
       </td>
     </tr>

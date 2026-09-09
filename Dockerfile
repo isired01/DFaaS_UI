@@ -1,7 +1,10 @@
 # ============================================
 # Stage 1: Build Frontend (Vite + React)
 # ============================================
-FROM node:20-alpine AS frontend
+# Pinned to BUILDPLATFORM: the Vite output is architecture-independent, so
+# running npm ci + vite build under QEMU for the arm64 leg costs minutes and
+# buys nothing.
+FROM --platform=$BUILDPLATFORM node:20-alpine AS frontend
 WORKDIR /app/ui
 COPY ui/package*.json ./
 RUN npm ci
