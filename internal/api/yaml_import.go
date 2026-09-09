@@ -145,32 +145,12 @@ func validateEnvironmentYAML(_ context.Context, _ string, obj map[string]interfa
 		return http.StatusBadRequest, "spec.nodes must contain at least one node", false
 	}
 
-	nodes := make([]NodeInfo, 0, len(rawNodes))
-	for i, raw := range rawNodes {
-		m, ok := raw.(map[string]interface{})
-		if !ok {
-			return http.StatusBadRequest, fmt.Sprintf("spec.nodes[%d] is not an object", i), false
-		}
-		node := NodeInfo{
-			NodeID:            getStringFromMap(m, "nodeID"),
-			IpAddress:         getStringFromMap(m, "ipAddress"),
-			Role:              getStringFromMap(m, "role"),
-			Username:          getStringFromMap(m, "username"),
-			Password:          getStringFromMap(m, "password"),
-			Capacity:          getStringFromMap(m, "capacity"),
-			BalancingStrategy: getStringFromMap(m, "balancingStrategy"),
-		}
-		for _, rawFn := range nestedSliceNoCopy(m, "functions") {
-			fn, ok := rawFn.(map[string]interface{})
-			if !ok {
-				return http.StatusBadRequest, fmt.Sprintf("spec.nodes[%d].functions[] entries must be objects", i), false
-			}
-			node.Functions = append(node.Functions, FunctionInfo{
-				Name:  getStringFromMap(fn, "name"),
-				Image: getStringFromMap(fn, "image"),
-			})
-		}
-		nodes = append(nodes, node)
+	// The same projection the detail mapper uses. It used to be rebuilt here
+	// from a different map, carrying only name + image -- so a function-level
+	// rule added to the Rule set would silently not apply on this path.
+	nodes, err := nodeInfosFrom(rawNodes)
+	if err != nil {
+		return http.StatusBadRequest, err.Error(), false
 	}
 
 	if err := validateEnvNodes(nodes); err != nil {

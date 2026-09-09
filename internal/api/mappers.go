@@ -1,6 +1,7 @@
 package api
 
 import (
+	"fmt"
 	"time"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -48,53 +49,12 @@ func mapEnvDetail(item unstructured.Unstructured) EnvironmentDetail {
 
 	d.LastHealthCheck = getNestedString(item.Object, "status", "lastHealthCheck")
 
-	conditions, _, _ := unstructured.NestedSlice(item.Object, "status", "conditions")
-	for _, c := range conditions {
-		cMap, ok := c.(map[string]interface{})
-		if !ok {
-			continue
-		}
-		d.Conditions = append(d.Conditions, ConditionInfo{
-			Type:               getStringFromMap(cMap, "type"),
-			Status:             getStringFromMap(cMap, "status"),
-			Reason:             getStringFromMap(cMap, "reason"),
-			Message:            getStringFromMap(cMap, "message"),
-			LastTransitionTime: getStringFromMap(cMap, "lastTransitionTime"),
-		})
-	}
+	d.Conditions = mapConditions(item.Object)
 
-	nodes, _, _ := unstructured.NestedSlice(item.Object, "spec", "nodes")
-	for _, n := range nodes {
-		nMap, ok := n.(map[string]interface{})
-		if !ok {
-			continue
-		}
-		node := NodeInfo{
-			NodeID:            getStringFromMap(nMap, "nodeID"),
-			IpAddress:         getStringFromMap(nMap, "ipAddress"),
-			Role:              getStringFromMap(nMap, "role"),
-			Username:          getStringFromMap(nMap, "username"),
-			Password:          getStringFromMap(nMap, "password"),
-			Capacity:          getStringFromMap(nMap, "capacity"),
-			BalancingStrategy: getStringFromMap(nMap, "balancingStrategy"),
-		}
-		functions, _, _ := unstructured.NestedSlice(nMap, "functions")
-		for _, f := range functions {
-			fMap, ok := f.(map[string]interface{})
-			if !ok {
-				continue
-			}
-			node.Functions = append(node.Functions, FunctionInfo{
-				Name:        getStringFromMap(fMap, "name"),
-				Image:       getStringFromMap(fMap, "image"),
-				ExecTimeout: getIntFromMap(fMap, "execTimeout"),
-				MaxInflight: getIntFromMap(fMap, "maxInflight"),
-				TimeoutMs:   getIntFromMap(fMap, "timeoutMs"),
-				MaxRate:     getIntFromMap(fMap, "maxRate"),
-			})
-		}
-		d.Nodes = append(d.Nodes, node)
-	}
+	// The error is only reachable on a document the API server never produced
+	// (a non-object node entry): the CRD schema forbids it. The YAML import
+	// path calls the same projection and does surface it.
+	d.Nodes, _ = nodeInfosFrom(nestedSliceNoCopy(item.Object, "spec", "nodes"))
 
 	links, _, _ := unstructured.NestedSlice(item.Object, "spec", "topology", "links")
 	for _, l := range links {
@@ -220,13 +180,26 @@ func mapLoadTestDetail(item unstructured.Unstructured) LoadTestDetail {
 
 	d.ExporterJob = getNestedString(item.Object, "status", "exporterJob")
 
-	conditions, _, _ := unstructured.NestedSlice(item.Object, "status", "conditions")
-	for _, c := range conditions {
+	d.Conditions = mapConditions(item.Object)
+
+	return d
+}
+
+// mapConditions projects status.conditions. One loop, two callers: mapEnvDetail
+// and mapLoadTestDetail each carried a byte-identical 14-line copy of it, and
+// the SPA has the same shape a third time in ProvisioningConditionRow.
+//
+// A missing status, a missing conditions key and a non-object entry are all the
+// same answer: no condition. Nothing here can fail, so nothing here returns an
+// error.
+func mapConditions(obj map[string]interface{}) []ConditionInfo {
+	var out []ConditionInfo
+	for _, c := range nestedSliceNoCopy(obj, "status", "conditions") {
 		cMap, ok := c.(map[string]interface{})
 		if !ok {
 			continue
 		}
-		d.Conditions = append(d.Conditions, ConditionInfo{
+		out = append(out, ConditionInfo{
 			Type:               getStringFromMap(cMap, "type"),
 			Status:             getStringFromMap(cMap, "status"),
 			Reason:             getStringFromMap(cMap, "reason"),
@@ -234,6 +207,54 @@ func mapLoadTestDetail(item unstructured.Unstructured) LoadTestDetail {
 			LastTransitionTime: getStringFromMap(cMap, "lastTransitionTime"),
 		})
 	}
+	return out
+}
 
-	return d
+// nodeInfosFrom projects spec.nodes into NodeInfo. One projection, two callers,
+// which is the point: mapEnvDetail built the full NodeInfo including all four
+// Function tuning fields, while validateEnvironmentYAML rebuilt it from a
+// different map for the SAME validator carrying only name + image. Harmless
+// only because validateEnvNodes never inspected those fields -- adding a
+// function-level rule to the Rule set would have silently not applied on the
+// YAML import path, because the second projection dropped the inputs.
+//
+// Safe on both a cluster object and a freshly decoded YAML document: it reads
+// through nestedSliceNoCopy, never unstructured.NestedSlice, whose deep copy
+// panics on the plain Go ints yaml.v3 produces.
+func nodeInfosFrom(raw []interface{}) ([]NodeInfo, error) {
+	out := make([]NodeInfo, 0, len(raw))
+	for i, entry := range raw {
+		m, ok := entry.(map[string]interface{})
+		if !ok {
+			return nil, fmt.Errorf("spec.nodes[%d] is not an object", i)
+		}
+		node := NodeInfo{
+			NodeID:            getStringFromMap(m, "nodeID"),
+			IpAddress:         getStringFromMap(m, "ipAddress"),
+			Role:              getStringFromMap(m, "role"),
+			Username:          getStringFromMap(m, "username"),
+			Password:          getStringFromMap(m, "password"),
+			Capacity:          getStringFromMap(m, "capacity"),
+			BalancingStrategy: getStringFromMap(m, "balancingStrategy"),
+		}
+		for j, rawFn := range nestedSliceNoCopy(m, "functions") {
+			fn, ok := rawFn.(map[string]interface{})
+			if !ok {
+				return nil, fmt.Errorf("spec.nodes[%d].functions[%d] is not an object", i, j)
+			}
+			node.Functions = append(node.Functions, FunctionInfo{
+				Name:        getStringFromMap(fn, "name"),
+				Image:       getStringFromMap(fn, "image"),
+				ExecTimeout: getIntFromMap(fn, "execTimeout"),
+				MaxInflight: getIntFromMap(fn, "maxInflight"),
+				TimeoutMs:   getIntFromMap(fn, "timeoutMs"),
+				MaxRate:     getIntFromMap(fn, "maxRate"),
+			})
+		}
+		out = append(out, node)
+	}
+	if len(out) == 0 {
+		return nil, nil
+	}
+	return out, nil
 }
