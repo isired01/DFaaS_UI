@@ -29,3 +29,9 @@ jobs:
         working-directory: ui
       - run: npm run check
         working-directory: ui
+
+      # The Dockerfile is source no Go or npm check reads: it has its own COPY
+      # list and its own build command, and the operator repo shipped two
+      # broken images from exactly that gap. Native arch only, no push.
+      - name: Image builds
+        run: docker build -t dfaas-control-plane:ci .
