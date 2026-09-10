@@ -65,4 +65,17 @@ assert.equal(phase('lt', 'Running').label, 'Running');
 assert.equal(phase('lt', 'SomeFuturePhase').label, 'SomeFuturePhase');
 assert.equal(phase('lt', '').label, 'Initializing');
 
+// --- every operator reason meaning *dead* must carry tone 'error' ----------
+// ProvisioningConditionRow decides spinner-vs-error solely from
+// reason(r).tone === 'error'. A terminal reason that is missing from REASONS,
+// or curated with any other tone, therefore renders as the in-progress
+// spinner FOREVER on a genuinely failed Environment -- no error, no end. This
+// used to be a hand-kept FAILED_REASONS list in that component, which is
+// worse only in that it was somewhere nobody looked. Add a terminal reason
+// operator-side, add it here.
+for (const r of ['AnsibleFailed', 'HelmFailed', 'JobCreationFailed', 'CheckFailed']) {
+  assert.equal(reason(r).tone, 'error',
+    `${r} means the Environment is dead; without tone 'error' the provisioning row spins forever`);
+}
+
 console.log('crstate.js self-check: all assertions passed');
