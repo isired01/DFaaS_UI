@@ -101,6 +101,7 @@ var rules = Schema{
 			{Value: "alllocalstrategy", Label: "All Local — keep traffic local", ShortLabel: "All Local"},
 			{Value: "nodemarginstrategy", Label: "Node Margin (experimental)", ShortLabel: "Node Margin"},
 			{Value: "rlagentstrategy", Label: "RL Agent (experimental)", ShortLabel: "RL Agent"},
+			{Value: "randomstrategy", Label: "Random — pesi casuali, nessun health check", ShortLabel: "Random"},
 		},
 		UniqueIPAddress: true,
 		RequireEachRole: true,
