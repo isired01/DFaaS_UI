@@ -263,7 +263,7 @@ export default function EnvironmentDetail() {
           <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center gap-3 mb-4">
             <AlertTriangle className="w-5 h-5 text-amber-400 flex-shrink-0" />
             <span className="text-sm text-amber-300">
-              Load tests can be launched only while the environment is <strong>Ready</strong> or <strong>Degraded</strong>. You can still configure one and save it as a draft.
+              Load tests can be launched only while the environment is <strong>Ready</strong>. You can still configure one and save it as a draft.
             </span>
           </div>
         )}

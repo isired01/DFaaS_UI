@@ -187,7 +187,7 @@ export default function LoadTestsList() {
               <X className="w-4 h-4" />
             </button>
           </div>
-          <p className="text-xs text-surface-400">A load test runs against a <strong className="text-surface-300">Ready</strong> or <strong className="text-surface-300">Degraded</strong> environment — pick one to continue to the create form.</p>
+          <p className="text-xs text-surface-400">A load test runs against a <strong className="text-surface-300">Ready</strong> environment — pick one to continue to the create form.</p>
 
           {envsLoading ? (
             <div className="flex items-center justify-center py-10">
@@ -210,7 +210,7 @@ export default function LoadTestsList() {
                       type="button"
                       disabled={!dispatchable}
                       onClick={() => pickEnv(env)}
-                      title={dispatchable ? undefined : `Environment must be Ready or Degraded (currently ${env.phase})`}
+                      title={dispatchable ? undefined : `Environment must be Ready (currently ${env.phase})`}
                       className="w-full flex items-center justify-between gap-3 p-3 rounded-xl border border-surface-800 bg-surface-800/30 text-left transition-colors enabled:hover:bg-surface-800/60 enabled:hover:border-dfaas-500/40 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       <div className="min-w-0">

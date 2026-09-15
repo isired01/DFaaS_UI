@@ -209,7 +209,7 @@ export default function LoadTestNew() {
       <div className="p-4 rounded-xl bg-surface-800/50 border border-surface-700/50 flex items-center gap-3">
         <Info className="w-5 h-5 text-surface-400 flex-shrink-0" />
         <span className="text-sm text-surface-300">
-          Load tests are created as <strong>drafts</strong>. Click <strong>Start</strong> on the load test detail page once the environment is <strong>Ready</strong> (or <strong>Degraded</strong>) to dispatch k6.
+          Load tests are created as <strong>drafts</strong>. Click <strong>Start</strong> on the load test detail page once the environment is <strong>Ready</strong> to dispatch k6.
         </span>
       </div>
 

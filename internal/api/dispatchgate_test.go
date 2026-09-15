@@ -44,12 +44,6 @@ func TestAdmitLoadTest(t *testing.T) {
 			wantMsg:    "not dispatchable",
 		},
 		{
-			name:       "Degraded is dispatchable, not just Ready",
-			intent:     LoadTestIntent{TargetEnvironment: "env-a"},
-			envPhase:   "Degraded",
-			wantStatus: 0,
-		},
-		{
 			name:       "Ready is dispatchable",
 			intent:     LoadTestIntent{TargetEnvironment: "env-a"},
 			envPhase:   "Ready",
@@ -101,15 +95,14 @@ func TestAdmitLoadTest(t *testing.T) {
 	}
 }
 
-// The gateway must not be stricter than the operator, which dispatches against
-// Ready or Degraded.
+// The gateway must match the operator, which dispatches against Ready only.
+// Degraded is listed on the negative side on purpose: the phase was removed
+// from the CRD, and an object still carrying it must not be dispatched.
 func TestDispatchablePhases(t *testing.T) {
-	for _, p := range []string{"Ready", "Degraded"} {
-		if !dispatchable(p) {
-			t.Errorf("%s must be dispatchable", p)
-		}
+	if !dispatchable("Ready") {
+		t.Error("Ready must be dispatchable")
 	}
-	for _, p := range []string{"", "Pending", "ProvisioningInfra", "ProvisioningMonitoring", "Unreachable", "Failed"} {
+	for _, p := range []string{"", "Pending", "ProvisioningInfra", "ProvisioningMonitoring", "Unreachable", "Failed", "Degraded"} {
 		if dispatchable(p) {
 			t.Errorf("%s must not be dispatchable", p)
 		}
