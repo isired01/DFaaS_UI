@@ -35,6 +35,13 @@ export function buildEnvironmentPayload(form, rules) {
     if (ip) seenIPs.set(ip, nid);
     if (!(n.username || '').trim()) errors.push(`Node '${nid}' is missing username`);
     if (!n.password) errors.push(`Node '${nid}' is missing password`);
+    // Mirrors the CRD's CEL rule on EnvironmentNode. A worker with no functions
+    // serves nothing, and the operator's inventory turns the empty list into the
+    // JSON literal `null`, which kills the Ansible prune task. Caught here so
+    // the user gets an inline error instead of a raw 422.
+    if (n.role === 'dfaas-worker' && (n.functions || []).length === 0) {
+      errors.push(`Node '${nid}' is a DFaaS Node with no functions — a worker must deploy at least one`);
+    }
   });
   if (rules.requireEachRole) {
     // Same rule the gateway enforces: a single-role environment reaches Ready

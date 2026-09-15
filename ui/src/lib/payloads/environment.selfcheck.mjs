@@ -37,6 +37,11 @@ const errorsOf = (o) => buildEnvironmentPayload(good(o), rules).errors;
 }
 
 // --- every rule the gateway also enforces ----------------------------------
+// Hand-synced with the CRD's CEL rule on EnvironmentNode: a dfaas-worker with no
+// functions is rejected at admission, so the form must say so before the PATCH.
+assert.match(errorsOf({ nodes: [worker({ functions: [] }), gen()] }).join(' '), /DFaaS Node with no functions/);
+assert.deepEqual(errorsOf({ nodes: [worker(), gen({ functions: [] })] }), [], 'a generator with no functions stays valid');
+
 assert.match(errorsOf({ name: '' }).join(' '), /name is required/);
 assert.match(errorsOf({ nodes: [] }).join(' '), /At least one node/);
 assert.match(errorsOf({ nodes: [worker({ nodeID: 'G3' }), gen()] }).join(' '), /lowercase/);
