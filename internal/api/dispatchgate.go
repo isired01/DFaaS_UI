@@ -41,16 +41,15 @@ func AdmitLoadTest(intent LoadTestIntent, envPhase string) (status int, msg stri
 	// Environment settles.
 	if !intent.Suspended && !intent.Scheduled && !dispatchable(envPhase) {
 		return http.StatusConflict, fmt.Sprintf(
-			"environment '%s' is not dispatchable (current phase: %s; requires Ready or Degraded)",
+			"environment '%s' is not dispatchable (current phase: %s; requires Ready)",
 			intent.TargetEnvironment, envPhase), false
 	}
 
 	return 0, "", true
 }
 
-// dispatchable mirrors the operator's dispatch gate: it dispatches against
-// Ready or Degraded, so the gateway must not be stricter. Degraded means the
-// monitoring stack is down, which can only fail the metrics export.
+// dispatchable mirrors the operator's dispatch gate (EnvironmentPhase.
+// Dispatchable): Ready only. The gateway must be neither stricter nor looser.
 func dispatchable(envPhase string) bool {
-	return envPhase == "Ready" || envPhase == "Degraded"
+	return envPhase == "Ready"
 }

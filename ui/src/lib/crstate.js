@@ -11,7 +11,7 @@
 // Tailwind classes at the bottom so colour is owned once.
 
 import {
-  Circle, Server, Activity, Download, AlertTriangle,
+  Circle, Server, Activity, Download,
   CheckCircle, Play, CheckCheck, XCircle, LineChart, Clock, Ban, RefreshCw,
 } from 'lucide-react';
 
@@ -24,7 +24,6 @@ const ENV_PHASES = {
   'ProvisioningInfra':      { badge: 'badge-provisioning', icon: Activity,      label: 'Provisioning workers + k6 (parallel)', spin: true, tone: 'info' },
   'ProvisioningMonitoring': { badge: 'badge-monitoring',   icon: Download,      label: 'Installing monitoring stack', spin: true, tone: 'info' },
   'Ready':                  { badge: 'badge-ready',        icon: CheckCircle,   label: 'Ready', tone: 'ok' },
-  'Degraded':               { badge: 'badge-cleanup',      icon: AlertTriangle, label: 'Degraded — monitoring unavailable', tone: 'warn' },
   'Failed':                 { badge: 'badge-failed',       icon: XCircle,       label: 'Failed', tone: 'error' },
   'Unreachable':            { badge: 'badge-cleanup',      icon: RefreshCw,     label: 'Unreachable — retrying SSH', spin: true, tone: 'warn' },
 };
@@ -33,8 +32,8 @@ export const env = {
   /** Still being provisioned (list-page stat). */
   provisioning: (p) => p === 'ProvisioningVMs' || p === 'ProvisioningInfra' || p === 'ProvisioningMonitoring',
   /** A LoadTest may be dispatched against it. Same rule as the gateway and the
-   *  operator: Degraded means infra is up and only the metrics export may fail. */
-  dispatchable: (p) => p === 'Ready' || p === 'Degraded',
+   *  operator (EnvironmentPhase.Dispatchable): Ready only. */
+  dispatchable: (p) => p === 'Ready',
 };
 
 // ── LoadTest ────────────────────────────────────────────────────────────────
@@ -124,7 +123,6 @@ const REASONS = {
   Failed:             { label: 'Failed', tone: 'error' },
   // degraded / waiting
   SSHUnreachable:     { label: 'Nodes unreachable over SSH', tone: 'warn' },
-  Degraded:           { label: 'Degraded', tone: 'warn' },
   UserAborted:        { label: 'Aborted by the user', tone: 'warn' },
   ScheduledDelayedEnvNotReady: { label: 'Schedule fired, environment not ready', tone: 'warn' },
   // progress
