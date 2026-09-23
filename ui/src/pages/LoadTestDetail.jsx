@@ -221,7 +221,7 @@ export default function LoadTestDetail() {
         {loadtest.startAt && <ScheduledStartCard startAt={loadtest.startAt} nowMs={nowMs} />}
       </div>
 
-      {loadtest.phase === 'Pending' && (
+      {loadtest.phase === 'Pending' && loadtest.startAt && (
         <ConditionBanner
           condition={conditionOf(loadtest.conditions, 'Scheduled', SCHEDULED_REASONS)}
         />

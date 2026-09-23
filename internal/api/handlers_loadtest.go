@@ -448,7 +448,9 @@ func (h *Handler) inlineScripts(ctx context.Context, namespace string, detail *L
 	}
 }
 
-// ActivateLoadTest flips spec.suspended=false via merge-patch.
+// ActivateLoadTest starts a suspended test now: one merge-patch flips
+// spec.suspended=false and drops spec.startAt, so Start on a scheduled test
+// means start now, not an un-suspend that keeps a schedule nothing follows.
 // 202 Accepted on success, 404 NotFound, 409 if already past Pending or if the
 // object moved between the read and the patch, 400 if Pending but not actually
 // a draft (spec.suspended != true).
@@ -471,8 +473,8 @@ func (h *Handler) ActivateLoadTest(c *gin.Context) {
 		return
 	}
 
-	// Check desired state, not observed condition: avoids race when reconciler
-	// hasn't stamped Conditions[Suspended] yet on a freshly-created draft.
+	// Check desired state (spec.suspended), not observed status: the operator
+	// stamps no Suspended condition, and a fresh draft may not be parked yet.
 	suspended, _, _ := unstructured.NestedBool(obj.Object, "spec", "suspended")
 	if !suspended {
 		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("loadtest '%s' is not a draft (spec.suspended != true)", name)})
@@ -485,7 +487,7 @@ func (h *Handler) ActivateLoadTest(c *gin.Context) {
 	// aborted, rescheduled or re-suspended.
 	patch, err := json.Marshal(map[string]interface{}{
 		"metadata": map[string]interface{}{"resourceVersion": obj.GetResourceVersion()},
-		"spec":     map[string]interface{}{"suspended": false},
+		"spec":     map[string]interface{}{"suspended": false, "startAt": nil},
 	})
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("marshal patch: %v", err)})
