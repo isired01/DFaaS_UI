@@ -59,7 +59,10 @@ export const lt = {
   /** Owns its generators right now, so a node edit would destroy it. Same rule
    *  the gateway enforces (activeLoadTestNames): a suspended Pending test is
    *  parked and owns nothing. Takes the summary, not just the phase. */
-  occupying: (t) => t.phase === 'Running' || t.phase === 'Exporting' || (t.phase === 'Pending' && !t.suspended),
+  occupying: (t) => t.phase === 'Running' || t.phase === 'Exporting' ||
+    ((t.phase === '' || t.phase === 'Pending') && !t.suspended),
+  /** Deleting a running or exporting test throws away the run or its export. */
+  deletable: (p) => p !== 'Running' && p !== 'Exporting',
 };
 
 // ── Remote k6 TestRun stages (k6-operator protocol values) ──────────────────
@@ -114,14 +117,23 @@ const REASONS = {
   // terminal failures — must not render as "in progress"
   AnsibleFailed:      { label: 'Ansible run failed', tone: 'error' },
   HelmFailed:         { label: 'Helm install failed', tone: 'error' },
-  JobCreationFailed:  { label: 'Could not create the provisioning Job', tone: 'error' },
-  CheckFailed:        { label: 'Readiness could not be evaluated', tone: 'error' },
+  JobFailed:          { label: 'Exporter Job failed', tone: 'error' },
+  SyncTimeout:        { label: 'Synchronized start failed', tone: 'error' },
+  S3ConfigMissing:    { label: 'S3 config missing', tone: 'error' },
+  EnvNotFound:        { label: 'Environment not found', tone: 'error' },
   DispatchFailed:     { label: 'Remote dispatch failed', tone: 'error' },
   AllFailed:          { label: 'Every runner reported an error', tone: 'error' },
   PartialFailure:     { label: 'Some runners reported an error', tone: 'error' },
   InfraFailed:        { label: 'Provisioning failed', tone: 'error' },
   Failed:             { label: 'Failed', tone: 'error' },
-  // degraded / waiting
+  // degraded / waiting — the operator retries these
+  JobCreationFailed:  { label: 'Could not create the provisioning Job, retrying', tone: 'warn' },
+  CheckFailed:        { label: 'Readiness could not be evaluated, retrying', tone: 'warn' },
+  FetchFailed:        { label: 'No status from a generator, retrying', tone: 'warn' },
+  ApplyFailed:        { label: 'TestRun apply failed, retrying', tone: 'warn' },
+  StaleCleanupFailed: { label: 'Previous TestRun cleanup failed, retrying', tone: 'warn' },
+  ScriptMirrorFailed: { label: 'Script copy to the generator failed, retrying', tone: 'warn' },
+  RunnersUnreclaimed: { label: 'A runner could not be deleted, retrying', tone: 'warn' },
   SSHUnreachable:     { label: 'Nodes unreachable over SSH', tone: 'warn' },
   UserAborted:        { label: 'Aborted by the user', tone: 'warn' },
   ScheduledDelayedEnvNotReady: { label: 'Schedule fired, environment not ready', tone: 'warn' },

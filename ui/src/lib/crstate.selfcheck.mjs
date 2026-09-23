@@ -10,7 +10,7 @@
 
 import assert from 'node:assert/strict';
 import {
-  reason, isCurated, toneText, tonePanel, conditionOf, SCHEDULED_REASONS, phase,
+  reason, isCurated, toneText, tonePanel, conditionOf, SCHEDULED_REASONS, phase, lt,
 } from './crstate.js';
 
 // --- every reason the UI groups on must have a curated label ---------------
@@ -61,9 +61,13 @@ assert.equal(conditionOf(conditions, 'Scheduled', ['ScheduledFired']), undefined
 assert.equal(conditionOf(conditions, 'Ready', undefined).reason, 'UserAborted');
 
 // --- an unmapped phase shows its own name, never "Unknown" for a real one --
-assert.equal(phase('lt', 'Running').label, 'Running');
-assert.equal(phase('lt', 'SomeFuturePhase').label, 'SomeFuturePhase');
-assert.equal(phase('lt', '').label, 'Initializing');
+// The table key is 'loadtest': 'lt' used to fall back to the Environment table,
+// which left the LoadTest phase table without any coverage.
+assert.equal(phase('loadtest', 'Running').label, 'Running');
+assert.equal(phase('loadtest', 'SomeFuturePhase').label, 'SomeFuturePhase');
+assert.equal(phase('loadtest', '').label, 'Pending', "a LoadTest not yet admitted reads Pending");
+assert.equal(phase('loadtest', 'Failed').tone, 'error');
+assert.equal(phase('env', '').label, 'Initializing');
 
 // --- every operator reason meaning *dead* must carry tone 'error' ----------
 // ProvisioningConditionRow decides spinner-vs-error solely from
@@ -73,9 +77,27 @@ assert.equal(phase('lt', '').label, 'Initializing');
 // used to be a hand-kept FAILED_REASONS list in that component, which is
 // worse only in that it was somewhere nobody looked. Add a terminal reason
 // operator-side, add it here.
-for (const r of ['AnsibleFailed', 'HelmFailed', 'JobCreationFailed', 'CheckFailed']) {
+//
+// The list is the operator's own classification: the `true` rows of
+// terminalFailure in DFaaSOperator/api/v1/inventory_test.go.
+for (const r of ['AnsibleFailed', 'HelmFailed', 'InfraFailed', 'Failed', 'DispatchFailed', 'PartialFailure',
+  'AllFailed', 'JobFailed', 'SyncTimeout', 'S3ConfigMissing', 'EnvNotFound']) {
   assert.equal(reason(r).tone, 'error',
-    `${r} means the Environment is dead; without tone 'error' the provisioning row spins forever`);
+    `${r} means the object failed for good; without tone 'error' the provisioning row spins forever`);
 }
+// ...and a reason the operator retries must not claim the object is dead.
+for (const r of ['CheckFailed', 'JobCreationFailed', 'RunnersUnreclaimed', 'FetchFailed', 'ApplyFailed',
+  'StaleCleanupFailed', 'ScriptMirrorFailed']) {
+  assert.notEqual(reason(r).tone, 'error', `${r} is retried by the operator; it must not render as dead`);
+}
+
+// --- Occupancy and Delete ---------------------------------------------------
+// The gateway's node-edit guard counts a non-suspended test the operator has
+// not admitted yet (""), and so must the SPA.
+assert.equal(lt.occupying({ phase: '', suspended: false }), true);
+assert.equal(lt.occupying({ phase: '', suspended: true }), false);
+// Deleting a running or exporting test throws away the run or its export.
+for (const p of ['Running', 'Exporting']) assert.equal(lt.deletable(p), false, `${p} is not deletable`);
+for (const p of ['', 'Pending', 'Completed', 'Failed', 'Aborted']) assert.equal(lt.deletable(p), true, `${p} is deletable`);
 
 console.log('crstate.js self-check: all assertions passed');
