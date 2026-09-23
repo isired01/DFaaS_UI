@@ -2,8 +2,10 @@ package api
 
 import (
 	"fmt"
+	"k8s.io/apimachinery/pkg/util/validation"
 	"net/http"
 	"regexp"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 )
@@ -51,6 +53,20 @@ type NodeRules struct {
 	// Enforced here only — the CRD allows single-role Environments, which reach
 	// Ready and then fail obscurely at dispatch.
 	RequireEachRole bool `json:"requireEachRole"`
+
+	// FunctionNamePattern mirrors the CRD Pattern on functions[].name (the
+	// dfaas-agent's label parser accepts no '-' or '_').
+	FunctionNamePattern string `json:"functionNamePattern"`
+	// RequireWorkerFunction mirrors the CRD CEL rule: a dfaas-worker must
+	// deploy at least one function.
+	RequireWorkerFunction bool `json:"requireWorkerFunction"`
+	// RequireCredentials: username (non-blank) and password on every node.
+	// Gateway-only -- the CRD only requires the keys to be present, and an
+	// empty value fails later as an Ansible SSH error.
+	RequireCredentials bool `json:"requireCredentials"`
+	// RequireFunctionImage: every function names an image. Gateway-only -- an
+	// empty image is admitted by the CRD and fails at OpenFaaS deploy.
+	RequireFunctionImage bool `json:"requireFunctionImage"`
 }
 
 // LoadTestRules mirrors the LoadTest CRD's per-node and metrics constraints.
@@ -70,7 +86,11 @@ type S3ConfigRules struct {
 
 const (
 	dns1123LabelPattern = `^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`
-	goDurationPattern   = `^([0-9]+(\.[0-9]+)?(ns|us|ms|s|m|h))+$`
+	functionNamePattern = `^[a-z0-9]+$`
+	// maxLoadTestNameLen: the LoadTest name is a label value (dfaas.io/loadtest
+	// on its ConfigMaps, dfaas.io/loadtest-name on the remote TestRuns).
+	maxLoadTestNameLen = 63
+	goDurationPattern  = `^([0-9]+(\.[0-9]+)?(ns|us|ms|s|m|h))+$`
 
 	roleWorker    = "dfaas-worker"
 	roleGenerator = "k6-load-generator"
@@ -80,6 +100,7 @@ const (
 
 var (
 	dns1123Re    = regexp.MustCompile(dns1123LabelPattern)
+	functionRe   = regexp.MustCompile(functionNamePattern)
 	goDurationRe = regexp.MustCompile(goDurationPattern)
 )
 
@@ -103,8 +124,12 @@ var rules = Schema{
 			{Value: "rlagentstrategy", Label: "RL Agent (experimental)", ShortLabel: "RL Agent"},
 			{Value: "randomstrategy", Label: "Random — pesi casuali, nessun health check", ShortLabel: "Random"},
 		},
-		UniqueIPAddress: true,
-		RequireEachRole: true,
+		UniqueIPAddress:       true,
+		RequireEachRole:       true,
+		FunctionNamePattern:   functionNamePattern,
+		RequireWorkerFunction: true,
+		RequireCredentials:    true,
+		RequireFunctionImage:  true,
 	},
 	LoadTest: LoadTestRules{
 		GoDurationPattern: goDurationPattern,
@@ -206,6 +231,34 @@ func validateEnvNodes(nodes []NodeInfo) error {
 		if n.Role == roleWorker && n.BalancingStrategy != "" && !hasEnum(r.BalancingStrategies, n.BalancingStrategy) {
 			return fmt.Errorf("node[%d]: balancingStrategy must be one of %s", i, enumValues(r.BalancingStrategies))
 		}
+		if r.RequireCredentials {
+			if strings.TrimSpace(n.Username) == "" {
+				return fmt.Errorf("node[%d]: username required", i)
+			}
+			if n.Password == "" {
+				return fmt.Errorf("node[%d]: password required", i)
+			}
+		}
+		if n.Role == roleWorker && r.RequireWorkerFunction && len(n.Functions) == 0 {
+			return fmt.Errorf("node[%d]: a DFaaS node must deploy at least one function", i)
+		}
+		for j, fn := range n.Functions {
+			f := fmt.Sprintf("node[%d].functions[%d]", i, j)
+			if !functionRe.MatchString(fn.Name) {
+				return fmt.Errorf("%s: function name '%s' must be lowercase letters and digits only", f, fn.Name)
+			}
+			if r.RequireFunctionImage && strings.TrimSpace(fn.Image) == "" {
+				return fmt.Errorf("%s: image required", f)
+			}
+			// Unserved sign check: 0 means "CRD default", a negative value is a
+			// raw 422 on PATCH and silently dropped on create.
+			for name, v := range map[string]int{"execTimeout": fn.ExecTimeout, "maxInflight": fn.MaxInflight,
+				"timeoutMs": fn.TimeoutMs, "maxRate": fn.MaxRate} {
+				if v < 0 {
+					return fmt.Errorf("%s: %s must not be negative", f, name)
+				}
+			}
+		}
 	}
 
 	// Role composition. Nothing downstream rejects a single-role Environment:
@@ -228,6 +281,66 @@ func validateEnvNodes(nodes []NodeInfo) error {
 func validateGoDuration(field, v string) error {
 	if !goDurationRe.MatchString(v) {
 		return fmt.Errorf("%s: '%s' is not a Go duration (e.g. 30s, 1m30s, 2h)", field, v)
+	}
+	return nil
+}
+
+// validateLoadTest runs every shape rule of the Rule set on one LoadTest
+// submission, before any cluster call. Both create paths call it: POST
+// /loadtests on the bound DTO, the YAML import on its projection.
+func validateLoadTest(req CreateLoadTestRequest) error {
+	if req.Name != "" {
+		if len(req.Name) > maxLoadTestNameLen || len(validation.IsDNS1123Subdomain(req.Name)) > 0 {
+			return fmt.Errorf("name '%s' must be a lowercase DNS-1123 name of at most %d characters (it becomes a label value)",
+				req.Name, maxLoadTestNameLen)
+		}
+	}
+	if req.TargetEnvironment == "" {
+		return fmt.Errorf("targetEnvironment required")
+	}
+	if len(req.PerNodeLoad) == 0 {
+		return fmt.Errorf("perNodeLoad must contain at least one entry")
+	}
+	seen := map[string]bool{}
+	for i, pn := range req.PerNodeLoad {
+		f := fmt.Sprintf("perNodeLoad[%d]", i)
+		if pn.NodeID == "" {
+			return fmt.Errorf("%s.nodeID required", f)
+		}
+		if (pn.Script == "") == (pn.ScriptConfigMap == "") {
+			return fmt.Errorf("%s: set exactly one of script or scriptConfigMap", f)
+		}
+		if pn.VUs < rules.LoadTest.MinVUs {
+			return fmt.Errorf("%s.vus must be at least %d", f, rules.LoadTest.MinVUs)
+		}
+		if err := validateGoDuration(f+".duration", pn.Duration); err != nil {
+			return err
+		}
+		if seen[pn.NodeID] {
+			return fmt.Errorf("%s: duplicate nodeID '%s'", f, pn.NodeID)
+		}
+		seen[pn.NodeID] = true
+	}
+	m := req.MetricsExport
+	if len(m.Metrics) == 0 {
+		return fmt.Errorf("metricsExport.metrics must contain at least one metric")
+	}
+	for i, e := range m.Metrics {
+		f := fmt.Sprintf("metricsExport.metrics[%d]", i)
+		if !hasEnum(rules.LoadTest.MetricTypes, e.Type) {
+			return fmt.Errorf("%s: type must be %s", f, enumValues(rules.LoadTest.MetricTypes))
+		}
+		if strings.TrimSpace(e.Query) == "" {
+			return fmt.Errorf("%s: query required", f)
+		}
+		if e.Type == metricPromQL && e.MetricName == "" {
+			return fmt.Errorf("%s: metricName required when type='%s'", f, metricPromQL)
+		}
+	}
+	if m.Step != "" {
+		if err := validateGoDuration("metricsExport.step", m.Step); err != nil {
+			return err
+		}
 	}
 	return nil
 }

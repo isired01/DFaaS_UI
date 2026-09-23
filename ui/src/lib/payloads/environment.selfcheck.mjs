@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { buildEnvironmentPayload } from './environment.js';
 
 // Mirrors GET /api/meta/schema .node (internal/api/schema.go).
-const rules = { nodeIDPattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?$', nodeIDMaxLength: 63, ipAddressMaxLength: 45, maxNodes: 50, uniqueIPAddress: true, requireEachRole: true };
+const rules = { nodeIDPattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?$', nodeIDMaxLength: 63, ipAddressMaxLength: 45, maxNodes: 50, uniqueIPAddress: true, requireEachRole: true,
+  functionNamePattern: '^[a-z0-9]+$', requireWorkerFunction: true, requireCredentials: true, requireFunctionImage: true };
 const worker = (o = {}) => ({ nodeID: 'w1', ipAddress: '10.0.0.1', role: 'dfaas-worker', capacity: 'LOW', username: 'u', password: 'p', balancingStrategy: 'recalcstrategy',
   functions: [{ name: 'f', image: 'img', execTimeout: 5, maxInflight: 0, timeoutMs: '', maxRate: 100 }], ...o });
 const gen = (o = {}) => ({ nodeID: 'g1', ipAddress: '10.0.0.2', role: 'k6-load-generator', capacity: 'LOW', username: 'u', password: 'p', functions: [], ...o });
@@ -36,11 +37,13 @@ const errorsOf = (o) => buildEnvironmentPayload(good(o), rules).errors;
   assert.deepEqual(create.flipped, [], 'create mode never reports flips');
 }
 
-// --- every rule the gateway also enforces ----------------------------------
-// Hand-synced with the CRD's CEL rule on EnvironmentNode: a dfaas-worker with no
-// functions is rejected at admission, so the form must say so before the PATCH.
+// --- the served node rules (the gateway enforces the same set) -------------
+// A dfaas-worker with no functions is a CRD CEL rule; credentials and the
+// function image are gateway rules; all four are read from the served rules.
 assert.match(errorsOf({ nodes: [worker({ functions: [] }), gen()] }).join(' '), /DFaaS Node with no functions/);
 assert.deepEqual(errorsOf({ nodes: [worker(), gen({ functions: [] })] }), [], 'a generator with no functions stays valid');
+assert.match(errorsOf({ nodes: [worker({ functions: [{ name: 'fig-let', image: 'img' }] }), gen()] }).join(' '), /function name/);
+assert.match(errorsOf({ nodes: [worker({ functions: [{ name: 'figlet', image: ' ' }] }), gen()] }).join(' '), /image/);
 
 assert.match(errorsOf({ name: '' }).join(' '), /name is required/);
 assert.match(errorsOf({ nodes: [] }).join(' '), /At least one node/);

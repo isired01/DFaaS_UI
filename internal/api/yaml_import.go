@@ -2,8 +2,10 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
+	utiljson "k8s.io/apimachinery/pkg/util/json"
 	"net/http"
 	"time"
 
@@ -59,6 +61,15 @@ func (h *Handler) applyResourceYAML(c *gin.Context, gvr schema.GroupVersionResou
 	if obj == nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "yaml body did not decode to an object"})
 		return
+	}
+	// Normalise to what the API server receives: yaml.v3 decodes ints as int
+	// and unquoted timestamps as time.Time, which the validators would have to
+	// special-case and the dynamic fake client cannot deep-copy.
+	if norm, err := normaliseJSON(obj); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("normalise yaml: %v", err)})
+		return
+	} else {
+		obj = norm
 	}
 
 	gotAPIVersion := getStringFromMap(obj, "apiVersion")
@@ -159,91 +170,93 @@ func validateEnvironmentYAML(_ context.Context, _ string, obj map[string]interfa
 	return 0, "", true
 }
 
-// validateLoadTestYAML runs the business rules CreateLoadTest enforces: every
-// perNodeLoad entry must reference a script ConfigMap (the CRD carries no
-// inline script), the target Environment must exist and be dispatchable unless
-// the test is a draft or scheduled, and every nodeID must be a k6 load
-// generator of that Environment.
+// validateLoadTestYAML projects the document into the structured create's
+// DTO and runs the same two checks CreateLoadTest runs: validateLoadTest on the
+// shape, then admitAgainstEnvironment. One rule is the YAML path's own: every
+// entry must reference a script ConfigMap, because the CRD carries no inline
+// script.
 func (h *Handler) validateLoadTestYAML(ctx context.Context, namespace string, obj map[string]interface{}) (int, string, bool) {
-	rawPerNode := nestedSliceNoCopy(obj, "spec", "perNodeLoad")
-	if len(rawPerNode) == 0 {
-		return http.StatusBadRequest, "spec.perNodeLoad must contain at least one entry", false
+	req, err := loadTestRequestFrom(obj, namespace)
+	if err != nil {
+		return http.StatusBadRequest, err.Error(), false
+	}
+	for i, pn := range req.PerNodeLoad {
+		if pn.ScriptConfigMap == "" {
+			return http.StatusBadRequest, fmt.Sprintf("perNodeLoad[%d]: scriptConfigMap.name required (the CRD carries no inline script)", i), false
+		}
+	}
+	if err := validateLoadTest(req); err != nil {
+		return http.StatusBadRequest, err.Error(), false
 	}
 
-	nodeIDs := make([]string, 0, len(rawPerNode))
-	for i, raw := range rawPerNode {
-		entry, ok := raw.(map[string]interface{})
+	envObj, err := h.client.Resource(EnvironmentGVR).Namespace(namespace).Get(ctx, req.TargetEnvironment, metav1.GetOptions{})
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			return http.StatusBadRequest, fmt.Sprintf("environment '%s/%s' not found", namespace, req.TargetEnvironment), false
+		}
+		return http.StatusInternalServerError, fmt.Sprintf("read environment '%s/%s': %v", namespace, req.TargetEnvironment, err), false
+	}
+	return admitAgainstEnvironment(req, envObj)
+}
+
+// loadTestRequestFrom projects a normalised LoadTest document into the DTO
+// the structured create binds, so both paths are validated by one function.
+func loadTestRequestFrom(obj map[string]interface{}, namespace string) (CreateLoadTestRequest, error) {
+	md, _ := obj["metadata"].(map[string]interface{})
+	spec, _ := obj["spec"].(map[string]interface{})
+	req := CreateLoadTestRequest{
+		Name:              getStringFromMap(md, "name"),
+		Namespace:         namespace,
+		TargetEnvironment: getStringFromMap(spec, "targetEnvironment"),
+	}
+	req.Suspended, _, _ = unstructured.NestedBool(obj, "spec", "suspended")
+	if v, ok := spec["startAt"]; ok && v != nil {
+		raw, _ := v.(string)
+		at, err := time.Parse(time.RFC3339, raw)
+		if err != nil {
+			return req, fmt.Errorf("startAt: '%v' is not an RFC3339 time", v)
+		}
+		req.StartAt = &at
+	}
+	for i, raw := range nestedSliceNoCopy(obj, "spec", "perNodeLoad") {
+		e, ok := raw.(map[string]interface{})
 		if !ok {
-			return http.StatusBadRequest, fmt.Sprintf("spec.perNodeLoad[%d] is not an object", i), false
+			return req, fmt.Errorf("perNodeLoad[%d] is not an object", i)
 		}
-		nodeID := getStringFromMap(entry, "nodeID")
-		if nodeID == "" {
-			return http.StatusBadRequest, fmt.Sprintf("spec.perNodeLoad[%d]: nodeID required", i), false
-		}
-		cmRef, _ := entry["scriptConfigMap"].(map[string]interface{})
-		if getStringFromMap(cmRef, "name") == "" {
-			return http.StatusBadRequest, fmt.Sprintf("spec.perNodeLoad[%d]: scriptConfigMap.name required (the CRD carries no inline script)", i), false
-		}
-		if err := validateGoDuration(fmt.Sprintf("spec.perNodeLoad[%d].duration", i), getStringFromMap(entry, "duration")); err != nil {
-			return http.StatusBadRequest, err.Error(), false
-		}
-		nodeIDs = append(nodeIDs, nodeID)
+		cmRef, _ := e["scriptConfigMap"].(map[string]interface{})
+		req.PerNodeLoad = append(req.PerNodeLoad, CreatePerNodeLoad{
+			NodeID:          getStringFromMap(e, "nodeID"),
+			VUs:             getIntFromMap(e, "vus"),
+			Duration:        getStringFromMap(e, "duration"),
+			ScriptConfigMap: getStringFromMap(cmRef, "name"),
+		})
 	}
-
-	// Same metric rules as the JSON path. Before this the custom-promql rule gave
-	// a readable 400 on POST /loadtests and a raw CEL rejection here.
 	for i, raw := range nestedSliceNoCopy(obj, "spec", "metricsExport", "metrics") {
 		m, ok := raw.(map[string]interface{})
 		if !ok {
-			return http.StatusBadRequest, fmt.Sprintf("spec.metricsExport.metrics[%d] is not an object", i), false
+			return req, fmt.Errorf("metricsExport.metrics[%d] is not an object", i)
 		}
-		mt := getStringFromMap(m, "type")
-		if !hasEnum(rules.LoadTest.MetricTypes, mt) {
-			return http.StatusBadRequest, fmt.Sprintf("spec.metricsExport.metrics[%d]: type must be %s", i, enumValues(rules.LoadTest.MetricTypes)), false
-		}
-		if mt == metricPromQL && getStringFromMap(m, "metricName") == "" {
-			return http.StatusBadRequest, fmt.Sprintf("spec.metricsExport.metrics[%d]: metricName required when type='%s'", i, metricPromQL), false
-		}
+		req.MetricsExport.Metrics = append(req.MetricsExport.Metrics, CreateMetricEntry{
+			Type:       getStringFromMap(m, "type"),
+			MetricName: getStringFromMap(m, "metricName"),
+			Query:      getStringFromMap(m, "query"),
+			Comment:    getStringFromMap(m, "comment"),
+		})
 	}
+	req.MetricsExport.Step = getNestedString(obj, "spec", "metricsExport", "step")
+	return req, nil
+}
 
-	target := getNestedString(obj, "spec", "targetEnvironment")
-	if target == "" {
-		return http.StatusBadRequest, "spec.targetEnvironment required", false
-	}
-
-	envObj, err := h.client.Resource(EnvironmentGVR).Namespace(namespace).Get(ctx, target, metav1.GetOptions{})
+// normaliseJSON round-trips obj through JSON, so numbers are int64/float64 and
+// timestamps RFC3339 strings, exactly as the API server receives them.
+func normaliseJSON(obj map[string]interface{}) (map[string]interface{}, error) {
+	raw, err := json.Marshal(obj)
 	if err != nil {
-		if apierrors.IsNotFound(err) {
-			return http.StatusBadRequest, fmt.Sprintf("environment '%s/%s' not found", namespace, target), false
-		}
-		return http.StatusInternalServerError, fmt.Sprintf("read environment '%s/%s': %v", namespace, target, err), false
+		return nil, err
 	}
-
-	// Same admission rules as the structured path, same module. "Scheduled" is
-	// decided on key presence: yaml.v3 resolves an unquoted RFC3339 value to a
-	// time.Time, not to a string.
-	suspended, _, _ := unstructured.NestedBool(obj, "spec", "suspended")
-	spec, _ := obj["spec"].(map[string]interface{})
-	intent := LoadTestIntent{
-		TargetEnvironment: target,
-		Suspended:         suspended,
-		Scheduled:         spec["startAt"] != nil,
+	var out map[string]interface{}
+	if err := utiljson.Unmarshal(raw, &out); err != nil {
+		return nil, err
 	}
-	phase := getNestedString(envObj.Object, "status", "phase")
-	if status, msg, ok := AdmitLoadTest(intent, phase); !ok {
-		return status, msg, false
-	}
-
-	k6IDs := buildK6NodeIndex(envObj)
-	for i, nodeID := range nodeIDs {
-		if _, ok := k6IDs[nodeID]; !ok {
-			valid := make([]string, 0, len(k6IDs))
-			for id := range k6IDs {
-				valid = append(valid, id)
-			}
-			return http.StatusBadRequest, fmt.Sprintf("spec.perNodeLoad[%d].nodeID '%s' not a k6-load-generator (valid: %v)", i, nodeID, valid), false
-		}
-	}
-
-	return 0, "", true
+	return out, nil
 }

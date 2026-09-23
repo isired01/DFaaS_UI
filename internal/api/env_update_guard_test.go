@@ -68,7 +68,8 @@ func patchEnv(t *testing.T, h *Handler, body map[string]interface{}) *httptest.R
 func twoRoleNodes() []map[string]interface{} {
 	return []map[string]interface{}{
 		{"nodeID": "worker-a", "ipAddress": "10.0.0.1", "role": "dfaas-worker",
-			"capacity": "LOW", "username": "u", "password": "p", "balancingStrategy": "recalcstrategy"},
+			"capacity": "LOW", "username": "u", "password": "p", "balancingStrategy": "recalcstrategy",
+			"functions": []interface{}{map[string]interface{}{"name": "figlet", "image": "ghcr.io/openfaas/figlet"}}},
 		{"nodeID": "gen-b", "ipAddress": "10.0.0.2", "role": "k6-load-generator",
 			"capacity": "LOW", "username": "u", "password": "p"},
 	}
@@ -148,7 +149,8 @@ func TestUpdateEnvironmentAllowsS3OnlyPatchDuringActiveLoadTest(t *testing.T) {
 // load-test, or nothing to generate load with. Both are always a mistake.
 func TestValidateEnvNodesRequiresBothRoles(t *testing.T) {
 	worker := NodeInfo{NodeID: "a", IpAddress: "10.0.0.1", Role: "dfaas-worker",
-		Capacity: "LOW", Username: "u", Password: "p", BalancingStrategy: "recalcstrategy"}
+		Capacity: "LOW", Username: "u", Password: "p", BalancingStrategy: "recalcstrategy",
+		Functions: []FunctionInfo{{Name: "figlet", Image: "ghcr.io/openfaas/figlet"}}}
 	gen := NodeInfo{NodeID: "b", IpAddress: "10.0.0.2", Role: "k6-load-generator",
 		Capacity: "LOW", Username: "u", Password: "p"}
 
