@@ -15,6 +15,7 @@ export function buildEnvironmentPayload(form, rules) {
   if (nodes.length === 0) errors.push('At least one node is required');
   if (nodes.length > rules.maxNodes) errors.push(`At most ${rules.maxNodes} nodes per environment`);
 
+  const functionNameRe = rules.functionNamePattern ? new RegExp(rules.functionNamePattern) : null;
   const seen = new Set();
   const seenIPs = new Map();
   nodes.forEach((n, idx) => {
@@ -33,14 +34,25 @@ export function buildEnvironmentPayload(form, rules) {
     // every peer ends up dialling a dead peer ID.
     if (rules.uniqueIPAddress && ip && seenIPs.has(ip)) errors.push(`Nodes '${seenIPs.get(ip)}' and '${nid}' share the ipAddress ${ip} — one machine can only be one node`);
     if (ip) seenIPs.set(ip, nid);
-    if (!(n.username || '').trim()) errors.push(`Node '${nid}' is missing username`);
-    if (!n.password) errors.push(`Node '${nid}' is missing password`);
-    // Mirrors the CRD's CEL rule on EnvironmentNode. A worker with no functions
-    // serves nothing, and the operator's inventory turns the empty list into the
-    // JSON literal `null`, which kills the Ansible prune task. Caught here so
-    // the user gets an inline error instead of a raw 422.
-    if (n.role === 'dfaas-worker' && (n.functions || []).length === 0) {
+    if (rules.requireCredentials) {
+      if (!(n.username || '').trim()) errors.push(`Node '${nid}' is missing username`);
+      if (!n.password) errors.push(`Node '${nid}' is missing password`);
+    }
+    // The CRD's CEL rule on EnvironmentNode. A worker with no functions serves
+    // nothing, and the operator's inventory turns the empty list into the JSON
+    // literal `null`, which kills the Ansible prune task.
+    if (rules.requireWorkerFunction && n.role === 'dfaas-worker' && (n.functions || []).length === 0) {
       errors.push(`Node '${nid}' is a DFaaS Node with no functions — a worker must deploy at least one`);
+    }
+    if (n.role === 'dfaas-worker') {
+      (n.functions || []).forEach((f, j) => {
+        if (functionNameRe && !functionNameRe.test(f.name || '')) {
+          errors.push(`Node '${nid}', function #${j + 1}: function name '${f.name || ''}' must be lowercase letters and digits only`);
+        }
+        if (rules.requireFunctionImage && !(f.image || '').trim()) {
+          errors.push(`Node '${nid}', function #${j + 1}: image is required`);
+        }
+      });
     }
   });
   if (rules.requireEachRole) {

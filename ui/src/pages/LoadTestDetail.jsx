@@ -108,13 +108,12 @@ export default function LoadTestDetail() {
 
   if (!loadtest) return null;
 
-  // Desired state from spec.suspended is the source of truth (Conditions[Suspended]
-  // is derived and may be empty during the first reconcile after creation).
+  // Desired state from spec.suspended is the source of truth: the operator
+  // stamps no Suspended condition.
   const isDraft = loadtest.suspended === true;
   const isTerminal = ltState.terminal(loadtest.phase);
   const abortRequested = loadtest.stop === true;
   const canAbort = ltState.abortable(loadtest.phase) && !abortRequested;
-  const isRunning = loadtest.phase === 'Running';
   // Tooltip on terminal Aborted: surface operator-stamped Ready=False reason=UserAborted message.
   const abortedMsg = loadtest.phase === 'Aborted'
     ? conditionOf(loadtest.conditions, 'Ready', ['UserAborted'])?.message || ''
@@ -194,9 +193,11 @@ export default function LoadTestDetail() {
             </button>
             <button
               onClick={handleDelete}
-              disabled={deleting || isRunning}
+              disabled={deleting || !ltState.deletable(loadtest.phase)}
               className="btn-secondary text-red-400 hover:text-red-300 disabled:opacity-40 disabled:hover:text-red-400"
-              title="Delete will abort and clean up remote runs automatically."
+              title={ltState.deletable(loadtest.phase)
+                ? 'Delete aborts the test and deletes its runners on every generator it can still reach.'
+                : 'Abort the test first: deleting it now would throw away the run or its metrics export.'}
             >
               <Trash2 className="w-4 h-4" />
               {deleting ? 'Deleting...' : 'Delete'}
@@ -221,7 +222,7 @@ export default function LoadTestDetail() {
         {loadtest.startAt && <ScheduledStartCard startAt={loadtest.startAt} nowMs={nowMs} />}
       </div>
 
-      {loadtest.phase === 'Pending' && (
+      {loadtest.phase === 'Pending' && loadtest.startAt && (
         <ConditionBanner
           condition={conditionOf(loadtest.conditions, 'Scheduled', SCHEDULED_REASONS)}
         />

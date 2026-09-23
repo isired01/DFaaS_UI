@@ -224,10 +224,12 @@ type CreateLoadTestRequest struct {
 }
 
 // CreatePerNodeLoad: exactly one of Script or ScriptConfigMap must be set.
+// Element rules live in validateLoadTest: binding tags on slice elements are
+// never run without `dive`, so they only looked enforced.
 type CreatePerNodeLoad struct {
-	NodeID          string `json:"nodeID" binding:"required"`
-	VUs             int    `json:"vus" binding:"required,min=1"`
-	Duration        string `json:"duration" binding:"required"`
+	NodeID          string `json:"nodeID"`
+	VUs             int    `json:"vus"`
+	Duration        string `json:"duration"`
 	Script          string `json:"script,omitempty"`
 	ScriptConfigMap string `json:"scriptConfigMap,omitempty"`
 }
@@ -242,9 +244,9 @@ type CreateMetricsExport struct {
 // CreateMetricEntry: each row in metricsExport.metrics.
 // Query is always required. MetricName must be non-empty when Type=="custom-promql".
 type CreateMetricEntry struct {
-	Type       string `json:"type" binding:"required,oneof=raw custom-promql"`
+	Type       string `json:"type"`
 	MetricName string `json:"metricName,omitempty"`
-	Query      string `json:"query" binding:"required,min=1"`
+	Query      string `json:"query"`
 	Comment    string `json:"comment,omitempty"`
 }
 

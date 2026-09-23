@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -90,15 +91,10 @@ func (h *Handler) CreateLoadTest(c *gin.Context) {
 		return
 	}
 
-	// Every pure input-shape check runs before the first cluster write, so an
-	// invalid submission never creates ConfigMaps only to roll them back.
-	if status, msg, ok := validatePerNodeLoad(req.PerNodeLoad); !ok {
-		c.JSON(status, gin.H{"error": msg})
-		return
-	}
-
-	if status, msg, ok := validateMetricsExport(req.MetricsExport); !ok {
-		c.JSON(status, gin.H{"error": msg})
+	// Every input-shape rule runs before the first cluster write, so an invalid
+	// submission never creates ConfigMaps only to roll them back.
+	if err := validateLoadTest(req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -111,40 +107,14 @@ func (h *Handler) CreateLoadTest(c *gin.Context) {
 		return
 	}
 
-	intent := LoadTestIntent{
-		TargetEnvironment: req.TargetEnvironment,
-		Suspended:         req.Suspended,
-		Scheduled:         req.StartAt != nil,
-	}
-	phase := getNestedString(envObj.Object, "status", "phase")
-	if status, msg, ok := AdmitLoadTest(intent, phase); !ok {
+	if status, msg, ok := admitAgainstEnvironment(req, envObj); !ok {
 		c.JSON(status, gin.H{"error": msg})
 		return
 	}
 
-	k6IDs := buildK6NodeIndex(envObj)
-	for i, pn := range req.PerNodeLoad {
-		if _, ok := k6IDs[pn.NodeID]; !ok {
-			valid := make([]string, 0, len(k6IDs))
-			for id := range k6IDs {
-				valid = append(valid, id)
-			}
-			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("perNodeLoad[%d].nodeID '%s' not a k6-load-generator (valid: %v)", i, pn.NodeID, valid)})
-			return
-		}
-	}
-
 	ltName := req.Name
 	if ltName == "" {
-		generated := fmt.Sprintf("lt-%s-%s", req.TargetEnvironment, time.Now().Format("20060102-150405"))
-		if req.NameSuffix != "" {
-			generated += "-" + req.NameSuffix
-		}
-		// The timestamp is second-granular and the name also seeds every script
-		// ConfigMap name, so a double-click on Create (or a client retry) inside
-		// the same second would collide. Mix in a short nonce, same idea as
-		// bucketNameFor's UID suffix.
-		ltName = sanitizeDNS1123(generated + "-" + shortNonce())
+		ltName = generatedLoadTestName(req.TargetEnvironment, req.NameSuffix, time.Now(), shortNonce())
 	}
 
 	// cleanup best-effort deletes the script ConfigMaps already created, used to
@@ -203,42 +173,49 @@ func (h *Handler) CreateLoadTest(c *gin.Context) {
 
 // shortNonce returns a short lowercase-hex disambiguator for generated resource
 // names.
+// generatedLoadTestName is lt-<env>-<timestamp>[-<suffix>]-<nonce>, cut to fit
+// a label value (63). The timestamp is second-granular and the name also seeds
+// every script ConfigMap name, so a double-click on Create inside the same
+// second would collide without the nonce; the nonce is kept and the base cut.
+func generatedLoadTestName(target, suffix string, now time.Time, nonce string) string {
+	base := fmt.Sprintf("lt-%s-%s", target, now.Format("20060102-150405"))
+	if suffix != "" {
+		base += "-" + suffix
+	}
+	base = sanitizeDNS1123(base)
+	if max := maxLoadTestNameLen - len(nonce) - 1; len(base) > max {
+		base = strings.TrimRight(base[:max], "-.")
+	}
+	return base + "-" + nonce
+}
+
+// admitAgainstEnvironment runs the checks that need the target Environment,
+// the same on both create paths: the dispatch gate, then generator membership.
+func admitAgainstEnvironment(req CreateLoadTestRequest, envObj *unstructured.Unstructured) (int, string, bool) {
+	intent := LoadTestIntent{
+		TargetEnvironment: req.TargetEnvironment,
+		Suspended:         req.Suspended,
+		Scheduled:         req.StartAt != nil,
+	}
+	if status, msg, ok := AdmitLoadTest(intent, getNestedString(envObj.Object, "status", "phase")); !ok {
+		return status, msg, false
+	}
+	k6IDs := buildK6NodeIndex(envObj)
+	for i, pn := range req.PerNodeLoad {
+		if _, ok := k6IDs[pn.NodeID]; !ok {
+			valid := make([]string, 0, len(k6IDs))
+			for id := range k6IDs {
+				valid = append(valid, id)
+			}
+			sort.Strings(valid)
+			return http.StatusBadRequest, fmt.Sprintf("perNodeLoad[%d].nodeID '%s' not a k6-load-generator (valid: %v)", i, pn.NodeID, valid), false
+		}
+	}
+	return 0, "", true
+}
+
 func shortNonce() string {
 	return uuid.NewString()[:6]
-}
-
-// validatePerNodeLoad enforces that each entry carries exactly one of an inline
-// script or a ConfigMap reference. On failure it returns the HTTP status and
-// message the handler should send; ok is false in that case.
-func validatePerNodeLoad(perNodeLoad []CreatePerNodeLoad) (status int, msg string, ok bool) {
-	for i, pn := range perNodeLoad {
-		if pn.Script == "" && pn.ScriptConfigMap == "" {
-			return http.StatusBadRequest, fmt.Sprintf("perNodeLoad[%d]: script or scriptConfigMap required", i), false
-		}
-		if pn.Script != "" && pn.ScriptConfigMap != "" {
-			return http.StatusBadRequest, fmt.Sprintf("perNodeLoad[%d]: only one of script or scriptConfigMap allowed", i), false
-		}
-		if err := validateGoDuration(fmt.Sprintf("perNodeLoad[%d].duration", i), pn.Duration); err != nil {
-			return http.StatusBadRequest, err.Error(), false
-		}
-	}
-	return 0, "", true
-}
-
-// validateMetricsExport enforces that custom-promql metrics carry a metricName.
-// Pure input-shape check, so the handler runs it before touching the cluster.
-// On failure it returns the HTTP status and message the handler should send; ok
-// is false in that case.
-func validateMetricsExport(export CreateMetricsExport) (status int, msg string, ok bool) {
-	for i, m := range export.Metrics {
-		if !hasEnum(rules.LoadTest.MetricTypes, m.Type) {
-			return http.StatusBadRequest, fmt.Sprintf("metricsExport.metrics[%d]: type must be %s", i, enumValues(rules.LoadTest.MetricTypes)), false
-		}
-		if m.Type == metricPromQL && m.MetricName == "" {
-			return http.StatusBadRequest, fmt.Sprintf("metricsExport.metrics[%d]: metricName required when type='custom-promql'", i), false
-		}
-	}
-	return 0, "", true
 }
 
 // buildK6NodeIndex returns the set of valid k6 nodeIDs for the environment,
@@ -448,7 +425,9 @@ func (h *Handler) inlineScripts(ctx context.Context, namespace string, detail *L
 	}
 }
 
-// ActivateLoadTest flips spec.suspended=false via merge-patch.
+// ActivateLoadTest starts a suspended test now: one merge-patch flips
+// spec.suspended=false and drops spec.startAt, so Start on a scheduled test
+// means start now, not an un-suspend that keeps a schedule nothing follows.
 // 202 Accepted on success, 404 NotFound, 409 if already past Pending or if the
 // object moved between the read and the patch, 400 if Pending but not actually
 // a draft (spec.suspended != true).
@@ -471,8 +450,8 @@ func (h *Handler) ActivateLoadTest(c *gin.Context) {
 		return
 	}
 
-	// Check desired state, not observed condition: avoids race when reconciler
-	// hasn't stamped Conditions[Suspended] yet on a freshly-created draft.
+	// Check desired state (spec.suspended), not observed status: the operator
+	// stamps no Suspended condition, and a fresh draft may not be parked yet.
 	suspended, _, _ := unstructured.NestedBool(obj.Object, "spec", "suspended")
 	if !suspended {
 		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("loadtest '%s' is not a draft (spec.suspended != true)", name)})
@@ -485,7 +464,7 @@ func (h *Handler) ActivateLoadTest(c *gin.Context) {
 	// aborted, rescheduled or re-suspended.
 	patch, err := json.Marshal(map[string]interface{}{
 		"metadata": map[string]interface{}{"resourceVersion": obj.GetResourceVersion()},
-		"spec":     map[string]interface{}{"suspended": false},
+		"spec":     map[string]interface{}{"suspended": false, "startAt": nil},
 	})
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("marshal patch: %v", err)})

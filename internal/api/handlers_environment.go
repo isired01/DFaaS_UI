@@ -187,7 +187,8 @@ func activeLoadTestNames(items []unstructured.Unstructured, namespace, envName s
 		}
 		switch s.Phase {
 		case "Running", "Exporting":
-		case "Pending":
+		case "", "Pending":
+			// "" is a test the operator has not admitted yet: about to dispatch.
 			if s.Suspended {
 				continue
 			}

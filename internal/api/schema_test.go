@@ -12,7 +12,8 @@ import (
 
 func validPair() []NodeInfo {
 	return []NodeInfo{
-		{NodeID: "w1", IpAddress: "10.0.0.1", Role: "dfaas-worker", Capacity: "LOW", Username: "u", Password: "p", BalancingStrategy: "recalcstrategy"},
+		{NodeID: "w1", IpAddress: "10.0.0.1", Role: "dfaas-worker", Capacity: "LOW", Username: "u", Password: "p", BalancingStrategy: "recalcstrategy",
+			Functions: []FunctionInfo{{Name: "figlet", Image: "ghcr.io/openfaas/figlet"}}},
 		{NodeID: "g1", IpAddress: "10.0.0.2", Role: "k6-load-generator", Capacity: "LOW", Username: "u", Password: "p"},
 	}
 }
