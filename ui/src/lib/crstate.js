@@ -126,9 +126,11 @@ const REASONS = {
   PartialFailure:     { label: 'Some runners reported an error', tone: 'error' },
   InfraFailed:        { label: 'Provisioning failed', tone: 'error' },
   Failed:             { label: 'Failed', tone: 'error' },
-  // degraded / waiting — the operator retries these
-  JobCreationFailed:  { label: 'Could not create the provisioning Job, retrying', tone: 'warn' },
-  CheckFailed:        { label: 'Readiness could not be evaluated, retrying', tone: 'warn' },
+  // retried without bound, but nothing changes until a human acts: red, or
+  // the provisioning row spins forever (293bf21)
+  JobCreationFailed:  { label: 'Could not create the provisioning Job', tone: 'error' },
+  CheckFailed:        { label: 'Readiness could not be evaluated', tone: 'error' },
+  // degraded / waiting — the operator retries these with a bound
   FetchFailed:        { label: 'No status from a generator, retrying', tone: 'warn' },
   ApplyFailed:        { label: 'TestRun apply failed, retrying', tone: 'warn' },
   StaleCleanupFailed: { label: 'Previous TestRun cleanup failed, retrying', tone: 'warn' },

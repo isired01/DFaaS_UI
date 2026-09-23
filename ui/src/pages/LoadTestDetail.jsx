@@ -196,7 +196,7 @@ export default function LoadTestDetail() {
               disabled={deleting || !ltState.deletable(loadtest.phase)}
               className="btn-secondary text-red-400 hover:text-red-300 disabled:opacity-40 disabled:hover:text-red-400"
               title={ltState.deletable(loadtest.phase)
-                ? 'Delete will abort and clean up remote runs automatically.'
+                ? 'Delete aborts the test and deletes its runners on every generator it can still reach.'
                 : 'Abort the test first: deleting it now would throw away the run or its metrics export.'}
             >
               <Trash2 className="w-4 h-4" />

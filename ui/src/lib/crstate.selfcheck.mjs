@@ -85,9 +85,15 @@ for (const r of ['AnsibleFailed', 'HelmFailed', 'InfraFailed', 'Failed', 'Dispat
   assert.equal(reason(r).tone, 'error',
     `${r} means the object failed for good; without tone 'error' the provisioning row spins forever`);
 }
-// ...and a reason the operator retries must not claim the object is dead.
-for (const r of ['CheckFailed', 'JobCreationFailed', 'RunnersUnreclaimed', 'FetchFailed', 'ApplyFailed',
-  'StaleCleanupFailed', 'ScriptMirrorFailed']) {
+// Retried without bound and shown on a provisioning row: the operator keeps
+// trying, but nothing will change until a human acts, so these stay red --
+// 'warn' would bring back the forever-spinner 293bf21 removed.
+for (const r of ['CheckFailed', 'JobCreationFailed']) {
+  assert.equal(reason(r).tone, 'error', `${r} needs a human; a spinner would never stop`);
+}
+// ...while a reason the operator retries with a bound must not claim the
+// object is dead.
+for (const r of ['RunnersUnreclaimed', 'FetchFailed', 'ApplyFailed', 'StaleCleanupFailed', 'ScriptMirrorFailed']) {
   assert.notEqual(reason(r).tone, 'error', `${r} is retried by the operator; it must not render as dead`);
 }
 
