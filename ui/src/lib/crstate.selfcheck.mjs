@@ -98,10 +98,31 @@ for (const r of ['RunnersUnreclaimed', 'FetchFailed', 'ApplyFailed', 'StaleClean
 }
 
 // --- Occupancy and Delete ---------------------------------------------------
-// The gateway's node-edit guard counts a non-suspended test the operator has
+// The gateway's Environment-edit guard counts a non-suspended test the operator has
 // not admitted yet (""), and so must the SPA.
 assert.equal(lt.occupying({ phase: '', suspended: false }), true);
 assert.equal(lt.occupying({ phase: '', suspended: true }), false);
+// A terminal test whose runners the operator could not delete still holds the
+// Environment (operator runnersUnreclaimed, gateway activeLoadTestNames).
+assert.equal(lt.occupying({ phase: 'Aborted', runnersUnreclaimed: true }), true);
+assert.equal(lt.occupying({ phase: 'Completed' }), false);
+// The detail page keeps polling a test the operator may still restamp: a
+// terminal test with unreclaimed runners moves to RunnersReclaimed on retry.
+assert.equal(lt.changing({ phase: 'Failed', runnersUnreclaimed: true }), true);
+assert.equal(lt.changing({ phase: 'Completed' }), false);
+assert.equal(lt.changing({ phase: 'Running' }), true);
+// The Edit notice names each test holding the Environment with its own
+// remedy. Same text as the gateway's 409 (activeLoadTestNames): change both.
+assert.equal(lt.holdReason([{ phase: 'Completed', name: 'lt-0' }]), '');
+assert.equal(
+  lt.holdReason([
+    { name: 'lt-1', phase: 'Running' },
+    { name: 'lt-0', phase: 'Completed' },
+    { name: 'lt-2', phase: 'Failed', runnersUnreclaimed: true },
+  ]),
+  'Cannot edit the Environment while load tests hold it: lt-1 (Running), lt-2 (Failed, runners not reclaimed: ' +
+  'delete the test to release the Environment, up to 2 min). Abort or wait for the running ones, delete the ones noted.',
+);
 // Deleting a running or exporting test throws away the run or its export.
 for (const p of ['Running', 'Exporting']) assert.equal(lt.deletable(p), false, `${p} is not deletable`);
 for (const p of ['', 'Pending', 'Completed', 'Failed', 'Aborted']) assert.equal(lt.deletable(p), true, `${p} is deletable`);

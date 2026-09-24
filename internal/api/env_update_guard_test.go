@@ -14,7 +14,15 @@ import (
 	dynamicfake "k8s.io/client-go/dynamic/fake"
 )
 
-func loadTestObj(name, targetEnv, phase string, suspended bool) *unstructured.Unstructured {
+func loadTestObj(name, targetEnv, phase string, suspended bool, conds ...map[string]interface{}) *unstructured.Unstructured {
+	status := map[string]interface{}{"phase": phase}
+	if len(conds) > 0 {
+		list := make([]interface{}, len(conds))
+		for i, c := range conds {
+			list[i] = c
+		}
+		status["conditions"] = list
+	}
 	return &unstructured.Unstructured{Object: map[string]interface{}{
 		"apiVersion": "dfaas.dfaas.io/v1",
 		"kind":       "LoadTest",
@@ -23,8 +31,12 @@ func loadTestObj(name, targetEnv, phase string, suspended bool) *unstructured.Un
 			"targetEnvironment": targetEnv,
 			"suspended":         suspended,
 		},
-		"status": map[string]interface{}{"phase": phase},
+		"status": status,
 	}}
+}
+
+func k6Healthy(reason string) map[string]interface{} {
+	return map[string]interface{}{"type": "K6Healthy", "status": "False", "reason": reason}
 }
 
 func envObj(name string) *unstructured.Unstructured {
@@ -82,13 +94,19 @@ func TestUpdateEnvironmentRejectsWhileLoadTestActive(t *testing.T) {
 		name      string
 		phase     string
 		suspended bool
+		conds     []map[string]interface{}
 	}{
-		{"running", "Running", false},
-		{"exporting", "Exporting", false},
-		{"pending not suspended", "Pending", false},
+		{"running", "Running", false, nil},
+		{"exporting", "Exporting", false, nil},
+		{"pending not suspended", "Pending", false, nil},
+		// The operator's Occupancy still holds the Environment on a terminal
+		// test whose runner could not be deleted (runnersUnreclaimed in
+		// loadtest_end.go): that runner may still be loading the nodes.
+		{"failed with runners unreclaimed", "Failed", false, []map[string]interface{}{k6Healthy("RunnersUnreclaimed")}},
+		{"aborted with runners unreclaimed", "Aborted", false, []map[string]interface{}{k6Healthy("RunnersUnreclaimed")}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			h := guardHandler(envObj("env-demo"), loadTestObj("lt-1", "env-demo", tc.phase, tc.suspended))
+			h := guardHandler(envObj("env-demo"), loadTestObj("lt-1", "env-demo", tc.phase, tc.suspended, tc.conds...))
 			w := patchEnv(t, h, map[string]interface{}{"spec": map[string]interface{}{"nodes": twoRoleNodes()}})
 			if w.Code != http.StatusConflict {
 				t.Fatalf("got %d, want 409; body=%s", w.Code, w.Body.String())
@@ -100,6 +118,22 @@ func TestUpdateEnvironmentRejectsWhileLoadTestActive(t *testing.T) {
 	}
 }
 
+// Each entry carries its own remedy: a finished test with runners not
+// reclaimed cannot be aborted, only deleted (or waited on). Same text as
+// lt.holdReason in ui/src/lib/crstate.js: change both together.
+func TestUpdateEnvironmentNamesTheRemedyPerTest(t *testing.T) {
+	h := guardHandler(envObj("env-demo"),
+		loadTestObj("lt-1", "env-demo", "Running", false),
+		loadTestObj("lt-2", "env-demo", "Failed", false, k6Healthy("RunnersUnreclaimed")))
+	w := patchEnv(t, h, map[string]interface{}{"spec": map[string]interface{}{"nodes": twoRoleNodes()}})
+	want := `{"error":"environment is held by load tests: lt-1 (Running), lt-2 (Failed, runners not reclaimed: ` +
+		`delete the test to release the Environment, up to 2 min); abort or wait for the running ones, ` +
+		`delete the ones noted, before editing the Environment"}`
+	if w.Code != http.StatusConflict || w.Body.String() != want {
+		t.Fatalf("got %d %s\nwant 409 %s", w.Code, w.Body.String(), want)
+	}
+}
+
 // A suspended Pending test is parked waiting for /activate and must not block
 // edits forever; terminal phases are done with the nodes entirely.
 func TestUpdateEnvironmentAllowsWhenNoLoadTestActive(t *testing.T) {
@@ -107,14 +141,16 @@ func TestUpdateEnvironmentAllowsWhenNoLoadTestActive(t *testing.T) {
 		name      string
 		phase     string
 		suspended bool
+		conds     []map[string]interface{}
 	}{
-		{"completed", "Completed", false},
-		{"failed", "Failed", false},
-		{"aborted", "Aborted", false},
-		{"pending but suspended", "Pending", true},
+		{"completed", "Completed", false, nil},
+		{"failed", "Failed", false, nil},
+		{"aborted", "Aborted", false, nil},
+		{"pending but suspended", "Pending", true, nil},
+		{"failed with runners reclaimed", "Failed", false, []map[string]interface{}{k6Healthy("RunnersReclaimed")}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			h := guardHandler(envObj("env-demo"), loadTestObj("lt-1", "env-demo", tc.phase, tc.suspended))
+			h := guardHandler(envObj("env-demo"), loadTestObj("lt-1", "env-demo", tc.phase, tc.suspended, tc.conds...))
 			w := patchEnv(t, h, map[string]interface{}{"spec": map[string]interface{}{"nodes": twoRoleNodes()}})
 			if w.Code != http.StatusAccepted {
 				t.Fatalf("got %d, want 202; body=%s", w.Code, w.Body.String())
@@ -133,15 +169,33 @@ func TestUpdateEnvironmentIgnoresOtherEnvironmentsLoadTests(t *testing.T) {
 	}
 }
 
-// The guard exists because node/topology edits re-run Ansible. A patch that
-// touches neither is harmless and must still go through.
-func TestUpdateEnvironmentAllowsS3OnlyPatchDuringActiveLoadTest(t *testing.T) {
-	h := guardHandler(envObj("env-demo"), loadTestObj("lt-1", "env-demo", "Running", false))
-	w := patchEnv(t, h, map[string]interface{}{"spec": map[string]interface{}{
-		"s3ConfigRef": map[string]interface{}{"name": "seaweedfs-default"},
-	}})
-	if w.Code != http.StatusAccepted {
-		t.Fatalf("got %d, want 202; body=%s", w.Code, w.Body.String())
+// Every spec edit bumps metadata.generation, and the operator re-provisions on
+// any generation drift: an s3ConfigRef-only patch re-runs Ansible just like a
+// node edit. So the guard covers every PATCH, and the s3 merge patch still goes
+// through once no test is active.
+func TestUpdateEnvironmentRejectsS3OnlyPatchDuringActiveLoadTest(t *testing.T) {
+	bodies := map[string]map[string]interface{}{
+		"set":   {"s3ConfigRef": map[string]interface{}{"name": "seaweedfs-default"}},
+		"clear": {"clearS3ConfigRef": true},
+	}
+	for name, spec := range bodies {
+		t.Run(name+" during active test", func(t *testing.T) {
+			h := guardHandler(envObj("env-demo"), loadTestObj("lt-1", "env-demo", "Running", false))
+			w := patchEnv(t, h, map[string]interface{}{"spec": spec})
+			if w.Code != http.StatusConflict {
+				t.Fatalf("got %d, want 409; body=%s", w.Code, w.Body.String())
+			}
+			if !bytes.Contains(w.Body.Bytes(), []byte("lt-1")) {
+				t.Errorf("409 body does not name the offending load test: %s", w.Body.String())
+			}
+		})
+		t.Run(name+" with no active test", func(t *testing.T) {
+			h := guardHandler(envObj("env-demo"))
+			w := patchEnv(t, h, map[string]interface{}{"spec": spec})
+			if w.Code != http.StatusAccepted {
+				t.Fatalf("got %d, want 202; body=%s", w.Code, w.Body.String())
+			}
+		})
 	}
 }
 

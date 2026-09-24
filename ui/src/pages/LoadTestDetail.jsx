@@ -28,9 +28,10 @@ export default function LoadTestDetail() {
     ({ signal }) => fetchLoadTest(namespace, name, { signal }),
     {
       pollMs: 5000,
-      // Stop polling a terminal LoadTest. The predicate reads the newest data
-      // from inside the hook, so the Phase is not an effect dependency here.
-      shouldPoll: (lt) => ltState.inFlight(lt.phase),
+      // Stop polling a LoadTest that will not change any more. The predicate
+      // reads the newest data from inside the hook, so the Phase is not an
+      // effect dependency here.
+      shouldPoll: ltState.changing,
       deps: [namespace, name],
     },
   );

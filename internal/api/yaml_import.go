@@ -136,7 +136,7 @@ func (h *Handler) applyResourceYAML(c *gin.Context, gvr schema.GroupVersionResou
 // --- YAML business-rule validators ---
 //
 // These mirror the checks the structured JSON handlers run, so a pasted YAML
-// gets the same clear 400/409 instead of a reconcile failure hours later.
+// gets the same clear 400/404/409 instead of a reconcile failure hours later.
 
 // nestedSliceNoCopy reads a slice at the given path WITHOUT the deep copy
 // unstructured.NestedSlice performs. The YAML decoder yields plain Go ints for
@@ -192,7 +192,7 @@ func (h *Handler) validateLoadTestYAML(ctx context.Context, namespace string, ob
 	envObj, err := h.client.Resource(EnvironmentGVR).Namespace(namespace).Get(ctx, req.TargetEnvironment, metav1.GetOptions{})
 	if err != nil {
 		if apierrors.IsNotFound(err) {
-			return http.StatusBadRequest, fmt.Sprintf("environment '%s/%s' not found", namespace, req.TargetEnvironment), false
+			return http.StatusNotFound, fmt.Sprintf("environment '%s/%s' not found", namespace, req.TargetEnvironment), false
 		}
 		return http.StatusInternalServerError, fmt.Sprintf("read environment '%s/%s': %v", namespace, req.TargetEnvironment, err), false
 	}

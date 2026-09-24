@@ -146,6 +146,9 @@ type LoadTestSummary struct {
 	StartTime         *time.Time `json:"startTime,omitempty"`
 	EndTime           *time.Time `json:"endTime,omitempty"`
 	CreationTimestamp time.Time  `json:"creationTimestamp"`
+	// RunnersUnreclaimed: the test ended but a remote runner could not be
+	// deleted, so the operator still holds its Environment (mapLoadTestSummary).
+	RunnersUnreclaimed bool `json:"runnersUnreclaimed,omitempty"`
 }
 
 // LoadTestDetail is returned by GET /api/loadtests/:namespace/:name.

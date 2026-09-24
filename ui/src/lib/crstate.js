@@ -51,16 +51,30 @@ const LT_PHASES = {
 export const lt = {
   /** Reached an end state; nothing will change without user action. */
   terminal: (p) => p === 'Completed' || p === 'Failed' || p === 'Aborted',
-  /** Worth polling: everything that is not terminal (incl. the '' first tick). */
+  /** Everything that is not terminal (incl. the '' first tick). */
   inFlight: (p) => !lt.terminal(p),
+  /** Worth polling: in flight, or terminal with runners unreclaimed, which the
+   *  operator's retry later restamps RunnersReclaimed. Takes the summary. */
+  changing: (t) => lt.inFlight(t.phase) || !!t.runnersUnreclaimed,
   /** The operator still honours spec.stop: a queued or draft test is abortable,
    *  not just a running one — but an Exporting one is past the point. */
   abortable: (p) => p === '' || p === 'Pending' || p === 'Running',
-  /** Owns its generators right now, so a node edit would destroy it. Same rule
+  /** Holds its Environment right now, so an edit would destroy it. Same rule
    *  the gateway enforces (activeLoadTestNames): a suspended Pending test is
-   *  parked and owns nothing. Takes the summary, not just the phase. */
+   *  parked and owns nothing; a terminal test whose runners the operator could
+   *  not delete still counts. Takes the summary, not just the phase. */
   occupying: (t) => t.phase === 'Running' || t.phase === 'Exporting' ||
-    ((t.phase === '' || t.phase === 'Pending') && !t.suspended),
+    ((t.phase === '' || t.phase === 'Pending') && !t.suspended) || !!t.runnersUnreclaimed,
+  /** Why Edit is refused: every test in `tests` that occupies the Environment,
+   *  each with its own remedy, or '' when none does. Same labels as the
+   *  gateway's 409 (activeLoadTestNames): change both together. */
+  holdReason: (tests) => {
+    const held = tests.filter(lt.occupying).map((t) => (t.runnersUnreclaimed
+      ? `${t.name} (${t.phase}, runners not reclaimed: delete the test to release the Environment, up to 2 min)`
+      : `${t.name} (${t.phase})`));
+    return held.length === 0 ? ''
+      : `Cannot edit the Environment while load tests hold it: ${held.join(', ')}. Abort or wait for the running ones, delete the ones noted.`;
+  },
   /** Deleting a running or exporting test throws away the run or its export. */
   deletable: (p) => p !== 'Running' && p !== 'Exporting',
 };
