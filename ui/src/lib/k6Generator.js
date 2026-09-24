@@ -3,7 +3,8 @@
 // Nothing outside this script controls the run: k6 reads options.scenarios and
 // nothing else. The LoadTest CRD's spec.perNodeLoad[].vus and .duration reach
 // neither k6 nor the k6-operator TestRun — .duration is derived back FROM the
-// stages below (see lib/duration.js) purely so the UI can draw a progress bar.
+// scenarios below (perNodeTotalMs in lib/scenarios.js) purely so the UI can
+// draw a progress bar.
 // VUs are per scenario, via preAllocatedVUs / maxVUs.
 
 import { EXECUTORS, DEFAULT_EXECUTOR, executorOf, hasImage, effectiveMethod, jsString, validateScenarios } from './scenarios.js';

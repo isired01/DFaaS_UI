@@ -290,8 +290,8 @@ func (h *Handler) createScriptConfigMaps(ctx context.Context, ltName string, req
 
 // buildLoadTestUnstructured assembles the LoadTest object from the request,
 // defaulting metricsExport.step to "15s". The request is assumed already
-// validated (validatePerNodeLoad + validateMetricsExport run in the handler,
-// before any child resource is created).
+// validated (validateLoadTest runs in the handler, before any child resource
+// is created).
 func buildLoadTestUnstructured(ltName string, req *CreateLoadTestRequest) *unstructured.Unstructured {
 	step := req.MetricsExport.Step
 	if step == "" {

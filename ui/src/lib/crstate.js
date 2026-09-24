@@ -130,7 +130,7 @@ const REASONS = {
   // the provisioning row spins forever (293bf21)
   JobCreationFailed:  { label: 'Could not create the provisioning Job', tone: 'error' },
   CheckFailed:        { label: 'Readiness could not be evaluated', tone: 'error' },
-  // degraded / waiting — the operator retries these with a bound
+  // degraded / waiting — the operator keeps retrying these
   FetchFailed:        { label: 'No status from a generator, retrying', tone: 'warn' },
   ApplyFailed:        { label: 'TestRun apply failed, retrying', tone: 'warn' },
   StaleCleanupFailed: { label: 'Previous TestRun cleanup failed, retrying', tone: 'warn' },

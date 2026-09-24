@@ -91,7 +91,7 @@ for (const r of ['AnsibleFailed', 'HelmFailed', 'InfraFailed', 'Failed', 'Dispat
 for (const r of ['CheckFailed', 'JobCreationFailed']) {
   assert.equal(reason(r).tone, 'error', `${r} needs a human; a spinner would never stop`);
 }
-// ...while a reason the operator retries with a bound must not claim the
+// ...while a reason the operator keeps retrying on its own must not claim the
 // object is dead.
 for (const r of ['RunnersUnreclaimed', 'FetchFailed', 'ApplyFailed', 'StaleCleanupFailed', 'ScriptMirrorFailed']) {
   assert.notEqual(reason(r).tone, 'error', `${r} is retried by the operator; it must not render as dead`);
