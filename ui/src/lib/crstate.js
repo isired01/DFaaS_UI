@@ -65,15 +65,15 @@ export const lt = {
    *  not delete still counts. Takes the summary, not just the phase. */
   occupying: (t) => t.phase === 'Running' || t.phase === 'Exporting' ||
     ((t.phase === '' || t.phase === 'Pending') && !t.suspended) || !!t.runnersUnreclaimed,
-  /** Why Edit is refused: every test in `tests` that occupies the Environment,
-   *  each with its own remedy, or '' when none does. Same labels as the
-   *  gateway's 409 (activeLoadTestNames): change both together. */
+  /** Why Edit and Delete are refused: every test in `tests` that occupies the
+   *  Environment, each with its own remedy, or '' when none does. Same labels
+   *  as the gateway's 409 (activeLoadTestNames): change both together. */
   holdReason: (tests) => {
     const held = tests.filter(lt.occupying).map((t) => (t.runnersUnreclaimed
       ? `${t.name} (${t.phase}, runners not reclaimed: delete the test to release the Environment, up to 2 min)`
       : `${t.name} (${t.phase})`));
     return held.length === 0 ? ''
-      : `Cannot edit the Environment while load tests hold it: ${held.join(', ')}. Abort or wait for the running ones, delete the ones noted.`;
+      : `Cannot edit or delete the Environment while load tests hold it: ${held.join(', ')}. Abort or wait for the running ones, delete the ones noted.`;
   },
   /** Deleting a running or exporting test throws away the run or its export. */
   deletable: (p) => p !== 'Running' && p !== 'Exporting',

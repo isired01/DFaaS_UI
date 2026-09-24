@@ -2,12 +2,14 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
 	"github.com/gin-gonic/gin"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -216,5 +218,103 @@ func TestValidateEnvNodesRequiresBothRoles(t *testing.T) {
 	}
 	if err := validateEnvNodes([]NodeInfo{gen}); err == nil {
 		t.Error("generator-only node list accepted; expected a missing-worker error")
+	}
+}
+
+func deleteEnv(t *testing.T, h *Handler) *httptest.ResponseRecorder {
+	t.Helper()
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.DELETE("/environments/:namespace/:name", h.DeleteEnvironment)
+	req := httptest.NewRequest(http.MethodDelete, "/environments/default/env-demo", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	return w
+}
+
+func envExists(t *testing.T, h *Handler) bool {
+	t.Helper()
+	_, err := h.client.Resource(EnvironmentGVR).Namespace("default").Get(context.Background(), "env-demo", metav1.GetOptions{})
+	return err == nil
+}
+
+// Deleting an Environment aborts the tests that hold it and deletes every
+// LoadTest it owns: refused like an edit while one holds it.
+func TestDeleteEnvironmentRejectsWhileLoadTestActive(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		phase string
+		conds []map[string]interface{}
+	}{
+		{"running", "Running", nil},
+		{"exporting", "Exporting", nil},
+		{"pending not suspended", "Pending", nil},
+		{"failed with runners unreclaimed", "Failed", []map[string]interface{}{k6Healthy("RunnersUnreclaimed")}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := guardHandler(envObj("env-demo"), loadTestObj("lt-1", "env-demo", tc.phase, false, tc.conds...))
+			w := deleteEnv(t, h)
+			if w.Code != http.StatusConflict || !bytes.Contains(w.Body.Bytes(), []byte("lt-1")) {
+				t.Fatalf("got %d %s, want 409 naming lt-1", w.Code, w.Body.String())
+			}
+			if !envExists(t, h) {
+				t.Error("the Environment was deleted despite the 409")
+			}
+		})
+	}
+}
+
+func TestDeleteEnvironmentAllowsWhenNoLoadTestActive(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		phase     string
+		suspended bool
+	}{
+		{"completed", "Completed", false},
+		{"aborted", "Aborted", false},
+		{"pending but suspended", "Pending", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := guardHandler(envObj("env-demo"), loadTestObj("lt-1", "env-demo", tc.phase, tc.suspended))
+			if w := deleteEnv(t, h); w.Code != http.StatusOK {
+				t.Fatalf("got %d %s, want 200", w.Code, w.Body.String())
+			}
+			if envExists(t, h) {
+				t.Error("the Environment is still there")
+			}
+		})
+	}
+}
+
+// Same labels as the edit 409 (and lt.holdReason); only the verb differs.
+func TestDeleteEnvironmentNamesTheRemedyPerTest(t *testing.T) {
+	h := guardHandler(envObj("env-demo"),
+		loadTestObj("lt-1", "env-demo", "Running", false),
+		loadTestObj("lt-2", "env-demo", "Failed", false, k6Healthy("RunnersUnreclaimed")))
+	w := deleteEnv(t, h)
+	want := `{"error":"environment is held by load tests: lt-1 (Running), lt-2 (Failed, runners not reclaimed: ` +
+		`delete the test to release the Environment, up to 2 min); abort or wait for the running ones, ` +
+		`delete the ones noted, before deleting the Environment"}`
+	if w.Code != http.StatusConflict || w.Body.String() != want {
+		t.Fatalf("got %d %s\nwant 409 %s", w.Code, w.Body.String(), want)
+	}
+}
+
+func TestDeleteEnvironmentAnswers404ForAMissingOne(t *testing.T) {
+	if w := deleteEnv(t, guardHandler()); w.Code != http.StatusNotFound {
+		t.Fatalf("got %d %s, want 404", w.Code, w.Body.String())
+	}
+}
+
+// A second click while the operator drains: the tests it is aborting still
+// count as holding the Environment, and a 409 would read as a refusal.
+func TestDeleteEnvironmentAlreadyInProgressIsNotAConflict(t *testing.T) {
+	env := envObj("env-demo")
+	now := metav1.Now()
+	env.SetDeletionTimestamp(&now)
+	h := guardHandler(env, loadTestObj("lt-1", "env-demo", "Running", false))
+	w := deleteEnv(t, h)
+	if w.Code != http.StatusOK || !bytes.Contains(w.Body.Bytes(), []byte("already in progress")) {
+		t.Fatalf("got %d %s, want 200 'already in progress'", w.Code, w.Body.String())
 	}
 }

@@ -120,7 +120,7 @@ assert.equal(
     { name: 'lt-0', phase: 'Completed' },
     { name: 'lt-2', phase: 'Failed', runnersUnreclaimed: true },
   ]),
-  'Cannot edit the Environment while load tests hold it: lt-1 (Running), lt-2 (Failed, runners not reclaimed: ' +
+  'Cannot edit or delete the Environment while load tests hold it: lt-1 (Running), lt-2 (Failed, runners not reclaimed: ' +
   'delete the test to release the Environment, up to 2 min). Abort or wait for the running ones, delete the ones noted.',
 );
 // Deleting a running or exporting test throws away the run or its export.

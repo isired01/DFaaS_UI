@@ -127,9 +127,7 @@ func (h *Handler) UpdateEnvironment(c *gin.Context) {
 		return
 	}
 	if active := activeLoadTestNames(lts.Items, namespace, name); len(active) > 0 {
-		c.JSON(http.StatusConflict, gin.H{"error": fmt.Sprintf(
-			"environment is held by load tests: %s; abort or wait for the running ones, delete the ones noted, before editing the Environment",
-			strings.Join(active, ", "))})
+		c.JSON(http.StatusConflict, gin.H{"error": heldByMessage(active, "editing")})
 		return
 	}
 
@@ -175,10 +173,19 @@ func (h *Handler) UpdateEnvironment(c *gin.Context) {
 	})
 }
 
+// heldByMessage is the 409 for an edit or a delete refused while load tests
+// hold the Environment. The labels come from activeLoadTestNames, the same
+// ones the SPA's lt.holdReason prints.
+func heldByMessage(active []string, doing string) string {
+	return fmt.Sprintf("environment is held by load tests: %s; abort or wait for the running ones, "+
+		"delete the ones noted, before %s the Environment", strings.Join(active, ", "), doing)
+}
+
 // activeLoadTestNames returns "<name> (<phase>)" for every LoadTest in items
 // that targets namespace/envName and still holds it, with the remedy appended
-// for a test whose runners were not reclaimed. The SPA's lt.holdReason
-// (ui/src/lib/crstate.js) prints the same labels: change both together.
+// for a test whose runners were not reclaimed. Gates both UpdateEnvironment
+// and DeleteEnvironment. The SPA's lt.holdReason (ui/src/lib/crstate.js)
+// prints the same labels: change both together.
 //
 // Running and Exporting are self-evident. Pending counts too, because dispatch
 // is imminent and a repave mid-dispatch is just as destructive — except when
@@ -215,6 +222,10 @@ func activeLoadTestNames(items []unstructured.Unstructured, namespace, envName s
 	return active
 }
 
+// DeleteEnvironment deletes an Environment: 200 on success or when a deletion
+// is already in progress, 404 when it does not exist, 409 while a load test
+// holds it (activeLoadTestNames). The operator's finalizer would abort that
+// test and delete every LoadTest the Environment owns, finished ones included.
 func (h *Handler) DeleteEnvironment(c *gin.Context) {
 	namespace := c.Param("namespace")
 	name := c.Param("name")
@@ -222,12 +233,43 @@ func (h *Handler) DeleteEnvironment(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
 	defer cancel()
 
-	err := h.client.Resource(EnvironmentGVR).Namespace(namespace).Delete(ctx, name, metav1.DeleteOptions{})
+	envs := h.client.Resource(EnvironmentGVR).Namespace(namespace)
+	env, err := envs.Get(ctx, name, metav1.GetOptions{})
 	if err != nil {
 		writeK8sError(c, err, fmt.Sprintf("environment '%s/%s'", namespace, name))
 		return
 	}
+	// A second click while the finalizer drains: the tests it is aborting
+	// still count as holding the Environment.
+	if env.GetDeletionTimestamp() != nil {
+		c.JSON(http.StatusOK, gin.H{"message": fmt.Sprintf("environment '%s/%s' deletion already in progress", namespace, name)})
+		return
+	}
 
+	lts, err := h.client.Resource(LoadTestGVR).Namespace(namespace).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("list loadtests: %v", err)})
+		return
+	}
+	if active := activeLoadTestNames(lts.Items, namespace, name); len(active) > 0 {
+		c.JSON(http.StatusConflict, gin.H{"error": heldByMessage(active, "deleting")})
+		return
+	}
+
+	// Background, stated explicitly: the operator's finalizer drains the
+	// Environment's LoadTests before it prunes the kubeconfig Secrets they
+	// need, and foreground propagation would let GC delete those Secrets in
+	// parallel. The UID precondition keeps a same-named Environment recreated
+	// since the Get from being deleted.
+	bg := metav1.DeletePropagationBackground
+	uid := env.GetUID()
+	if err := envs.Delete(ctx, name, metav1.DeleteOptions{
+		PropagationPolicy: &bg,
+		Preconditions:     &metav1.Preconditions{UID: &uid},
+	}); err != nil {
+		writeK8sError(c, err, fmt.Sprintf("environment '%s/%s'", namespace, name))
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{"message": fmt.Sprintf("environment '%s/%s' deletion requested", namespace, name)})
 }
 

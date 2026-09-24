@@ -40,7 +40,7 @@ export default function EnvironmentDetail() {
   };
 
   const handleDelete = async () => {
-    if (!confirm(`Delete environment '${name}'? The VMs are left running — the finalizer only removes the operator's own resources.`)) return;
+    if (!confirm(`Delete environment '${name}'? Its load tests, finished ones included, are deleted with it. The VMs are left running — the finalizer only removes the operator's own resources.`)) return;
     setDeleting(true);
     try {
       await deleteEnvironment(namespace, name);
@@ -68,12 +68,13 @@ export default function EnvironmentDetail() {
   const observedGen = environment.observedGeneration ?? 0;
   const isUpdating = observedGen > 0 && gen > observedGen;
 
-  // Mirrors activeLoadTestNames in the gateway: any Environment edit re-runs
-  // Ansible on every node, and a role change wipes the node outright, so the
-  // gateway answers 409 while any test still holds the Environment. Shown as
-  // text under the header, with Edit disabled for mouse and keyboard alike, so
-  // the user sees why instead of meeting that 409 after filling in the form.
-  const editBlockReason = isUpdating
+  // Any edit or delete while a test holds the Environment is refused by the
+  // gateway with 409 (activeLoadTestNames): any Environment edit re-runs
+  // Ansible on every node, a role change wipes the node outright, and a
+  // delete would abort the test through the operator's finalizer. Shown as
+  // text under the header, with Edit and Delete disabled for mouse and
+  // keyboard alike, so the user sees why instead of meeting that 409.
+  const blockReason = isUpdating
     ? 'Update in progress — wait for reconcile to settle'
     : ltState.holdReason(loadtests || []);
 
@@ -107,8 +108,8 @@ export default function EnvironmentDetail() {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            {editBlockReason ? (
-              <button type="button" disabled aria-describedby="edit-block-reason" className="btn-secondary disabled:opacity-50 disabled:cursor-not-allowed" id="edit-environment-btn">
+            {blockReason ? (
+              <button type="button" disabled aria-describedby="env-block-reason" className="btn-secondary disabled:opacity-50 disabled:cursor-not-allowed" id="edit-environment-btn">
                 <Pencil className="w-4 h-4" />
                 Edit
               </button>
@@ -127,16 +128,22 @@ export default function EnvironmentDetail() {
               <Download className="w-4 h-4" />
               Download YAML
             </button>
-            <button onClick={handleDelete} disabled={deleting || isUpdating} className="btn-secondary text-red-400 hover:text-red-300" id="delete-environment-btn" title={isUpdating ? 'Cannot delete while update in progress' : ''}>
+            <button
+              onClick={handleDelete}
+              disabled={deleting || !!blockReason}
+              aria-describedby={blockReason ? 'env-block-reason' : undefined}
+              className="btn-secondary text-red-400 hover:text-red-300 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:text-red-400"
+              id="delete-environment-btn"
+            >
               <Trash2 className="w-4 h-4" />
               {deleting ? 'Deleting...' : 'Delete'}
             </button>
           </div>
         </div>
-        {editBlockReason && (
-          <div className={`mt-4 p-3 rounded-xl border text-sm flex items-start gap-2 ${tonePanel('warn')}`} id="edit-block-reason">
+        {blockReason && (
+          <div className={`mt-4 p-3 rounded-xl border text-sm flex items-start gap-2 ${tonePanel('warn')}`} id="env-block-reason">
             <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" />
-            <span>{editBlockReason}</span>
+            <span>{blockReason}</span>
           </div>
         )}
       </div>

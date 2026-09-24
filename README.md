@@ -179,11 +179,12 @@ the same rules as the form.
   every DFaaS node deploys at least one function; function names use lowercase letters and digits
   only (no `-` or `_`); every function names an image; function tuning fields are not negative.
 
-Editing an Environment is refused with **409** while one of its tests is `Running`, `Exporting`,
-started and waiting to dispatch, or ended with its runners not reclaimed (`K6Healthy` reason
-`RunnersUnreclaimed`: delete the test to release the Environment). Every edit counts, `s3ConfigRef`
-included, because any spec change re-runs provisioning on every node. Drafts and armed schedules do
-not block the edit.
+Editing **or deleting** an Environment is refused with **409** while one of its tests is `Running`,
+`Exporting`, started and waiting to dispatch, or ended with its runners not reclaimed (`K6Healthy`
+reason `RunnersUnreclaimed`: delete the test to release the Environment). Every edit counts,
+`s3ConfigRef` included, because any spec change re-runs provisioning on every node. Drafts and armed
+schedules do not block the edit. A second delete while the operator's finalizer is already draining
+the Environment answers **200**, not another 409.
 
 ## Load-test progress
 
