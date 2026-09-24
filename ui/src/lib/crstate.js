@@ -56,11 +56,12 @@ export const lt = {
   /** The operator still honours spec.stop: a queued or draft test is abortable,
    *  not just a running one — but an Exporting one is past the point. */
   abortable: (p) => p === '' || p === 'Pending' || p === 'Running',
-  /** Owns its generators right now, so a node edit would destroy it. Same rule
+  /** Holds its Environment right now, so an edit would destroy it. Same rule
    *  the gateway enforces (activeLoadTestNames): a suspended Pending test is
-   *  parked and owns nothing. Takes the summary, not just the phase. */
+   *  parked and owns nothing; a terminal test whose runners the operator could
+   *  not delete still counts. Takes the summary, not just the phase. */
   occupying: (t) => t.phase === 'Running' || t.phase === 'Exporting' ||
-    ((t.phase === '' || t.phase === 'Pending') && !t.suspended),
+    ((t.phase === '' || t.phase === 'Pending') && !t.suspended) || !!t.runnersUnreclaimed,
   /** Deleting a running or exporting test throws away the run or its export. */
   deletable: (p) => p !== 'Running' && p !== 'Exporting',
 };

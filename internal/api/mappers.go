@@ -125,6 +125,17 @@ func mapLoadTestSummary(item unstructured.Unstructured) LoadTestSummary {
 		}
 	}
 
+	// Same predicate as the operator's runnersUnreclaimed (loadtest_end.go),
+	// on which its Occupancy keeps holding the Environment.
+	switch s.Phase {
+	case "Completed", "Failed", "Aborted":
+		for _, c := range mapConditions(item.Object) {
+			if c.Type == "K6Healthy" && c.Reason == "RunnersUnreclaimed" {
+				s.RunnersUnreclaimed = true
+			}
+		}
+	}
+
 	return s
 }
 

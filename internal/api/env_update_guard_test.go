@@ -14,7 +14,15 @@ import (
 	dynamicfake "k8s.io/client-go/dynamic/fake"
 )
 
-func loadTestObj(name, targetEnv, phase string, suspended bool) *unstructured.Unstructured {
+func loadTestObj(name, targetEnv, phase string, suspended bool, conds ...map[string]interface{}) *unstructured.Unstructured {
+	status := map[string]interface{}{"phase": phase}
+	if len(conds) > 0 {
+		list := make([]interface{}, len(conds))
+		for i, c := range conds {
+			list[i] = c
+		}
+		status["conditions"] = list
+	}
 	return &unstructured.Unstructured{Object: map[string]interface{}{
 		"apiVersion": "dfaas.dfaas.io/v1",
 		"kind":       "LoadTest",
@@ -23,8 +31,12 @@ func loadTestObj(name, targetEnv, phase string, suspended bool) *unstructured.Un
 			"targetEnvironment": targetEnv,
 			"suspended":         suspended,
 		},
-		"status": map[string]interface{}{"phase": phase},
+		"status": status,
 	}}
+}
+
+func k6Healthy(reason string) map[string]interface{} {
+	return map[string]interface{}{"type": "K6Healthy", "status": "False", "reason": reason}
 }
 
 func envObj(name string) *unstructured.Unstructured {
@@ -82,13 +94,19 @@ func TestUpdateEnvironmentRejectsWhileLoadTestActive(t *testing.T) {
 		name      string
 		phase     string
 		suspended bool
+		conds     []map[string]interface{}
 	}{
-		{"running", "Running", false},
-		{"exporting", "Exporting", false},
-		{"pending not suspended", "Pending", false},
+		{"running", "Running", false, nil},
+		{"exporting", "Exporting", false, nil},
+		{"pending not suspended", "Pending", false, nil},
+		// The operator's Occupancy still holds the Environment on a terminal
+		// test whose runner could not be deleted (runnersUnreclaimed in
+		// loadtest_end.go): that runner may still be loading the nodes.
+		{"failed with runners unreclaimed", "Failed", false, []map[string]interface{}{k6Healthy("RunnersUnreclaimed")}},
+		{"aborted with runners unreclaimed", "Aborted", false, []map[string]interface{}{k6Healthy("RunnersUnreclaimed")}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			h := guardHandler(envObj("env-demo"), loadTestObj("lt-1", "env-demo", tc.phase, tc.suspended))
+			h := guardHandler(envObj("env-demo"), loadTestObj("lt-1", "env-demo", tc.phase, tc.suspended, tc.conds...))
 			w := patchEnv(t, h, map[string]interface{}{"spec": map[string]interface{}{"nodes": twoRoleNodes()}})
 			if w.Code != http.StatusConflict {
 				t.Fatalf("got %d, want 409; body=%s", w.Code, w.Body.String())
@@ -107,14 +125,16 @@ func TestUpdateEnvironmentAllowsWhenNoLoadTestActive(t *testing.T) {
 		name      string
 		phase     string
 		suspended bool
+		conds     []map[string]interface{}
 	}{
-		{"completed", "Completed", false},
-		{"failed", "Failed", false},
-		{"aborted", "Aborted", false},
-		{"pending but suspended", "Pending", true},
+		{"completed", "Completed", false, nil},
+		{"failed", "Failed", false, nil},
+		{"aborted", "Aborted", false, nil},
+		{"pending but suspended", "Pending", true, nil},
+		{"failed with runners reclaimed", "Failed", false, []map[string]interface{}{k6Healthy("RunnersReclaimed")}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			h := guardHandler(envObj("env-demo"), loadTestObj("lt-1", "env-demo", tc.phase, tc.suspended))
+			h := guardHandler(envObj("env-demo"), loadTestObj("lt-1", "env-demo", tc.phase, tc.suspended, tc.conds...))
 			w := patchEnv(t, h, map[string]interface{}{"spec": map[string]interface{}{"nodes": twoRoleNodes()}})
 			if w.Code != http.StatusAccepted {
 				t.Fatalf("got %d, want 202; body=%s", w.Code, w.Body.String())

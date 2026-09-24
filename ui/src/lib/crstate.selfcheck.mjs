@@ -102,6 +102,10 @@ for (const r of ['RunnersUnreclaimed', 'FetchFailed', 'ApplyFailed', 'StaleClean
 // not admitted yet (""), and so must the SPA.
 assert.equal(lt.occupying({ phase: '', suspended: false }), true);
 assert.equal(lt.occupying({ phase: '', suspended: true }), false);
+// A terminal test whose runners the operator could not delete still holds the
+// Environment (operator runnersUnreclaimed, gateway activeLoadTestNames).
+assert.equal(lt.occupying({ phase: 'Aborted', runnersUnreclaimed: true }), true);
+assert.equal(lt.occupying({ phase: 'Completed' }), false);
 // Deleting a running or exporting test throws away the run or its export.
 for (const p of ['Running', 'Exporting']) assert.equal(lt.deletable(p), false, `${p} is not deletable`);
 for (const p of ['', 'Pending', 'Completed', 'Failed', 'Aborted']) assert.equal(lt.deletable(p), true, `${p} is deletable`);

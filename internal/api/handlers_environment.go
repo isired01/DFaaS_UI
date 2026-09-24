@@ -179,6 +179,10 @@ func (h *Handler) UpdateEnvironment(c *gin.Context) {
 // is imminent and a repave mid-dispatch is just as destructive — except when
 // the test is suspended, which means it is parked waiting for /activate and
 // owns nothing; blocking edits on those would block them indefinitely.
+//
+// A terminal test counts while its runners are unreclaimed: a remote runner
+// the run end could not delete may still be loading the nodes, and the
+// operator's Occupancy holds the Environment on it too.
 func activeLoadTestNames(items []unstructured.Unstructured, namespace, envName string) []string {
 	var active []string
 	for _, item := range items {
@@ -194,6 +198,11 @@ func activeLoadTestNames(items []unstructured.Unstructured, namespace, envName s
 				continue
 			}
 		default:
+			if s.RunnersUnreclaimed {
+				active = append(active, fmt.Sprintf(
+					"%s (%s, runners not reclaimed: delete the test to release the Environment, up to 2 min)",
+					s.Name, s.Phase))
+			}
 			continue
 		}
 		active = append(active, fmt.Sprintf("%s (%s)", s.Name, s.Phase))

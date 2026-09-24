@@ -77,7 +77,9 @@ export default function EnvironmentDetail() {
   const editBlockReason = isUpdating
     ? 'Update in progress — wait for reconcile to settle'
     : activeLoadtests.length > 0
-      ? `Cannot edit nodes while a load test is active: ${activeLoadtests.map(lt => `${lt.name} (${lt.phase})`).join(', ')}. Abort it or wait for it to finish.`
+      ? `Cannot edit nodes while a load test is active: ${activeLoadtests.map(lt => lt.runnersUnreclaimed
+          ? `${lt.name} (${lt.phase}, runners not reclaimed: delete the test to release the Environment, up to 2 min)`
+          : `${lt.name} (${lt.phase})`).join(', ')}. Abort it or wait for it to finish.`
       : '';
 
   return (

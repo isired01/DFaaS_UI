@@ -187,6 +187,44 @@ func TestProjectionsNeverLeakGoFormatting(t *testing.T) {
 	}
 }
 
+// runnersUnreclaimed mirrors the operator's predicate of the same name
+// (loadtest_end.go): a terminal phase AND K6Healthy reason RunnersUnreclaimed.
+func TestMapLoadTestSummaryRunnersUnreclaimed(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		phase string
+		conds []interface{}
+		want  bool
+	}{
+		{"aborted with the reason", "Aborted", []interface{}{
+			map[string]interface{}{"type": "K6Healthy", "status": "False", "reason": "RunnersUnreclaimed"},
+		}, true},
+		{"no conditions", "Aborted", nil, false},
+		// Only the terminal check keeps a stale reason on a live test out.
+		{"running with the reason", "Running", []interface{}{
+			map[string]interface{}{"type": "K6Healthy", "status": "False", "reason": "RunnersUnreclaimed"},
+		}, false},
+		{"reason on another condition type", "Failed", []interface{}{
+			map[string]interface{}{"type": "Ready", "status": "False", "reason": "RunnersUnreclaimed"},
+		}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			status := map[string]interface{}{"phase": tc.phase}
+			if tc.conds != nil {
+				status["conditions"] = tc.conds
+			}
+			obj := unstructured.Unstructured{Object: map[string]interface{}{
+				"metadata": map[string]interface{}{"name": "lt", "namespace": "default"},
+				"spec":     map[string]interface{}{"targetEnvironment": "bari"},
+				"status":   status,
+			}}
+			if got := mapLoadTestSummary(obj).RunnersUnreclaimed; got != tc.want {
+				t.Errorf("RunnersUnreclaimed = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestMapLoadTestDetailConditions(t *testing.T) {
 	obj := &unstructured.Unstructured{Object: map[string]interface{}{
 		"metadata": map[string]interface{}{"name": "lt", "namespace": "default"},
