@@ -51,8 +51,11 @@ const LT_PHASES = {
 export const lt = {
   /** Reached an end state; nothing will change without user action. */
   terminal: (p) => p === 'Completed' || p === 'Failed' || p === 'Aborted',
-  /** Worth polling: everything that is not terminal (incl. the '' first tick). */
+  /** Everything that is not terminal (incl. the '' first tick). */
   inFlight: (p) => !lt.terminal(p),
+  /** Worth polling: in flight, or terminal with runners unreclaimed, which the
+   *  operator's retry later restamps RunnersReclaimed. Takes the summary. */
+  changing: (t) => lt.inFlight(t.phase) || !!t.runnersUnreclaimed,
   /** The operator still honours spec.stop: a queued or draft test is abortable,
    *  not just a running one — but an Exporting one is past the point. */
   abortable: (p) => p === '' || p === 'Pending' || p === 'Running',

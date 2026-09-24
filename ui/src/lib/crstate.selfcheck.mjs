@@ -106,6 +106,11 @@ assert.equal(lt.occupying({ phase: '', suspended: true }), false);
 // Environment (operator runnersUnreclaimed, gateway activeLoadTestNames).
 assert.equal(lt.occupying({ phase: 'Aborted', runnersUnreclaimed: true }), true);
 assert.equal(lt.occupying({ phase: 'Completed' }), false);
+// The detail page keeps polling a test the operator may still restamp: a
+// terminal test with unreclaimed runners moves to RunnersReclaimed on retry.
+assert.equal(lt.changing({ phase: 'Failed', runnersUnreclaimed: true }), true);
+assert.equal(lt.changing({ phase: 'Completed' }), false);
+assert.equal(lt.changing({ phase: 'Running' }), true);
 // Deleting a running or exporting test throws away the run or its export.
 for (const p of ['Running', 'Exporting']) assert.equal(lt.deletable(p), false, `${p} is not deletable`);
 for (const p of ['', 'Pending', 'Completed', 'Failed', 'Aborted']) assert.equal(lt.deletable(p), true, `${p} is deletable`);
