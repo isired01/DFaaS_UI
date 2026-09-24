@@ -119,6 +119,31 @@ spec:
 	}
 }
 
+// A missing Environment is a missing resource on both paths, not a bad body.
+func TestBothCreatePathsAnswer404ForAMissingEnvironment(t *testing.T) {
+	const want = "environment 'default/env-demo' not found"
+	raw, _ := json.Marshal(validLoadTestRequest())
+	w := post(t, guardHandler(), "/loadtests", "application/json", raw)
+	if w.Code != http.StatusNotFound || !strings.Contains(w.Body.String(), want) {
+		t.Errorf("JSON path: %d %s, want 404 with %q", w.Code, w.Body.String(), want)
+	}
+
+	yamlDoc := `apiVersion: dfaas.dfaas.io/v1
+kind: LoadTest
+metadata: {name: lt-yaml, namespace: default}
+spec:
+  targetEnvironment: env-demo
+  perNodeLoad:
+  - {nodeID: gen-a, vus: 1, duration: 30s, scriptConfigMap: {name: s}}
+  metricsExport:
+    metrics: [{type: raw, query: up}]
+`
+	w = post(t, guardHandler(), "/loadtests/yaml", "application/yaml", []byte(yamlDoc))
+	if w.Code != http.StatusNotFound || !strings.Contains(w.Body.String(), want) {
+		t.Errorf("YAML path: %d %s, want 404 with %q", w.Code, w.Body.String(), want)
+	}
+}
+
 func TestYAMLImportEnforcesMinVUs(t *testing.T) {
 	yamlDoc := `apiVersion: dfaas.dfaas.io/v1
 kind: LoadTest
