@@ -18,12 +18,12 @@ export function emptyMetric() {
 //   1. The pod selector is `dfaas-agent.*`. The old `dfaas-node-.*` matched ZERO
 //      series, so the shipped defaults exported nothing and the exporter failed
 //      the whole LoadTest on an empty CSV.
-//   2. Rate windows are [5m], not [1m]. The management Prometheus does not scrape
-//      the workers directly — it federates from each worker's Prometheus once a
-//      minute (the chart default global.scrape_interval). A [1m] window therefore
-//      holds at most one sample and rate() needs two, so every rate([1m]) query
-//      silently returned no data while plain gauges kept working. Keep rate
-//      windows at >= 4x the federation interval, and raise them if it is raised.
+//   2. Rate windows are [5m]. The management Prometheus does not scrape the
+//      workers directly — it federates from each worker's Prometheus every 15 s
+//      (server.global.scrape_interval in the operator's prometheus-values.yaml).
+//      rate() needs two samples inside its window, or it silently returns no
+//      data while plain gauges keep working. Keep rate windows at >= 4x the
+//      federation interval, and raise them if it is raised.
 export const DEFAULT_METRICS = [
   { type: 'custom-promql', metricName: 'cpu_dfaas_pods', query: 'sum(rate(container_cpu_usage_seconds_total{pod=~"dfaas-agent.*"}[5m])) by (pod)', comment: 'CPU rate per DFaaS pod' },
   { type: 'custom-promql', metricName: 'memory_dfaas_pods', query: 'sum(container_memory_working_set_bytes{pod=~"dfaas-agent.*"}) by (pod)', comment: 'Working set memory per DFaaS pod' },

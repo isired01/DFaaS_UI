@@ -111,7 +111,8 @@ func (h *Handler) UpdateEnvironment(c *gin.Context) {
 	// what actually changed. Since a role change now wipes the node's k3s
 	// outright (the repave block in the playbooks), doing that under a live
 	// experiment destroys it. Neither the CRD nor the operator guards this, so
-	// the gateway is the gate. s3ConfigRef-only patches are unaffected.
+	// the gateway is the gate. s3ConfigRef-only patches skip this guard, though
+// they bump the generation too and so re-provision the Environment.
 	if req.Spec.Nodes != nil || req.Spec.Topology != nil {
 		ltCtx, ltCancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
 		defer ltCancel()
