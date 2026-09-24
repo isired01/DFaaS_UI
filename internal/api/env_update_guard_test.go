@@ -118,6 +118,22 @@ func TestUpdateEnvironmentRejectsWhileLoadTestActive(t *testing.T) {
 	}
 }
 
+// Each entry carries its own remedy: a finished test with runners not
+// reclaimed cannot be aborted, only deleted (or waited on). Same text as
+// lt.holdReason in ui/src/lib/crstate.js: change both together.
+func TestUpdateEnvironmentNamesTheRemedyPerTest(t *testing.T) {
+	h := guardHandler(envObj("env-demo"),
+		loadTestObj("lt-1", "env-demo", "Running", false),
+		loadTestObj("lt-2", "env-demo", "Failed", false, k6Healthy("RunnersUnreclaimed")))
+	w := patchEnv(t, h, map[string]interface{}{"spec": map[string]interface{}{"nodes": twoRoleNodes()}})
+	want := `{"error":"environment is held by load tests: lt-1 (Running), lt-2 (Failed, runners not reclaimed: ` +
+		`delete the test to release the Environment, up to 2 min); abort or wait for the running ones, ` +
+		`delete the ones noted, before editing the Environment"}`
+	if w.Code != http.StatusConflict || w.Body.String() != want {
+		t.Fatalf("got %d %s\nwant 409 %s", w.Code, w.Body.String(), want)
+	}
+}
+
 // A suspended Pending test is parked waiting for /activate and must not block
 // edits forever; terminal phases are done with the nodes entirely.
 func TestUpdateEnvironmentAllowsWhenNoLoadTestActive(t *testing.T) {

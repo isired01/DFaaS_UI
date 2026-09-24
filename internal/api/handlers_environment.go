@@ -128,7 +128,7 @@ func (h *Handler) UpdateEnvironment(c *gin.Context) {
 	}
 	if active := activeLoadTestNames(lts.Items, namespace, name); len(active) > 0 {
 		c.JSON(http.StatusConflict, gin.H{"error": fmt.Sprintf(
-			"environment has active load tests: %s; abort them or wait for completion before editing the Environment",
+			"environment is held by load tests: %s; abort or wait for the running ones, delete the ones noted, before editing the Environment",
 			strings.Join(active, ", "))})
 		return
 	}
@@ -176,7 +176,9 @@ func (h *Handler) UpdateEnvironment(c *gin.Context) {
 }
 
 // activeLoadTestNames returns "<name> (<phase>)" for every LoadTest in items
-// that targets namespace/envName and still owns its k6 nodes.
+// that targets namespace/envName and still holds it, with the remedy appended
+// for a test whose runners were not reclaimed. The SPA's lt.holdReason
+// (ui/src/lib/crstate.js) prints the same labels: change both together.
 //
 // Running and Exporting are self-evident. Pending counts too, because dispatch
 // is imminent and a repave mid-dispatch is just as destructive — except when

@@ -9,7 +9,7 @@ import ProvisioningConditionRow from '../components/ProvisioningConditionRow';
 import LoadingSpinner from '../components/LoadingSpinner';
 import PageError from '../components/PageError';
 import { formatDateTime } from '../lib/format';
-import { env as envState, lt as ltState } from '../lib/crstate';
+import { env as envState, lt as ltState, tonePanel } from '../lib/crstate';
 import { useResource } from '../lib/useResource';
 
 export default function EnvironmentDetail() {
@@ -70,18 +70,12 @@ export default function EnvironmentDetail() {
 
   // Mirrors activeLoadTestNames in the gateway: any Environment edit re-runs
   // Ansible on every node, and a role change wipes the node outright, so the
-  // gateway answers 409 while any test still holds the Environment. Surfaced
-  // here so the user sees why Edit is unavailable instead of meeting that 409
-  // after filling in the whole form. Suspended Pending tests are parked and
-  // excluded; a terminal test with unreclaimed runners counts.
-  const activeLoadtests = (loadtests || []).filter(ltState.occupying);
+  // gateway answers 409 while any test still holds the Environment. Shown as
+  // text under the header, with Edit disabled for mouse and keyboard alike, so
+  // the user sees why instead of meeting that 409 after filling in the form.
   const editBlockReason = isUpdating
     ? 'Update in progress — wait for reconcile to settle'
-    : activeLoadtests.length > 0
-      ? `Cannot edit the Environment while a load test is active: ${activeLoadtests.map(lt => lt.runnersUnreclaimed
-          ? `${lt.name} (${lt.phase}, runners not reclaimed: delete the test to release the Environment, up to 2 min)`
-          : `${lt.name} (${lt.phase})`).join(', ')}. Abort it or wait for it to finish.`
-      : '';
+    : ltState.holdReason(loadtests || []);
 
   return (
     <div className="space-y-8 animate-fade-in">
@@ -113,16 +107,22 @@ export default function EnvironmentDetail() {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <Link
-              to={`/environments/${environment.namespace}/${environment.name}/edit`}
-              className={`btn-secondary ${editBlockReason ? 'opacity-50 pointer-events-none' : ''}`}
-              aria-disabled={editBlockReason ? 'true' : undefined}
-              title={editBlockReason || 'Edit spec (PATCH)'}
-              id="edit-environment-btn"
-            >
-              <Pencil className="w-4 h-4" />
-              Edit
-            </Link>
+            {editBlockReason ? (
+              <button type="button" disabled aria-describedby="edit-block-reason" className="btn-secondary disabled:opacity-50 disabled:cursor-not-allowed" id="edit-environment-btn">
+                <Pencil className="w-4 h-4" />
+                Edit
+              </button>
+            ) : (
+              <Link
+                to={`/environments/${environment.namespace}/${environment.name}/edit`}
+                className="btn-secondary"
+                title="Edit spec (PATCH)"
+                id="edit-environment-btn"
+              >
+                <Pencil className="w-4 h-4" />
+                Edit
+              </Link>
+            )}
             <button onClick={handleDownloadYAML} className="btn-secondary" id="download-environment-yaml-btn">
               <Download className="w-4 h-4" />
               Download YAML
@@ -133,6 +133,12 @@ export default function EnvironmentDetail() {
             </button>
           </div>
         </div>
+        {editBlockReason && (
+          <div className={`mt-4 p-3 rounded-xl border text-sm flex items-start gap-2 ${tonePanel('warn')}`} id="edit-block-reason">
+            <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+            <span>{editBlockReason}</span>
+          </div>
+        )}
       </div>
 
       {environment.phase === 'ProvisioningInfra' && (

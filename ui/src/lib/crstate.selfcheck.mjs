@@ -111,6 +111,18 @@ assert.equal(lt.occupying({ phase: 'Completed' }), false);
 assert.equal(lt.changing({ phase: 'Failed', runnersUnreclaimed: true }), true);
 assert.equal(lt.changing({ phase: 'Completed' }), false);
 assert.equal(lt.changing({ phase: 'Running' }), true);
+// The Edit notice names each test holding the Environment with its own
+// remedy. Same text as the gateway's 409 (activeLoadTestNames): change both.
+assert.equal(lt.holdReason([{ phase: 'Completed', name: 'lt-0' }]), '');
+assert.equal(
+  lt.holdReason([
+    { name: 'lt-1', phase: 'Running' },
+    { name: 'lt-0', phase: 'Completed' },
+    { name: 'lt-2', phase: 'Failed', runnersUnreclaimed: true },
+  ]),
+  'Cannot edit the Environment while load tests hold it: lt-1 (Running), lt-2 (Failed, runners not reclaimed: ' +
+  'delete the test to release the Environment, up to 2 min). Abort or wait for the running ones, delete the ones noted.',
+);
 // Deleting a running or exporting test throws away the run or its export.
 for (const p of ['Running', 'Exporting']) assert.equal(lt.deletable(p), false, `${p} is not deletable`);
 for (const p of ['', 'Pending', 'Completed', 'Failed', 'Aborted']) assert.equal(lt.deletable(p), true, `${p} is deletable`);
