@@ -68,16 +68,17 @@ export default function EnvironmentDetail() {
   const observedGen = environment.observedGeneration ?? 0;
   const isUpdating = observedGen > 0 && gen > observedGen;
 
-  // Mirrors activeLoadTestNames in the gateway: a node or topology edit re-runs
+  // Mirrors activeLoadTestNames in the gateway: any Environment edit re-runs
   // Ansible on every node, and a role change wipes the node outright, so the
-  // gateway answers 409 while any test still owns its generators. Surfaced here
-  // so the user sees why Edit is unavailable instead of meeting that 409 after
-  // filling in the whole form. Suspended Pending tests are parked and excluded.
+  // gateway answers 409 while any test still holds the Environment. Surfaced
+  // here so the user sees why Edit is unavailable instead of meeting that 409
+  // after filling in the whole form. Suspended Pending tests are parked and
+  // excluded; a terminal test with unreclaimed runners counts.
   const activeLoadtests = (loadtests || []).filter(ltState.occupying);
   const editBlockReason = isUpdating
     ? 'Update in progress — wait for reconcile to settle'
     : activeLoadtests.length > 0
-      ? `Cannot edit nodes while a load test is active: ${activeLoadtests.map(lt => lt.runnersUnreclaimed
+      ? `Cannot edit the Environment while a load test is active: ${activeLoadtests.map(lt => lt.runnersUnreclaimed
           ? `${lt.name} (${lt.phase}, runners not reclaimed: delete the test to release the Environment, up to 2 min)`
           : `${lt.name} (${lt.phase})`).join(', ')}. Abort it or wait for it to finish.`
       : '';

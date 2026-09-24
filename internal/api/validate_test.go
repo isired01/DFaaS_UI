@@ -179,7 +179,7 @@ func TestValidateEnvNodesMirrorsTheCRDNodeRules(t *testing.T) {
 	}
 }
 
-// The gateway's "would a node edit destroy this test" set must contain the
+// The gateway's "would an Environment edit destroy this test" set must contain the
 // operator's busy set: a non-suspended test not yet admitted ("") is about to
 // dispatch.
 func TestActiveLoadTestsCountAnUnadmittedTest(t *testing.T) {

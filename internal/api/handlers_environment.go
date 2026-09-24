@@ -80,7 +80,7 @@ func (h *Handler) CreateEnvironment(c *gin.Context) {
 // application/merge-patch+json. nodeID immutability for existing nodes is
 // enforced UI-side (form renders nodeID readOnly on existing nodes); the gateway
 // validates the node array shape (enum/required-fields/duplicates/role
-// composition) and refuses node or topology edits while a load test on this
+// composition) and refuses any spec edit while a load test on this
 // environment is still active — see the comment on that check below.
 func (h *Handler) UpdateEnvironment(c *gin.Context) {
 	namespace := c.Param("namespace")
@@ -105,29 +105,32 @@ func (h *Handler) UpdateEnvironment(c *gin.Context) {
 		}
 	}
 
-	// Editing spec.nodes or spec.topology bumps metadata.generation, and
-	// handleGenerationDrift then restarts the provisioning FSM from
+	// Every field this DTO carries bumps metadata.generation when it changes,
+	// and handleGenerationDrift then restarts the provisioning FSM from
 	// ProvisioningVMs and re-runs Ansible against every node — regardless of
-	// what actually changed. Since a role change now wipes the node's k3s
-	// outright (the repave block in the playbooks), doing that under a live
-	// experiment destroys it. Neither the CRD nor the operator guards this, so
-	// the gateway is the gate. s3ConfigRef-only patches skip this guard, though
-// they bump the generation too and so re-provision the Environment.
-	if req.Spec.Nodes != nil || req.Spec.Topology != nil {
-		ltCtx, ltCancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
-		defer ltCancel()
+	// what actually changed. A role change wipes the node's k3s outright (the
+	// repave block in the playbooks), and even an s3ConfigRef-only edit ends a
+	// dispatched test and redirects a running test's export. Neither the CRD
+	// nor the operator guards this, so the gateway is the gate, on every PATCH.
+	// It does not tell a no-op apart: an empty PATCH is also refused while a
+	// test is active.
+	//
+	// ansible.Classify already returns VerdictNone for s3-only and
+	// topology-only edits (ansible/snapshot.go), but drift does not use it yet.
+	// Once it does, this guard can let those edits through.
+	ltCtx, ltCancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
+	defer ltCancel()
 
-		lts, err := h.client.Resource(LoadTestGVR).Namespace(namespace).List(ltCtx, metav1.ListOptions{})
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("list loadtests: %v", err)})
-			return
-		}
-		if active := activeLoadTestNames(lts.Items, namespace, name); len(active) > 0 {
-			c.JSON(http.StatusConflict, gin.H{"error": fmt.Sprintf(
-				"environment has active load tests: %s; abort them or wait for completion before editing nodes or topology",
-				strings.Join(active, ", "))})
-			return
-		}
+	lts, err := h.client.Resource(LoadTestGVR).Namespace(namespace).List(ltCtx, metav1.ListOptions{})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("list loadtests: %v", err)})
+		return
+	}
+	if active := activeLoadTestNames(lts.Items, namespace, name); len(active) > 0 {
+		c.JSON(http.StatusConflict, gin.H{"error": fmt.Sprintf(
+			"environment has active load tests: %s; abort them or wait for completion before editing the Environment",
+			strings.Join(active, ", "))})
+		return
 	}
 
 	// Build the merge patch as a map so an explicit s3ConfigRef clear survives

@@ -98,7 +98,7 @@ for (const r of ['RunnersUnreclaimed', 'FetchFailed', 'ApplyFailed', 'StaleClean
 }
 
 // --- Occupancy and Delete ---------------------------------------------------
-// The gateway's node-edit guard counts a non-suspended test the operator has
+// The gateway's Environment-edit guard counts a non-suspended test the operator has
 // not admitted yet (""), and so must the SPA.
 assert.equal(lt.occupying({ phase: '', suspended: false }), true);
 assert.equal(lt.occupying({ phase: '', suspended: true }), false);

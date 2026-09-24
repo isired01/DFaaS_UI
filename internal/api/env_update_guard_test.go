@@ -153,15 +153,33 @@ func TestUpdateEnvironmentIgnoresOtherEnvironmentsLoadTests(t *testing.T) {
 	}
 }
 
-// The guard exists because node/topology edits re-run Ansible. A patch that
-// touches neither is harmless and must still go through.
-func TestUpdateEnvironmentAllowsS3OnlyPatchDuringActiveLoadTest(t *testing.T) {
-	h := guardHandler(envObj("env-demo"), loadTestObj("lt-1", "env-demo", "Running", false))
-	w := patchEnv(t, h, map[string]interface{}{"spec": map[string]interface{}{
-		"s3ConfigRef": map[string]interface{}{"name": "seaweedfs-default"},
-	}})
-	if w.Code != http.StatusAccepted {
-		t.Fatalf("got %d, want 202; body=%s", w.Code, w.Body.String())
+// Every spec edit bumps metadata.generation, and the operator re-provisions on
+// any generation drift: an s3ConfigRef-only patch re-runs Ansible just like a
+// node edit. So the guard covers every PATCH, and the s3 merge patch still goes
+// through once no test is active.
+func TestUpdateEnvironmentRejectsS3OnlyPatchDuringActiveLoadTest(t *testing.T) {
+	bodies := map[string]map[string]interface{}{
+		"set":   {"s3ConfigRef": map[string]interface{}{"name": "seaweedfs-default"}},
+		"clear": {"clearS3ConfigRef": true},
+	}
+	for name, spec := range bodies {
+		t.Run(name+" during active test", func(t *testing.T) {
+			h := guardHandler(envObj("env-demo"), loadTestObj("lt-1", "env-demo", "Running", false))
+			w := patchEnv(t, h, map[string]interface{}{"spec": spec})
+			if w.Code != http.StatusConflict {
+				t.Fatalf("got %d, want 409; body=%s", w.Code, w.Body.String())
+			}
+			if !bytes.Contains(w.Body.Bytes(), []byte("lt-1")) {
+				t.Errorf("409 body does not name the offending load test: %s", w.Body.String())
+			}
+		})
+		t.Run(name+" with no active test", func(t *testing.T) {
+			h := guardHandler(envObj("env-demo"))
+			w := patchEnv(t, h, map[string]interface{}{"spec": spec})
+			if w.Code != http.StatusAccepted {
+				t.Fatalf("got %d, want 202; body=%s", w.Code, w.Body.String())
+			}
+		})
 	}
 }
 
