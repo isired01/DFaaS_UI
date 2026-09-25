@@ -64,6 +64,7 @@ assert.equal(parses("export const x = 1;\n"), null, 'node --check must accept va
   // No images: no encoding import, no decoder.
   assert.doesNotMatch(script, /k6\/encoding/, 'the encoding import is only needed for images');
   assert.doesNotMatch(script, /__getImg_/, 'no decoder without an image');
+  assert.doesNotMatch(script, /k6\/execution/, 'the execution import is only needed for images');
 }
 
 // --- the sync barrier: exactly once, and LAST ------------------------------
@@ -98,6 +99,9 @@ assert.equal(parses("export const x = 1;\n"), null, 'node --check must accept va
   assert.match(script, /function __getImg_0\(data\) \{/, 'the loader it names must exist');
   assert.match(script, /contentType: "image\/png"/, "the file's own MIME type is attached");
   assert.match(script, /k6\/encoding/, 'the decoder needs the encoding module');
+  assert.match(script, /import exec from 'k6\/execution';/, 'the payload abort needs k6/execution');
+  assert.match(script, /exec\.test\.abort\(/, 'a failed payload fetch aborts the test');
+  assert.doesNotMatch(script, /console\.log\('setup: payload fetch failed/, 'no silent fallback: the test must not run without its image');
   // A `body:` key alongside bodyLoader would be dead weight at best and, if
   // runScenario ever read it first, a non-image POST at worst.
   assert.doesNotMatch(script, /^\s*body: /m, 'an image scenario must not also emit a body');

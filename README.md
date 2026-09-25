@@ -110,7 +110,7 @@ The server reads environment variables directly (no `.env` file is loaded):
 - `GIN_MODE` — set to `release` in production.
 - `KUBECONFIG` — kubeconfig path for local (out-of-cluster) runs.
 - `CORS_ORIGINS` — comma-separated allow-list of browser origins for the API (empty = same-origin only; unset = the dev origins `http://localhost:5173` and `http://localhost:3000`). The chart sets it empty; override via `ui.env`.
-- `SEAWEEDFS_PUBLIC_URL` — public base URL for uploaded k6 image assets, reachable **from the k6 VMs** (e.g. `http://<node-ip>:30900`). See "Image payloads in k6 load tests".
+- `SEAWEEDFS_PUBLIC_URL` — public base URL for uploaded k6 image assets, reachable **from every k6 generator** (e.g. `http://<node-ip>:30900`; on a multi-site lab, the management node's tailnet IP, not its LAN one). See "Image payloads in k6 load tests".
 - `SEAWEEDFS_ENDPOINT` — override for the gateway→SeaweedFS **dial** endpoint (default: auto — in-cluster DNS, or node-IP:30900 in dev).
 - `SEAWEEDFS_FILER_PUBLIC_URL` — base URL of the SeaweedFS filer for the result links a `Completed` test shows (default `http://<node-ip>:30901`). No links appear when the Environment exports to an external S3 config.
 
@@ -123,7 +123,7 @@ The server reads environment variables directly (no `.env` file is loaded):
 A k6 scenario can carry an uploaded image as its request body — e.g. to load-test an image-processing function like `dfaas-imgproc`.
 
 - **Upload** (`POST /api/loadtests/assets`, [internal/api/assets.go](internal/api/assets.go)): the gateway stores the file in the Environment's bucket on its S3 config (the in-cluster SeaweedFS unless `spec.s3ConfigRef` names another; `assets/` prefix, anonymous-readable) and returns a public URL.
-- **Script generation** ([ui/src/lib/k6Generator.js](ui/src/lib/k6Generator.js)): the k6 script fetches the image **once** in `setup()` (base64-encoded), and each VU decodes it once and POSTs the **raw bytes**. SeaweedFS is hit a single time regardless of VU count — not once per VU. If the `setup()` fetch fails, VUs skip the POST (check `payload image available: false`) instead of sending a non-image body.
+- **Script generation** ([ui/src/lib/k6Generator.js](ui/src/lib/k6Generator.js)): the k6 script fetches the image **once** in `setup()` (base64-encoded), and each VU decodes it once and POSTs the **raw bytes**. SeaweedFS is hit a single time regardless of VU count — not once per VU. If the `setup()` fetch fails, the script calls `exec.test.abort()` naming the scenario, the URL and the status: a test cannot run without its image, so it does not run at all rather than silently measuring something else.
 - **Reachability / config:**
   - `SEAWEEDFS_PUBLIC_URL=http://<node-ip-reachable-from-k6-VMs>:30900` — the asset URL must be reachable **from the k6 VMs**. Port **30900** = SeaweedFS S3 API (object GET). Auto-detect picks a node IP from the k8s node status, which on a multi-subnet lab may not be the routable one → set this explicitly. **Re-upload** the image after changing it (the URL is baked into the script at upload time).
   - Target URL = `http://<dfaas-node-ip>:30080/function/<name>` (HAProxy NodePort on the DFaaS node — not the k6 node, not the gateway).

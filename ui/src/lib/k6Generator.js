@@ -74,7 +74,7 @@ function renderSetup(imageScenarios) {
     if (__r.status === 200 && __r.body && __r.body.byteLength > 0) {
       payloads[${jsString(s.name)}] = encoding.b64encode(__r.body);
     } else {
-      console.log('setup: payload fetch failed for ' + ${jsString(s.name)} + ' (status=' + __r.status + ')');
+      exec.test.abort('setup: payload image for scenario ' + ${jsString(s.name)} + ' could not be fetched from ' + ${jsString(s.payloadImageURL)} + ' (status=' + __r.status + (__r.error ? ', ' + __r.error : '') + '); SEAWEEDFS_PUBLIC_URL must be reachable from every k6 generator');
     }
   }`);
   const barrier =
@@ -131,7 +131,7 @@ export function generateK6Script(scenarios) {
   const setupBlock = renderSetup(imageScenarios);
 
   return `import http from 'k6/http';
-import { check, sleep } from 'k6';${anyImage ? `\nimport encoding from 'k6/encoding';` : ''}
+import { check, sleep } from 'k6';${anyImage ? `\nimport encoding from 'k6/encoding';\nimport exec from 'k6/execution';` : ''}
 
 export const options = {
   setupTimeout: '10m',
