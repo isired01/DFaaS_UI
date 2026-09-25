@@ -20,6 +20,12 @@ jobs:
           cache: npm
           cache-dependency-path: ui/package-lock.json
 
+      # An untidy go.mod builds and tests fine, so nothing else here notices;
+      # gopls marks it red. `tidy -diff` fails without rewriting; `verify`
+      # checks the module cache against go.sum.
+      - name: go.mod is tidy and verified
+        run: go mod tidy -diff && go mod verify
+
       - run: go vet ./...
       - run: go test ./...
 
