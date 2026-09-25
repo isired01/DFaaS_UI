@@ -91,24 +91,41 @@ assert.equal(parses("export const x = 1;\n"), null, 'node --check must accept va
 
 // --- an image scenario: bodyLoader, a matching decoder, and no body -------
 {
-  const script = generateK6Script([
-    scenario({ payloadImageURL: 'http://10.0.0.1:30900/b/assets/a.png', payloadContentType: 'image/png' }),
-  ]);
+  const img = scenario({ payloadImageURL: 'http://10.0.0.1:30900/b/assets/a.png', payloadContentType: 'image/png' });
+  const script = generateK6Script([img]);
 
   assert.match(script, /bodyLoader: __getImg_0,/, 'the config must expose the loader');
   assert.match(script, /function __getImg_0\(data\) \{/, 'the loader it names must exist');
   assert.match(script, /contentType: "image\/png"/, "the file's own MIME type is attached");
   assert.match(script, /k6\/encoding/, 'the decoder needs the encoding module');
   assert.match(script, /import exec from 'k6\/execution';/, 'the payload abort needs k6/execution');
-  assert.match(script, /exec\.test\.abort\(/, 'a failed payload fetch aborts the test');
   assert.doesNotMatch(script, /console\.log\('setup: payload fetch failed/, 'no silent fallback: the test must not run without its image');
+
+  // The abort call is the spec, not just its presence: it must name THIS
+  // fixture's own scenario and URL and report the transport status, so a
+  // human reading a k6 runner log can act on it without re-deriving anything.
+  const abortMatch = script.match(/exec\.test\.abort\(([\s\S]*?)\);/);
+  assert.ok(abortMatch, 'a failed payload fetch aborts the test');
+  const abortArg = abortMatch[1];
+  assert.ok(abortArg.includes(JSON.stringify(img.name)), 'abort message must name the scenario');
+  assert.ok(abortArg.includes(JSON.stringify(img.payloadImageURL)), "abort message must carry the fixture's payload URL literal");
+  assert.ok(abortArg.includes('__r.status'), 'abort message must report the transport status');
+  // F1: SEAWEEDFS_PUBLIC_URL reachability is only the right diagnosis for a
+  // transport failure (status 0, no HTTP answer at all) -- a 403 (bucket
+  // policy not applied), a 404 (object gone) or an external S3 config are
+  // real HTTP responses that hint would misdiagnose. So it must be gated by a
+  // status-0 check, not appended unconditionally.
+  assert.ok(abortArg.includes('SEAWEEDFS_PUBLIC_URL'), 'abort message must still carry the reachability hint for a transport failure');
+  assert.match(abortArg, /__r\.status\s*===\s*0/, 'the SEAWEEDFS_PUBLIC_URL hint must be guarded by a status-0 (no HTTP answer) check');
+
   // A `body:` key alongside bodyLoader would be dead weight at best and, if
   // runScenario ever read it first, a non-image POST at worst.
   assert.doesNotMatch(script, /^\s*body: /m, 'an image scenario must not also emit a body');
   // The decode is cached per VU, not per iteration.
   assert.match(script, /let __img_0 = undefined;/);
-  // A failed setup fetch yields null, and the VU skips the POST rather than
-  // sending a non-image body.
+  // Defensive only: setup() now aborts the test itself on a real fetch
+  // failure (asserted above). This null-payload branch is reachable only when
+  // setup() did not run at all, e.g. `k6 run --no-setup`.
   assert.match(script, /check\(null, \{ 'payload image available': \(\) => false \}\);/);
 }
 

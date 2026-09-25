@@ -74,7 +74,7 @@ function renderSetup(imageScenarios) {
     if (__r.status === 200 && __r.body && __r.body.byteLength > 0) {
       payloads[${jsString(s.name)}] = encoding.b64encode(__r.body);
     } else {
-      exec.test.abort('setup: payload image for scenario ' + ${jsString(s.name)} + ' could not be fetched from ' + ${jsString(s.payloadImageURL)} + ' (status=' + __r.status + (__r.error ? ', ' + __r.error : '') + '); SEAWEEDFS_PUBLIC_URL must be reachable from every k6 generator');
+      exec.test.abort('setup: payload image for scenario ' + ${jsString(s.name)} + ' could not be fetched from ' + ${jsString(s.payloadImageURL)} + ' (status=' + __r.status + (__r.error ? ', ' + __r.error : '') + ')' + (__r.status === 0 ? '; SEAWEEDFS_PUBLIC_URL must be reachable from every k6 generator' : ''));
     }
   }`);
   const barrier =
@@ -94,9 +94,9 @@ ${body}
 
 // renderImageDecoder emits a per-VU lazy decode of the payload that setup()
 // fetched once and passed in as base64. Decoded to an ArrayBuffer once per VU;
-// null when setup's fetch failed (the caller then skips the POST rather than
-// sending a non-image body — which would surface as a misleading
-// "unknown format" at the function).
+// null when setup() never ran at all (e.g. `k6 run --no-setup`) — a real
+// setup() fetch failure now aborts the test from inside setup() itself (see
+// renderSetup), so this branch is defensive, not the primary failure path.
 function renderImageDecoder(s, idx) {
   return `let __img_${idx} = undefined;
 function __getImg_${idx}(data) {
@@ -154,8 +154,11 @@ export function runScenario(data) {
   if (conf.bodyLoader) {
     body = conf.bodyLoader(data);
     if (!body) {
-      // Payload missing (setup's fetch failed). Skip the POST rather than send a
-      // non-image body that yields a misleading "unknown format" at the function.
+      // Defensive only: a real setup() fetch failure now aborts the whole
+      // test from inside setup() (see renderSetup), so this branch is
+      // reachable only when setup() did not run at all, e.g. k6 run
+      // --no-setup. Skip the POST rather than send a non-image body that
+      // yields a misleading "unknown format" at the function.
       check(null, { 'payload image available': () => false });
       return;
     }
