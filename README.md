@@ -29,7 +29,7 @@ and `helm install` applies them:
 ```bash
 # 1. Install the chart (operator + UI + CRDs)
 helm install dfaas oci://ghcr.io/isired01/charts/dfaas \
-  --version 3.5.0 \
+  --version 4.0.0 \
   --create-namespace \
   --namespace dfaas-operator-system
 
@@ -43,7 +43,7 @@ kubectl -n dfaas-ui port-forward svc/dfaas-ui 8082:8082   # then http://localhos
 server prunes the fields the new operator writes. For v3.5.0 that is
 `status.provisioningGeneration`; without it, an Environment edit saved while the Environment is
 still provisioning is marked as applied, although the run in progress was provisioning the
-previous spec. Releases after v3.6.0 add `status.k6Nodes[].managementAddress`, which the gateway
+previous spec. v4.0.0 adds `status.k6Nodes[].managementAddress`, which the gateway
 mirrors and the Environment page shows on each generator; against an old CRD it is pruned, and
 every runner falls back to the baked asset URL (`SEAWEEDFS_PUBLIC_URL`, else a node IP) and to the
 operator's `DFAAS_SYNC_PUBLIC_URL`, else `HOST_IP`. An Environment provisioned before the upgrade
@@ -52,9 +52,9 @@ IPv6: its k3s is single-stack IPv4, so the operator never records an IPv6 addres
 generator keeps the fallback.
 
 ```bash
-kubectl apply -f https://github.com/isired01/DFaaSOperator/releases/download/v3.5.0/dfaas.dfaas.io_environments.yaml
-kubectl apply -f https://github.com/isired01/DFaaSOperator/releases/download/v3.5.0/dfaas.dfaas.io_loadtests.yaml
-helm upgrade dfaas oci://ghcr.io/isired01/charts/dfaas --version 3.5.0 --namespace dfaas-operator-system
+kubectl apply -f https://github.com/isired01/DFaaSOperator/releases/download/v4.0.0/dfaas.dfaas.io_environments.yaml
+kubectl apply -f https://github.com/isired01/DFaaSOperator/releases/download/v4.0.0/dfaas.dfaas.io_loadtests.yaml
+helm upgrade dfaas oci://ghcr.io/isired01/charts/dfaas --version 4.0.0 --namespace dfaas-operator-system
 ```
 
 Custom Resource examples (`Environment` + `LoadTest`) and VM IP configuration: see the
