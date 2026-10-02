@@ -6,8 +6,10 @@
 // scenarios below (perNodeTotalMs in lib/scenarios.js) purely so the UI can
 // draw a progress bar.
 // VUs are per scenario, via preAllocatedVUs / maxVUs.
+// The env vars the operator injects (DFAAS_SYNC_URL, DFAAS_SUMMARY_URL,
+// DFAAS_ASSET_BASE) only say where the runner dials back, never how much load.
 
-import { EXECUTORS, DEFAULT_EXECUTOR, executorOf, hasImage, effectiveMethod, jsString, validateScenarios } from './scenarios.js';
+import { EXECUTORS, DEFAULT_EXECUTOR, executorOf, hasImage, relocatablePath, effectiveMethod, jsString, validateScenarios } from './scenarios.js';
 
 // renderScenario emits one k6 scenario. The executor-specific option block
 // comes from the scenario registry (lib/scenarios.js), which is also where the
@@ -66,17 +68,10 @@ function renderConfig(s, idx) {
 //
 // setup() is always emitted (even with no images) and always returns
 // { payloads } — an empty object when there are no images — so the per-VU image
-// decoders keep reading data.payloads unchanged.
+// decoders keep reading data.payloads unchanged. Where each payload is fetched
+// from (DFAAS_ASSET_BASE or the baked URL) is renderFetch's call.
 function renderSetup(imageScenarios) {
-  const fetches = imageScenarios.map(s =>
-`  {
-    const __r = http.get(${jsString(s.payloadImageURL)}, { responseType: 'binary' });
-    if (__r.status === 200 && __r.body && __r.body.byteLength > 0) {
-      payloads[${jsString(s.name)}] = encoding.b64encode(__r.body);
-    } else {
-      exec.test.abort('setup: payload image for scenario ' + ${jsString(s.name)} + ' could not be fetched from ' + ${jsString(s.payloadImageURL)} + ' (status=' + __r.status + (__r.error ? ', ' + __r.error : '') + ')' + (__r.status === 0 ? '; SEAWEEDFS_PUBLIC_URL must be reachable from every k6 generator' : ''));
-    }
-  }`);
+  const fetches = imageScenarios.map(renderFetch);
   const barrier =
 `  // Synchronized start: wait for the operator's GO signal (HTTP 200) so every
   // generator begins its load at the same moment. No-op unless DFAAS_SYNC_URL
@@ -90,6 +85,58 @@ function renderSetup(imageScenarios) {
 ${body}
   return { payloads };
 }`;
+}
+
+// The status-0 hints. Status 0 means no HTTP answer at all, so the hint names
+// the setting that produced the unreachable address: the management address
+// the operator detected, for a DFAAS_ASSET_BASE fetch; SEAWEEDFS_PUBLIC_URL
+// (else the node IP), for the URL the gateway baked at upload. Naming the wrong
+// one sends the user to fix a setting that played no part. One known miss: an
+// external S3 config's asset carries no path, so it gets the path-less block,
+// kept byte-identical to the pre-relocation one, and its hint names
+// SEAWEEDFS_PUBLIC_URL although its URL is that config's own endpoint. Both
+// hints are emitted inside single-quoted literals, so neither may contain an
+// apostrophe.
+const BAKED_URL_HINT = `'; SEAWEEDFS_PUBLIC_URL must be reachable from every k6 generator'`;
+const ASSET_BASE_HINT = `'; DFAAS_ASSET_BASE (the management address detected for this generator at provisioning, S3 NodePort 30900) must be reachable from this generator: open the port or re-provision the Environment'`;
+
+// renderFetch emits one block-scoped payload fetch for setup().
+//
+// Where it fetches from: a scenario with an object path (only uploads to the
+// in-cluster SeaweedFS carry one, see relocatablePath) prefers DFAAS_ASSET_BASE
+// + path. The operator injects DFAAS_ASSET_BASE per generator, built on the
+// management address it detected for THAT generator at provisioning, so each
+// runner dials an address it can route to. Unset or empty means not detected
+// (the test is truthiness, never !== undefined: an injected '' would otherwise
+// build a relative URL), and the script fetches the URL the gateway baked at
+// upload. One trailing '/' is trimmed with endsWith/slice: a regex written in
+// this template would need every backslash doubled, and a missed one turns
+// into a line comment on the remote runner.
+//
+// A scenario without a path emits exactly the block it always did, so old
+// drafts and external-S3 assets get today's script. Either way the abort names
+// the URL actually fetched.
+function renderFetch(s) {
+  const path = relocatablePath(s);
+  let preamble = '';
+  let url = jsString(s.payloadImageURL);
+  let hint = BAKED_URL_HINT;
+  if (path) {
+    preamble = `
+    const __raw = __ENV.DFAAS_ASSET_BASE || '';
+    const __base = __raw.endsWith('/') ? __raw.slice(0, -1) : __raw;
+    const __u = __base ? __base + ${jsString(path)} : ${jsString(s.payloadImageURL)};`;
+    url = '__u';
+    hint = `(__base ? ${ASSET_BASE_HINT} : ${BAKED_URL_HINT})`;
+  }
+  return `  {${preamble}
+    const __r = http.get(${url}, { responseType: 'binary' });
+    if (__r.status === 200 && __r.body && __r.body.byteLength > 0) {
+      payloads[${jsString(s.name)}] = encoding.b64encode(__r.body);
+    } else {
+      exec.test.abort('setup: payload image for scenario ' + ${jsString(s.name)} + ' could not be fetched from ' + ${url} + ' (status=' + __r.status + (__r.error ? ', ' + __r.error : '') + ')' + (__r.status === 0 ? ${hint} : ''));
+    }
+  }`;
 }
 
 // renderImageDecoder emits a per-VU lazy decode of the payload that setup()

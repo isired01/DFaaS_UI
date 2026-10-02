@@ -70,9 +70,10 @@ func (h *Handler) GetLoadTest(c *gin.Context) {
 	detail := mapLoadTestDetail(*result)
 	h.inlineScripts(ctx, namespace, &detail)
 
-	// Completed tests get browsable SeaweedFS links to their artifacts.
+	// Completed tests get browsable SeaweedFS links to their artifacts, built
+	// on the host the browser opened the UI on (results.go).
 	if detail.Phase == "Completed" && detail.TargetEnvironment != "" {
-		detail.Results = h.resolveResultsURLs(ctx, namespace, detail.TargetEnvironment, detail.Name)
+		detail.Results = h.resolveResultsURLs(ctx, namespace, detail.TargetEnvironment, detail.Name, c.Request.Host)
 	}
 
 	c.JSON(http.StatusOK, detail)

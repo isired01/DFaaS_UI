@@ -118,6 +118,21 @@ assert.equal(parses("export const x = 1;\n"), null, 'node --check must accept va
   assert.ok(abortArg.includes('SEAWEEDFS_PUBLIC_URL'), 'abort message must still carry the reachability hint for a transport failure');
   assert.match(abortArg, /__r\.status\s*===\s*0/, 'the SEAWEEDFS_PUBLIC_URL hint must be guarded by a status-0 (no HTTP answer) check');
 
+  // No path, no relocation: old drafts and external-S3 assets must get exactly
+  // the block they always got, so it is pinned byte for byte.
+  assert.doesNotMatch(script, /DFAAS_ASSET_BASE/, 'a scenario without payloadImagePath must not read DFAAS_ASSET_BASE');
+  const url = JSON.stringify(img.payloadImageURL);
+  const name = JSON.stringify(img.name);
+  const pinned = `  {
+    const __r = http.get(${url}, { responseType: 'binary' });
+    if (__r.status === 200 && __r.body && __r.body.byteLength > 0) {
+      payloads[${name}] = encoding.b64encode(__r.body);
+    } else {
+      exec.test.abort('setup: payload image for scenario ' + ${name} + ' could not be fetched from ' + ${url} + ' (status=' + __r.status + (__r.error ? ', ' + __r.error : '') + ')' + (__r.status === 0 ? '; SEAWEEDFS_PUBLIC_URL must be reachable from every k6 generator' : ''));
+    }
+  }`;
+  assert.ok(script.includes(pinned), 'a path-less image scenario must emit the pre-relocation fetch block unchanged');
+
   // A `body:` key alongside bodyLoader would be dead weight at best and, if
   // runScenario ever read it first, a non-image POST at worst.
   assert.doesNotMatch(script, /^\s*body: /m, 'an image scenario must not also emit a body');
@@ -127,6 +142,51 @@ assert.equal(parses("export const x = 1;\n"), null, 'node --check must accept va
   // failure (asserted above). This null-payload branch is reachable only when
   // setup() did not run at all, e.g. `k6 run --no-setup`.
   assert.match(script, /check\(null, \{ 'payload image available': \(\) => false \}\);/);
+}
+
+// --- a relocatable image scenario: DFAAS_ASSET_BASE + path, baked URL last --
+// An upload to the in-cluster SeaweedFS carries payloadImagePath. The script
+// must prefer the base the operator built for THIS generator and fall back to
+// the baked URL, and its abort must name the URL it actually fetched.
+const REL = {
+  payloadImageURL: 'http://10.0.0.1:30900/b/assets/a.png',
+  payloadImagePath: '/b/assets/a.png',
+  payloadContentType: 'image/png',
+};
+{
+  const rel = scenario(REL);
+  const script = generateK6Script([rel]);
+
+  assert.match(script, /const __raw = __ENV\.DFAAS_ASSET_BASE \|\| '';/, 'the base is read once, unset and empty alike');
+  assert.match(script, /__raw\.endsWith\('\/'\) \? __raw\.slice\(0, -1\) : __raw/, 'one trailing slash is trimmed without a regex');
+  const sel = script.match(/const __u = (.*);/);
+  assert.ok(sel, 'the fetched URL is chosen at runtime');
+  assert.equal(sel[1], `__base ? __base + ${JSON.stringify(rel.payloadImagePath)} : ${JSON.stringify(rel.payloadImageURL)}`,
+    'DFAAS_ASSET_BASE + path wins when the base is non-empty, the baked URL otherwise');
+  assert.match(script, /http\.get\(__u, \{ responseType: 'binary' \}\);/, 'the fetch uses the chosen URL');
+
+  const abortArg = script.match(/exec\.test\.abort\(([\s\S]*?)\);/)[1];
+  assert.ok(abortArg.includes(JSON.stringify(rel.name)), 'abort message must name the scenario');
+  assert.ok(abortArg.includes("' could not be fetched from ' + __u + '"), 'abort message must name the URL actually fetched');
+  assert.ok(!abortArg.includes(JSON.stringify(rel.payloadImageURL)), 'the baked literal may not be what was fetched');
+  assert.ok(abortArg.includes('__r.status'), 'abort message must report the transport status');
+  assert.match(abortArg, /__r\.status\s*===\s*0 \? \(__base \?/, 'the hint stays behind the status-0 check and is picked by source');
+  assert.ok(abortArg.includes('DFAAS_ASSET_BASE') && abortArg.includes('SEAWEEDFS_PUBLIC_URL'), 'both hints are emitted, one per source');
+
+  // Still before the barrier, still one binary fetch.
+  assert.equal([...script.matchAll(/responseType: 'binary'/g)].length, 1);
+  assert.ok(script.indexOf('__ENV.DFAAS_ASSET_BASE') < script.indexOf('__ENV.DFAAS_SYNC_URL'), 'the relocated fetch runs before the barrier');
+  assert.equal(parses(script), null, 'a relocatable scenario must parse');
+}
+
+// Quotes in the path and in the scenario name stay escaped.
+{
+  const p = `/b/assets/x'y"z.png`;
+  const n = `it's "quoted"`;
+  const script = generateK6Script([scenario({ ...REL, name: n, payloadImagePath: p })]);
+  assert.ok(script.includes(`__base + ${JSON.stringify(p)} :`), 'the path must be emitted through jsString');
+  assert.ok(script.includes(JSON.stringify(n)), 'the name must be emitted through jsString');
+  assert.equal(parses(script), null, 'quotes in a path or name must not break the script');
 }
 
 // The decoder index must track the scenario's position, not the image count:
@@ -186,12 +246,104 @@ assert.equal(parses("export const x = 1;\n"), null, 'node --check must accept va
       scenario({ method: 'PUT', body: '{"a":1}' }),
     ]],
     ['a body with a newline and quotes', [scenario({ body: 'line1\n"quoted"\n' })]],
+    // These two catch a regex written inside the generator's templates (a
+    // lost backslash turns into a line comment) and an apostrophe in a
+    // hand-written hint literal.
+    ['relocatable image', [scenario(REL)]],
+    ['mixed relocatable + baked + text', [
+      scenario(REL),
+      scenario({ payloadImageURL: 'https://s3.example.org/b/assets/b.png', payloadContentType: 'image/png' }),
+      scenario({ method: 'PUT', body: '{"a":1}' }),
+    ]],
   ];
 
   for (const [label, scenarios] of cases) {
     const err = parses(generateK6Script(scenarios));
     assert.equal(err, null, `generated script does not parse (${label}): ${err}`);
   }
+}
+
+// --- setup() behaviour: what is fetched, and what the abort says ----------
+// node --check only proves the script parses. This runs the generated setup()
+// for real: imports dropped, `export ` removed, and http, exec, encoding and
+// __ENV stubbed. exec.test.abort ends the k6 test, so the stub throws a
+// sentinel and nothing after it runs.
+const ABORTED = new Error('k6 test aborted');
+function runSetup(script, env, respond) {
+  const body = script
+    .split('\n')
+    .filter((l) => !l.startsWith('import '))
+    .join('\n')
+    .replace(/^export /gm, '');
+  const fetched = [];
+  const aborts = [];
+  const http = { get: (u) => { fetched.push(u); return respond(u); } };
+  const exec = { test: { abort: (msg) => { aborts.push(msg); throw ABORTED; } } };
+  const encoding = { b64encode: () => 'b64', b64decode: () => null };
+  const mod = new Function('http', 'check', 'sleep', 'encoding', 'exec', '__ENV', `${body}\nreturn { setup };`)(
+    http, () => true, () => {}, encoding, exec, env,
+  );
+  let data;
+  try { data = mod.setup(); } catch (e) { if (e !== ABORTED) throw e; }
+  return { fetched, aborts, data };
+}
+const down = () => ({ status: 0, error: 'dial tcp: i/o timeout', body: null });
+const okBody = () => ({ status: 200, body: { byteLength: 3 } });
+{
+  const rel = scenario(REL);
+  const baked = scenario({ payloadImageURL: 'https://s3.example.org/b/assets/b.png', payloadContentType: 'image/png' });
+  const script = generateK6Script([rel, baked]);
+  const relocated = 'http://100.64.0.7:30900/b/assets/a.png';
+
+  // A detected base, with and without a trailing slash: base + path.
+  for (const base of ['http://100.64.0.7:30900', 'http://100.64.0.7:30900/']) {
+    const { fetched, aborts } = runSetup(script, { DFAAS_ASSET_BASE: base }, down);
+    assert.deepEqual(fetched, [relocated], `base ${base}: fetch base + path, once, and stop at the abort`);
+    assert.equal(aborts.length, 1);
+    assert.ok(aborts[0].includes(`could not be fetched from ${relocated} (status=0, dial tcp: i/o timeout)`), `base ${base}: the abort names the URL fetched: ${aborts[0]}`);
+    assert.ok(aborts[0].includes(`scenario ${rel.name} could not be fetched`), 'the abort names the scenario');
+    assert.ok(aborts[0].includes('; DFAAS_ASSET_BASE'), 'a relocated fetch gets the DFAAS_ASSET_BASE hint');
+    assert.ok(!aborts[0].includes('SEAWEEDFS_PUBLIC_URL'), 'SEAWEEDFS_PUBLIC_URL played no part in a relocated fetch');
+  }
+
+  // Unset and empty alike: the baked URL, with the SEAWEEDFS_PUBLIC_URL hint.
+  for (const env of [{}, { DFAAS_ASSET_BASE: '' }]) {
+    const { fetched, aborts } = runSetup(script, env, down);
+    assert.deepEqual(fetched, [REL.payloadImageURL], `${JSON.stringify(env)}: fall back to the baked URL`);
+    assert.ok(aborts[0].includes(`could not be fetched from ${REL.payloadImageURL} (status=0`), aborts[0]);
+    assert.ok(aborts[0].includes('; SEAWEEDFS_PUBLIC_URL must be reachable from every k6 generator'));
+    assert.ok(!aborts[0].includes('DFAAS_ASSET_BASE'), 'no base was used, so it must not be blamed');
+  }
+
+  // A real HTTP answer gets no reachability hint from either source.
+  {
+    const { aborts } = runSetup(script, { DFAAS_ASSET_BASE: 'http://100.64.0.7:30900' }, () => ({ status: 403, body: null }));
+    assert.ok(aborts[0].endsWith('(status=403)'), `no hint on a 403: ${aborts[0]}`);
+  }
+
+  // Success: the path-less scenario ignores the base, both payloads land, and
+  // the barrier runs after the fetches.
+  {
+    const sync = 'http://100.64.0.1:30901/dfaas-sync/go';
+    const { fetched, aborts, data } = runSetup(script, { DFAAS_ASSET_BASE: 'http://100.64.0.7:30900', DFAAS_SYNC_URL: sync }, okBody);
+    assert.equal(aborts.length, 0);
+    assert.deepEqual(fetched, [relocated, baked.payloadImageURL, sync], 'fetches first, then the barrier; a path-less scenario keeps its baked URL');
+    assert.deepEqual(data, { payloads: { [rel.name]: 'b64', [baked.name]: 'b64' } });
+  }
+
+  // An IPv6 base arrives bracketed from the operator and is used as-is.
+  {
+    const { fetched } = runSetup(script, { DFAAS_ASSET_BASE: 'http://[fd7a:115c:a1e0::7]:30900' }, down);
+    assert.deepEqual(fetched, ['http://[fd7a:115c:a1e0::7]:30900/b/assets/a.png']);
+  }
+}
+// Quotes in the path survive to the URL actually requested.
+{
+  const p = `/b/assets/x'y"z.png`;
+  const script = generateK6Script([scenario({ ...REL, name: `it's "quoted"`, payloadImagePath: p })]);
+  const { fetched, aborts } = runSetup(script, { DFAAS_ASSET_BASE: 'http://100.64.0.7:30900' }, down);
+  assert.deepEqual(fetched, [`http://100.64.0.7:30900${p}`]);
+  assert.ok(aborts[0].includes(`scenario it's "quoted" could not be fetched from http://100.64.0.7:30900${p}`), aborts[0]);
 }
 
 // --- degenerate input -----------------------------------------------------

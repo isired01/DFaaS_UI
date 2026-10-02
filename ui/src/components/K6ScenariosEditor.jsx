@@ -4,7 +4,7 @@ import NumberInput from './NumberInput';
 import InfoTooltip from './InfoTooltip';
 import { uploadLoadTestAsset } from '../api/client';
 
-import { EXECUTORS, newScenario, ensureScenarioIds, effectiveMethod } from '../lib/scenarios';
+import { EXECUTORS, newScenario, ensureScenarioIds, effectiveMethod, payloadPatch, NO_PAYLOAD } from '../lib/scenarios';
 
 // Re-exported for existing importers; the definitions live in lib/scenarios.
 export { newScenario, ensureScenarioIds };
@@ -56,8 +56,11 @@ export default function K6ScenariosEditor({ scenarios, onChange, availableUrls =
     if (!file) return;
     setUploadState(id, { uploading: true, error: null });
     try {
-      const { url, contentType, filename } = await uploadLoadTestAsset(envNs, envName, file);
-      updateScenario(id, { payloadImageURL: url, payloadContentType: contentType, payloadFilename: filename });
+      // payloadPatch sets payloadImagePath even when this upload is not
+      // relocatable: a merge that left it out would keep the previous
+      // upload's path, and the runners would fetch that old object instead.
+      const res = await uploadLoadTestAsset(envNs, envName, file);
+      updateScenario(id, payloadPatch(res));
       setUploadState(id, { uploading: false, error: null });
     } catch (err) {
       setUploadState(id, { uploading: false, error: err.message });
@@ -65,7 +68,7 @@ export default function K6ScenariosEditor({ scenarios, onChange, availableUrls =
   };
 
   const removeImage = (id) => {
-    updateScenario(id, { payloadImageURL: undefined, payloadContentType: undefined, payloadFilename: undefined });
+    updateScenario(id, NO_PAYLOAD);
     setUploadState(id, { error: null });
   };
 

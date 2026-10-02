@@ -62,7 +62,11 @@ export default function EnvironmentDetail() {
   const k6StatusByID = Object.fromEntries((environment.k6Nodes || []).map(k => [k.nodeID, k]));
   const k6Nodes = (environment.nodes || [])
     .filter(n => n.role === 'k6-load-generator')
-    .map(n => ({ ...n, kubeconfigSecret: k6StatusByID[n.nodeID]?.kubeconfigSecret || '' }));
+    .map(n => ({
+      ...n,
+      kubeconfigSecret: k6StatusByID[n.nodeID]?.kubeconfigSecret || '',
+      managementAddress: k6StatusByID[n.nodeID]?.managementAddress || '',
+    }));
 
   const gen = environment.generation ?? 0;
   const observedGen = environment.observedGeneration ?? 0;

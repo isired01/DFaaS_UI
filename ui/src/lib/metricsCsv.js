@@ -91,6 +91,6 @@ export function metricsCsvTemplate() {
   return [
     'type;query;metric_name;comment',
     'metric;node_cpu_seconds_total;;',
-    'query;increase(haproxy_backend_http_responses_total[10s]);responses_total;HTTP responses over 10s',
+    'query;increase(haproxy_backend_http_responses_total[5m]);responses_total;HTTP responses over 5m',
   ].join('\n');
 }

@@ -103,9 +103,14 @@ export async function deleteLoadTest(namespace, name) {
 }
 
 // uploadLoadTestAsset uploads a file (k6 request payload, e.g. an image) to the
-// environment's S3 bucket and returns { url, contentType, filename }. The URL is
-// embedded by the client-side k6 generator as the request body. Multipart, so we
-// must NOT set Content-Type — the browser sets the boundary itself.
+// environment's S3 bucket and returns { url, contentType, filename, relocatable,
+// path }. url is the absolute URL baked at upload, the mandatory fallback the
+// generated script fetches the payload from. relocatable is true only for the
+// in-cluster SeaweedFS, and then path ('/<bucket>/<key>') lets each generator
+// fetch the object over its own DFAAS_ASSET_BASE instead. The response is
+// returned as-is; payloadPatch (lib/scenarios.js) maps it onto the scenario.
+// Multipart, so we must NOT set Content-Type — the browser sets the boundary
+// itself.
 export async function uploadLoadTestAsset(namespace, environment, file) {
   const form = new FormData();
   form.append('namespace', namespace);

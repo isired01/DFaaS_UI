@@ -6,7 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"regexp"
 	"strconv"
@@ -72,6 +74,13 @@ var dashRunRegexp = regexp.MustCompile(`-+`)
 // that the client-side k6 generator embeds as a request body. The object is
 // made anonymously readable via a one-time bucket policy so remote k6 runners
 // can fetch it without credentials.
+//
+// The answer is an UploadAssetResponse. On the in-cluster SeaweedFS it is also
+// relocatable: path is "/<bucket>/<key>", which a runner given DFAAS_ASSET_BASE
+// (its own management address on the S3 NodePort, set by the operator) fetches
+// instead of url. url stays the absolute URL baked at upload time, the fallback
+// for a runner with no DFAAS_ASSET_BASE, so it must be one a k6 VM can use
+// whether or not the asset is relocatable — hence the 502 and the 409 below.
 func (h *Handler) UploadLoadTestAsset(c *gin.Context) {
 	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxAssetUploadBytes)
 	if err := c.Request.ParseMultipartForm(maxAssetUploadBytes); err != nil {
@@ -186,6 +195,16 @@ func (h *Handler) UploadLoadTestAsset(c *gin.Context) {
 		}
 	}
 
+	// An external config's url is its own endpoint plus the object path. With
+	// no endpoint (the AWS default, which only the S3 client resolves) or one
+	// with no http(s) scheme, that url is relative and no k6 VM can fetch it.
+	// Refuse before anything is written, as the 502 above does for the default
+	// config, rather than answer 201 with a URL that fails on every runner.
+	if !isDefaultS3Config(configName) && !isAbsoluteHTTPURL(endpoint) {
+		c.JSON(http.StatusConflict, gin.H{"error": fmt.Sprintf("S3 config '%s/%s' has no absolute http(s) endpoint (got %q): k6 runners fetch payload assets anonymously at <endpoint>/<bucket>/<key>, so the config needs an endpoint URL they can reach", S3ConfigNamespace, configName, endpoint)})
+		return
+	}
+
 	// The gateway must DIAL a reachable endpoint. For the in-cluster SeaweedFS the
 	// Secret holds the internal cluster DNS, unreachable when the gateway runs
 	// outside the cluster (dev mode) — resolve a node-IP:NodePort fallback.
@@ -221,13 +240,16 @@ func (h *Handler) UploadLoadTestAsset(c *gin.Context) {
 		return
 	}
 
-	publicURL := h.addressing.PublicURL(configName, endpoint, bucket, key, nodeIP)
-
-	c.JSON(http.StatusCreated, gin.H{
-		"url":         publicURL,
-		"contentType": contentType,
-		"filename":    fileHeader.Filename,
-	})
+	resp := UploadAssetResponse{
+		URL:         h.addressing.PublicURL(configName, endpoint, bucket, key, nodeIP),
+		ContentType: contentType,
+		Filename:    fileHeader.Filename,
+	}
+	if h.addressing.Relocatable(configName) {
+		resp.Relocatable = true
+		resp.Path = assetPath(bucket, key)
+	}
+	c.JSON(http.StatusCreated, resp)
 }
 
 // objectStore is exactly the four calls the asset-upload path makes. newS3Client
@@ -262,15 +284,27 @@ func (h *Handler) store() storeFactory {
 	return liveStore
 }
 
-// assetAddressing holds the environment-derived inputs of the two URL
-// resolutions. resolveConnectEndpoint and resolvePublicURL used to read
-// os.Getenv inside themselves, so they looked pure and were not.
+// assetAddressing holds the environment-derived inputs of the three URL
+// resolutions: what the gateway dials (ConnectEndpoint), what the k6 VMs dial
+// (PublicURL) and what the browser opens (FilerBase, results.go). The
+// resolvers used to read os.Getenv inside themselves, so they looked pure and
+// were not.
+//
+// ConnectOverride and PublicOverride are SeaweedFS overrides: they apply to the
+// default config only, and an external S3 config keeps its own endpoint.
 type assetAddressing struct {
 	// ConnectOverride is SEAWEEDFS_ENDPOINT: what the gateway dials.
 	ConnectOverride string
-	// PublicOverride is SEAWEEDFS_PUBLIC_URL: what the k6 VMs dial.
+	// PublicOverride is SEAWEEDFS_PUBLIC_URL: the base of the URL baked for
+	// the k6 VMs, which a runner given DFAAS_ASSET_BASE does not dial.
 	PublicOverride string
-	// InCluster is whether this process runs inside a Pod.
+	// FilerOverride is SEAWEEDFS_FILER_PUBLIC_URL: base of the result links
+	// the browser opens.
+	FilerOverride string
+	// InCluster is whether this process runs inside a Pod. The kubelet injects
+	// KUBERNETES_SERVICE_HOST into every Pod and it is absent in local/dev
+	// runs — the same signal rest.InClusterConfig() keys off (see NewK8sClient
+	// in k8s_client.go).
 	InCluster bool
 }
 
@@ -279,6 +313,7 @@ func addressingFromEnv() assetAddressing {
 	return assetAddressing{
 		ConnectOverride: strings.TrimRight(os.Getenv("SEAWEEDFS_ENDPOINT"), "/"),
 		PublicOverride:  strings.TrimRight(os.Getenv("SEAWEEDFS_PUBLIC_URL"), "/"),
+		FilerOverride:   strings.TrimRight(os.Getenv("SEAWEEDFS_FILER_PUBLIC_URL"), "/"),
 		InCluster:       os.Getenv("KUBERNETES_SERVICE_HOST") != "",
 	}
 }
@@ -286,6 +321,24 @@ func addressingFromEnv() assetAddressing {
 // isDefault reports whether configName names the built-in in-cluster SeaweedFS.
 // The comparison was re-derived at four sites.
 func isDefaultS3Config(configName string) bool { return configName == DefaultS3ConfigName }
+
+// assetPath is the object's path on an S3 endpoint in path-style addressing:
+// "/<bucket>/<key>". Every PublicURL ends with it, and a relocatable upload
+// returns it on its own. No escaping: bucketNameFor emits [a-z0-9-] and the key
+// is assets/<uuid>-<sanitizeAssetFilename>, all [A-Za-z0-9._/-]. Widening the
+// sanitizer would need url.PathEscape on each segment.
+func assetPath(bucket, key string) string { return "/" + bucket + "/" + key }
+
+// Relocatable reports whether a runner may fetch the asset from another base
+// than the one baked into url: true exactly for the in-cluster SeaweedFS, which
+// every generator reaches on the S3 NodePort of the management node, at the
+// address the operator detected for it (DFAAS_ASSET_BASE). The decision is by
+// config name only, because the gateway knows no SeaweedFS DNS: a config with
+// another name stays on its own endpoint even if it points at the same store.
+// SEAWEEDFS_PUBLIC_URL does not turn relocation off: it only sets the fallback.
+func (a assetAddressing) Relocatable(configName string) bool {
+	return isDefaultS3Config(configName)
+}
 
 // NeedsNodeIP reports whether this upload has to resolve a cluster node address
 // before it can hand back a URL a remote k6 runner can reach. Both overrides
@@ -297,56 +350,75 @@ func (a assetAddressing) NeedsNodeIP(configName string) bool {
 	return a.PublicOverride == "" || (a.ConnectOverride == "" && !a.InCluster)
 }
 
-// inCluster reports whether this process runs inside a Kubernetes Pod. The
-// kubelet injects KUBERNETES_SERVICE_HOST into every Pod and it is absent in
-// local/dev runs — the same signal rest.InClusterConfig() keys off (see
-// NewK8sClient in k8s_client.go).
-// resolveConnectEndpoint returns the endpoint the GATEWAY dials to reach the
-// object store — auto-detected, so the common cases need no configuration:
+// ConnectEndpoint returns the endpoint the GATEWAY dials to reach the object
+// store — auto-detected, so the common cases need no configuration:
 //
-//   - SEAWEEDFS_ENDPOINT set        → explicit override, always wins.
+//   - explicit external S3 config   → its own endpoint, whatever is set below.
 //   - default in-cluster SeaweedFS:
+//   - SEAWEEDFS_ENDPOINT set      → explicit override, always wins.
 //   - gateway in-cluster          → the Secret's internal DNS endpoint
 //     (seaweedfs-all-in-one.monitoring.svc…:8333) — the canonical ClusterIP path.
 //   - gateway outside the cluster → http://<nodeIP>:<seaweedfsNodePort>; the
 //     internal DNS would fail to resolve ("no such host"), so dial the
 //     node IP + NodePort instead (reachable from outside).
-//   - explicit external S3 config   → its own endpoint.
+//
+// SEAWEEDFS_ENDPOINT names the in-cluster SeaweedFS: applied to an external
+// config it would send that config's credentials and objects to SeaweedFS.
 //
 // nodeIP is resolved once per request by the caller (see UploadLoadTestAsset),
 // which also decides whether an unresolvable node address is fatal.
 //
-// This is distinct from resolvePublicURL (the k6-facing asset URL); the two
+// This is distinct from PublicURL (the k6-facing asset URL); the two
 // endpoints are resolved independently.
 func (a assetAddressing) ConnectEndpoint(configName, endpoint, nodeIP string) string {
+	if !isDefaultS3Config(configName) {
+		return endpoint
+	}
 	if a.ConnectOverride != "" {
 		return a.ConnectOverride
 	}
-	if isDefaultS3Config(configName) && !a.InCluster && nodeIP != "" {
-		return fmt.Sprintf("http://%s:%s", nodeIP, seaweedfsNodePort)
+	if !a.InCluster && nodeIP != "" {
+		return "http://" + net.JoinHostPort(nodeIP, seaweedfsNodePort)
 	}
 	return endpoint
 }
 
-// resolvePublicURL builds the externally reachable URL of an uploaded asset.
+// PublicURL builds the externally reachable URL of an uploaded asset; every
+// branch ends with assetPath(bucket, key).
 //
-//   - SEAWEEDFS_PUBLIC_URL set    → <SEAWEEDFS_PUBLIC_URL>/<bucket>/<key>
-//   - default in-cluster SeaweedFS → http://<nodeIP>:30900/<bucket>/<key>
+//   - explicit external S3         → <endpoint>/<bucket>/<key>
+//   - default in-cluster SeaweedFS:
+//   - SEAWEEDFS_PUBLIC_URL set     → <SEAWEEDFS_PUBLIC_URL>/<bucket>/<key>
+//   - else                         → http://<nodeIP>:30900/<bucket>/<key>
 //     (the internal DNS endpoint is unreachable from remote k6 VMs, so the URL
 //     is rewritten to a node IP + the SeaweedFS S3 API NodePort)
-//   - explicit external S3        → <endpoint>/<bucket>/<key>
+//
+// SEAWEEDFS_PUBLIC_URL is the address of the in-cluster SeaweedFS, so an
+// external config ignores it: that object does not live there.
 //
 // There is no internal-DNS fallback for the default config: the caller refuses
 // the upload outright when no node IP is available, rather than handing back a
 // URL that only fails later, on a remote k6 VM.
 func (a assetAddressing) PublicURL(configName, endpoint, bucket, key, nodeIP string) string {
+	path := assetPath(bucket, key)
+	if !isDefaultS3Config(configName) {
+		return strings.TrimRight(endpoint, "/") + path
+	}
 	if a.PublicOverride != "" {
-		return fmt.Sprintf("%s/%s/%s", a.PublicOverride, bucket, key)
+		return a.PublicOverride + path
 	}
-	if isDefaultS3Config(configName) && nodeIP != "" {
-		return fmt.Sprintf("http://%s:%s/%s/%s", nodeIP, seaweedfsNodePort, bucket, key)
+	if nodeIP != "" {
+		return "http://" + net.JoinHostPort(nodeIP, seaweedfsNodePort) + path
 	}
-	return fmt.Sprintf("%s/%s/%s", strings.TrimRight(endpoint, "/"), bucket, key)
+	return strings.TrimRight(endpoint, "/") + path
+}
+
+// isAbsoluteHTTPURL reports whether s is an http or https URL with a host: what
+// an external config's endpoint must be for the URL PublicURL builds on it to be
+// fetchable from a k6 VM.
+func isAbsoluteHTTPURL(s string) bool {
+	u, err := url.Parse(s)
+	return err == nil && (u.Scheme == "http" || u.Scheme == "https") && u.Host != ""
 }
 
 // firstNodeIP lists cluster Nodes and returns the first ExternalIP, falling back
