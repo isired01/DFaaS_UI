@@ -1,5 +1,11 @@
-import { Server, Cpu, Zap, Box, Clock, Layers, Key, Play } from 'lucide-react';
+import { Server, Cpu, Zap, Box, Clock, Layers, Key, Play, Network } from 'lucide-react';
 import { useSchema, enumLabel } from '../lib/schema';
+
+// The address a generator dials back to the management node on is detected
+// from the generator itself during the k6 playbook and verified there, so a
+// dash is not an error: it means the runners fall back to the operator's
+// DFAAS_SYNC_PUBLIC_URL (else its HOST_IP) and to the URL baked at upload.
+const MGMT_ADDRESS_TITLE = 'The address this generator uses to reach the management node, detected at provisioning. A dash means none was recorded and the runners use the fallback addresses: an older operator or an Environment not re-provisioned since the upgrade (the next provisioning run records it), a generator reached over IPv6 (never recorded, since its k3s is single-stack IPv4, so re-provisioning does not change it), or a detection that failed or could not be verified on the filer NodePort.';
 
 const CAPACITY_STYLES = {
   LOW: { border: 'border-blue-500/40', bg: 'bg-blue-500/10', text: 'text-blue-400', label: 'Low' },
@@ -47,6 +53,9 @@ export default function NodeCard({ node, index, variant, onConfigureLoad, config
           <InfoItem icon={Layers} label="Strategy" value={formatStrategy(schema, node.balancingStrategy)} />
         )}
         <InfoItem icon={Cpu} label="Username" value={node.username} />
+        {isK6 && (
+          <InfoItem icon={Network} label="Management address" value={node.managementAddress || '—'} title={MGMT_ADDRESS_TITLE} />
+        )}
       </div>
 
       {!isK6 && node.functions && node.functions.length > 0 && (
@@ -81,9 +90,9 @@ export default function NodeCard({ node, index, variant, onConfigureLoad, config
   );
 }
 
-function InfoItem({ icon: Icon, label, value }) {
+function InfoItem({ icon: Icon, label, value, title }) {
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex items-center gap-2" title={title}>
       <Icon className="w-3.5 h-3.5 text-surface-450" />
       <div>
         <p className="text-[12px] text-surface-450 uppercase">{label}</p>

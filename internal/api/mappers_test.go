@@ -65,7 +65,16 @@ func fullEnvObject() *unstructured.Unstructured {
 				},
 			},
 			"k6Nodes": []interface{}{
-				map[string]interface{}{"nodeID": "g4", "kubeconfigSecret": "bari-g4-kubeconfig"},
+				map[string]interface{}{
+					"nodeID": "g4", "ipAddress": "10.0.0.2",
+					"kubeconfigSecret":  "bari-g4-kubeconfig",
+					"managementAddress": "192.0.2.250",
+				},
+				// Written by an operator that predates managementAddress.
+				map[string]interface{}{
+					"nodeID": "g5", "ipAddress": "10.0.0.3",
+					"kubeconfigSecret": "bari-g5-kubeconfig",
+				},
 			},
 		},
 	}}
@@ -118,6 +127,23 @@ func TestMapEnvDetailGolden(t *testing.T) {
 	if len(d.Nodes[1].Functions) != 0 {
 		t.Errorf("node[1].functions = %+v, want none", d.Nodes[1].Functions)
 	}
+
+	// status.k6Nodes: managementAddress is the one field the SPA shows that no
+	// other projection reads, so a drifted key would only ever show a dash.
+	if len(d.K6Nodes) != 2 {
+		t.Fatalf("k6Nodes = %d, want 2", len(d.K6Nodes))
+	}
+	if want := (K6NodeStatus{
+		NodeID: "g4", IPAddress: "10.0.0.2",
+		KubeconfigSecret: "bari-g4-kubeconfig", ManagementAddress: "192.0.2.250",
+	}); d.K6Nodes[0] != want {
+		t.Errorf("k6Nodes[0] = %+v, want %+v", d.K6Nodes[0], want)
+	}
+	if want := (K6NodeStatus{
+		NodeID: "g5", IPAddress: "10.0.0.3", KubeconfigSecret: "bari-g5-kubeconfig",
+	}); d.K6Nodes[1] != want {
+		t.Errorf("k6Nodes[1] = %+v, want %+v (no address from an older operator)", d.K6Nodes[1], want)
+	}
 }
 
 // The zero-value invariant: an Environment whose status has never been written
@@ -165,18 +191,22 @@ func TestProjectionsNeverLeakGoFormatting(t *testing.T) {
 			"conditions": []interface{}{
 				map[string]interface{}{"type": []interface{}{"Ready"}, "status": int64(1)},
 			},
+			"k6Nodes": []interface{}{
+				map[string]interface{}{"nodeID": "g4", "managementAddress": []interface{}{"192.0.2.250"}},
+			},
 		},
 	}}
 
 	d := mapEnvDetail(*obj)
 
 	for name, got := range map[string]string{
-		"phase":               d.Phase,
-		"node[0].nodeID":      d.Nodes[0].NodeID,
-		"node[0].ipAddress":   d.Nodes[0].IpAddress,
-		"node[0].role":        d.Nodes[0].Role,
-		"condition[0].type":   d.Conditions[0].Type,
-		"condition[0].status": d.Conditions[0].Status,
+		"phase":                        d.Phase,
+		"node[0].nodeID":               d.Nodes[0].NodeID,
+		"node[0].ipAddress":            d.Nodes[0].IpAddress,
+		"node[0].role":                 d.Nodes[0].Role,
+		"condition[0].type":            d.Conditions[0].Type,
+		"condition[0].status":          d.Conditions[0].Status,
+		"k6Nodes[0].managementAddress": d.K6Nodes[0].ManagementAddress,
 	} {
 		if got != "" {
 			t.Errorf("%s = %q, want empty — a non-string value must not reach the wire", name, got)

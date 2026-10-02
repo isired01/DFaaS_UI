@@ -151,6 +151,7 @@ const REASONS = {
   ScriptMirrorFailed: { label: 'Script copy to the generator failed, retrying', tone: 'warn' },
   RunnersUnreclaimed: { label: 'A runner could not be deleted, retrying', tone: 'warn' },
   SSHUnreachable:     { label: 'Nodes unreachable over SSH', tone: 'warn' },
+  DispatchedUnreachable: { label: 'Dispatched, filer unreachable', tone: 'warn' },
   UserAborted:        { label: 'Aborted by the user', tone: 'warn' },
   ScheduledDelayedEnvNotReady: { label: 'Schedule fired, environment not ready', tone: 'warn' },
   // progress

@@ -104,8 +104,47 @@ export function perNodeTotalMs(scenarios) {
   return max;
 }
 
-/** Whether a scenario carries an uploaded payload as its request body. */
+/** Whether a scenario carries an uploaded payload as its request body. Keyed
+ *  on the baked URL alone: it is the mandatory fallback, so a scenario with a
+ *  path but no URL is not an image scenario. */
 export const hasImage = (s) => !!(s && s.payloadImageURL);
+
+// ── payload location ────────────────────────────────────────────────────────
+//
+// An upload to the in-cluster SeaweedFS answers relocatable=true plus the
+// object's path, '/<bucket>/<key>'. The generated script then prefers
+// DFAAS_ASSET_BASE + path, the base the operator builds per generator from the
+// management address detected at provisioning, over the URL the gateway baked
+// at upload. An external S3 config, an old draft or a malformed one carries no
+// path and fetches the baked URL exactly as before.
+
+const isObjectPath = (p) => typeof p === 'string' && p.startsWith('/');
+
+/** The object path a scenario's payload can be fetched at on any generator's
+ *  own S3 base, or null when only the baked URL is usable. */
+export const relocatablePath = (s) => (isObjectPath(s?.payloadImagePath) ? s.payloadImagePath : null);
+
+/** The scenario patch for an upload response. ALWAYS sets all four keys:
+ *  updateScenario merges the patch over the scenario, so an omitted
+ *  payloadImagePath would keep the previous upload's path, and DFAAS_ASSET_BASE
+ *  plus that path fetches the OLD object (uploads are never deleted) while the
+ *  test reports success. */
+export function payloadPatch(res) {
+  return {
+    payloadImageURL: res?.url,
+    payloadContentType: res?.contentType,
+    payloadFilename: res?.filename,
+    payloadImagePath: res?.relocatable === true && isObjectPath(res.path) ? res.path : undefined,
+  };
+}
+
+/** The patch that removes an attachment: the same four keys, all cleared. */
+export const NO_PAYLOAD = Object.freeze({
+  payloadImageURL: undefined,
+  payloadContentType: undefined,
+  payloadFilename: undefined,
+  payloadImagePath: undefined,
+});
 
 /** The HTTP method the generated script will actually use. A GET/DELETE cannot
  *  carry a binary body in k6, so an uploaded payload forces POST — exported so

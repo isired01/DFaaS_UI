@@ -90,6 +90,14 @@ type K6NodeStatus struct {
 	NodeID           string `json:"nodeID"`
 	IPAddress        string `json:"ipAddress"`
 	KubeconfigSecret string `json:"kubeconfigSecret"`
+	// ManagementAddress is the management node's address as this generator
+	// sees it, detected and verified by the operator at provisioning; the
+	// operator builds on it every URL this generator's runners dial back.
+	// Empty when none was recorded: an older playbook (an Environment not
+	// re-provisioned since the operator upgrade), a generator reached over
+	// IPv6 (never recorded: its k3s is single-stack IPv4), or a detection
+	// that failed or could not be verified. Display-only here.
+	ManagementAddress string `json:"managementAddress,omitempty"`
 }
 
 // CreateEnvironmentRequest is the body for POST /api/environments.
@@ -170,6 +178,23 @@ type LoadTestDetail struct {
 type LoadTestResults struct {
 	MetricsURL string `json:"metricsUrl"`
 	K6URL      string `json:"k6Url"`
+}
+
+// UploadAssetResponse is the 201 body of POST /api/loadtests/assets.
+type UploadAssetResponse struct {
+	// URL is the absolute URL baked at upload time: SEAWEEDFS_PUBLIC_URL,
+	// else a node IP, for the in-cluster SeaweedFS; the config's own endpoint
+	// otherwise. Always set, and the fallback of a relocatable asset.
+	URL         string `json:"url"`
+	ContentType string `json:"contentType"`
+	Filename    string `json:"filename"`
+	// Relocatable is true on the in-cluster SeaweedFS (seaweedfs-default). No
+	// omitempty, so the wire always states it; the SPA treats only true as
+	// relocatable (payloadPatch), a missing key and false alike.
+	Relocatable bool `json:"relocatable"`
+	// Path is "/<bucket>/<key>", set only when Relocatable. A runner given
+	// DFAAS_ASSET_BASE fetches DFAAS_ASSET_BASE + Path; URL always ends with it.
+	Path string `json:"path,omitempty"`
 }
 
 // PerNodeLoadView mirrors LoadTest.spec.perNodeLoad[] + carries the materialized script.

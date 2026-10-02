@@ -93,9 +93,12 @@ for (const r of ['CheckFailed', 'JobCreationFailed']) {
 }
 // ...while a reason the operator keeps retrying on its own must not claim the
 // object is dead.
-for (const r of ['RunnersUnreclaimed', 'FetchFailed', 'ApplyFailed', 'StaleCleanupFailed', 'ScriptMirrorFailed']) {
+for (const r of ['RunnersUnreclaimed', 'FetchFailed', 'ApplyFailed', 'StaleCleanupFailed', 'ScriptMirrorFailed', 'DispatchedUnreachable']) {
   assert.notEqual(reason(r).tone, 'error', `${r} is retried by the operator; it must not render as dead`);
 }
+// DispatchedUnreachable warns rather than errors: the test is still running,
+// a generator just cannot reach the filer -- not a dead object.
+assert.equal(reason('DispatchedUnreachable').tone, 'warn', 'DispatchedUnreachable warns: the test runs, a generator cannot reach the filer');
 
 // --- Occupancy and Delete ---------------------------------------------------
 // The gateway's Environment-edit guard counts a non-suspended test the operator has

@@ -253,14 +253,7 @@ func TestUploadReturnsANodePortURLForTheDefaultConfig(t *testing.T) {
 		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
 	}
 
-	var body struct {
-		URL         string `json:"url"`
-		ContentType string `json:"contentType"`
-		Filename    string `json:"filename"`
-	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
+	body := decodeUpload(t, rec)
 
 	wantPrefix := "http://192.0.2.10:" + seaweedfsNodePort + "/bari-uid-fa/assets/"
 	if !strings.HasPrefix(body.URL, wantPrefix) {
@@ -277,6 +270,160 @@ func TestUploadReturnsANodePortURLForTheDefaultConfig(t *testing.T) {
 	}
 	if body.Filename != "logo.png" {
 		t.Errorf("filename = %q, want the original name", body.Filename)
+	}
+
+	// The in-cluster SeaweedFS is relocatable: a runner given DFAAS_ASSET_BASE
+	// fetches the same object off its own management address.
+	if !body.Relocatable {
+		t.Error("relocatable = false, want true for the in-cluster SeaweedFS")
+	}
+	if !strings.HasPrefix(body.Path, "/bari-uid-fa/assets/") || !strings.HasSuffix(body.Path, "logo.png") {
+		t.Errorf("path = %q, want /bari-uid-fa/assets/<uuid>-logo.png", body.Path)
+	}
+	if !strings.HasSuffix(body.URL, body.Path) {
+		t.Errorf("url = %q does not end with path %q: the fallback and the relocated fetch would name different objects", body.URL, body.Path)
+	}
+}
+
+// decodeUpload decodes a 201 body, and fails when relocatable is missing: the
+// wire always states relocatability explicitly (no omitempty), even though the
+// SPA treats only true as relocatable and a missing key reads as false there.
+func decodeUpload(t *testing.T, rec *httptest.ResponseRecorder) UploadAssetResponse {
+	t.Helper()
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(rec.Body.Bytes(), &raw); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if _, ok := raw["relocatable"]; !ok {
+		t.Errorf("response has no relocatable key: %s", rec.Body.String())
+	}
+	if p, ok := raw["path"]; ok && string(p) == `""` {
+		t.Errorf("response carries an empty path; it must be absent instead: %s", rec.Body.String())
+	}
+	var body UploadAssetResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	return body
+}
+
+// An external config is not relocatable, and the two SeaweedFS overrides do
+// not apply to it: before, SEAWEEDFS_PUBLIC_URL moved its URL onto SeaweedFS
+// and SEAWEEDFS_ENDPOINT sent its credentials and objects there.
+func TestUploadToAnExternalConfigKeepsItsOwnEndpoint(t *testing.T) {
+	store := &recordingStore{}
+	h := assetHandler(store, assetAddressing{
+		PublicOverride:  "http://lab.example:30900",
+		ConnectOverride: "http://localhost:8333",
+	},
+		assetEnvObj("bari", "uid-fake-1", "my-aws"),
+		s3ConfigSecret("my-aws", "https://s3.example"),
+		// no Node: an external config never needs one
+	)
+	var dialed string
+	h.newStore = func(_ context.Context, _, endpoint, _, _ string, _ bool) (objectStore, error) {
+		dialed = endpoint
+		return store, nil
+	}
+
+	rec := upload(t, h, "default", "bari", "logo.png", pngPayload)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	body := decodeUpload(t, rec)
+
+	if dialed != "https://s3.example" {
+		t.Errorf("dialed %q, want the config's own endpoint", dialed)
+	}
+	if !strings.HasPrefix(body.URL, "https://s3.example/bari-uid-fa/assets/") {
+		t.Errorf("url = %q, want it on the config's own endpoint", body.URL)
+	}
+	if body.Relocatable {
+		t.Error("relocatable = true, want false: the object does not live on the management node")
+	}
+	if strings.Contains(rec.Body.String(), `"path"`) {
+		t.Errorf("a non-relocatable upload must carry no path: %s", rec.Body.String())
+	}
+}
+
+// An external config may have no endpoint (the AWS default, which the registry
+// accepts). Its url used to come back relative, "/<bucket>/<key>", with a 201,
+// and every k6 runner then failed the fetch. The upload is refused instead,
+// before the bucket or its public policy is touched, whatever overrides are set.
+func TestUploadRefusesAnExternalConfigWithNoAbsoluteEndpoint(t *testing.T) {
+	cases := map[string]string{
+		"no endpoint":       "",
+		"no scheme":         "s3.example",
+		"no host":           "https://",
+		"not http or https": "ftp://s3.example",
+	}
+	for name, endpoint := range cases {
+		t.Run(name, func(t *testing.T) {
+			store := &recordingStore{}
+			h := assetHandler(store, assetAddressing{PublicOverride: "http://lab.example:30900", InCluster: true},
+				assetEnvObj("bari", "uid-fake-1", "my-aws"),
+				s3ConfigSecret("my-aws", endpoint),
+			)
+			rec := upload(t, h, "default", "bari", "logo.png", pngPayload)
+			if rec.Code != http.StatusConflict {
+				t.Fatalf("status = %d, want 409; body = %s", rec.Code, rec.Body.String())
+			}
+			if !strings.Contains(rec.Body.String(), "my-aws") {
+				t.Errorf("the error must name the config: %s", rec.Body.String())
+			}
+			if store.headCalls != 0 || len(store.created) != 0 || len(store.policies) != 0 || len(store.puts) != 0 {
+				t.Errorf("nothing may be written: HeadBucket %d, CreateBucket %v, policies %v, PutObject %d",
+					store.headCalls, store.created, store.policies, len(store.puts))
+			}
+		})
+	}
+}
+
+// SEAWEEDFS_PUBLIC_URL sets the fallback URL only; the asset stays relocatable.
+func TestUploadWithThePublicOverrideIsStillRelocatable(t *testing.T) {
+	store := &recordingStore{}
+	h := assetHandler(store, assetAddressing{PublicOverride: "http://100.64.0.1:30900", InCluster: true},
+		assetEnvObj("bari", "uid-fake-1", ""),
+		s3ConfigSecret(DefaultS3ConfigName, "http://seaweedfs:8333"),
+	)
+	rec := upload(t, h, "default", "bari", "logo.png", pngPayload)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	body := decodeUpload(t, rec)
+
+	if !body.Relocatable || !strings.HasPrefix(body.Path, "/bari-uid-fa/assets/") {
+		t.Errorf("relocatable = %v, path = %q; want a relocatable asset under /bari-uid-fa/assets/", body.Relocatable, body.Path)
+	}
+	if body.URL != "http://100.64.0.1:30900"+body.Path {
+		t.Errorf("url = %q, want the override followed by path %q", body.URL, body.Path)
+	}
+}
+
+func TestUploadBracketsAnIPv6NodeAddress(t *testing.T) {
+	store := &recordingStore{}
+	h := assetHandler(store, assetAddressing{},
+		assetEnvObj("bari", "uid-fake-1", ""),
+		s3ConfigSecret(DefaultS3ConfigName, "http://seaweedfs:8333"),
+		nodeObj("node-a", "2001:db8::10"),
+	)
+	var dialed string
+	h.newStore = func(_ context.Context, _, endpoint, _, _ string, _ bool) (objectStore, error) {
+		dialed = endpoint
+		return store, nil
+	}
+
+	rec := upload(t, h, "default", "bari", "logo.png", pngPayload)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	body := decodeUpload(t, rec)
+
+	if want := "http://[2001:db8::10]:" + seaweedfsNodePort + "/bari-uid-fa/assets/"; !strings.HasPrefix(body.URL, want) {
+		t.Errorf("url = %q, want prefix %q", body.URL, want)
+	}
+	if want := "http://[2001:db8::10]:" + seaweedfsNodePort; dialed != want {
+		t.Errorf("dialed %q, want %q", dialed, want)
 	}
 }
 
@@ -367,7 +514,7 @@ func TestAssetAddressing(t *testing.T) {
 		}
 	})
 
-	t.Run("the connect override always wins", func(t *testing.T) {
+	t.Run("the connect override wins for the default config", func(t *testing.T) {
 		a := assetAddressing{ConnectOverride: "http://override:8333", InCluster: true}
 		if got := a.ConnectEndpoint(DefaultS3ConfigName, dnsEndpoint, "192.0.2.10"); got != "http://override:8333" {
 			t.Errorf("ConnectEndpoint = %q, want the override", got)
@@ -395,6 +542,69 @@ func TestAssetAddressing(t *testing.T) {
 		want := "http://192.0.2.10:" + seaweedfsNodePort + "/bucket/assets/key.png"
 		if got := a.PublicURL(DefaultS3ConfigName, dnsEndpoint, "bucket", "assets/key.png", "192.0.2.10"); got != want {
 			t.Errorf("PublicURL = %q, want %q — a k6 VM cannot resolve cluster DNS", got, want)
+		}
+	})
+
+	t.Run("an IPv6 node IP is bracketed", func(t *testing.T) {
+		a := assetAddressing{}
+		wantPublic := "http://[2001:db8::1]:" + seaweedfsNodePort + "/bucket/assets/key.png"
+		if got := a.PublicURL(DefaultS3ConfigName, dnsEndpoint, "bucket", "assets/key.png", "2001:db8::1"); got != wantPublic {
+			t.Errorf("PublicURL = %q, want %q", got, wantPublic)
+		}
+		wantConnect := "http://[2001:db8::1]:" + seaweedfsNodePort
+		if got := a.ConnectEndpoint(DefaultS3ConfigName, dnsEndpoint, "2001:db8::1"); got != wantConnect {
+			t.Errorf("ConnectEndpoint = %q, want %q", got, wantConnect)
+		}
+	})
+
+	t.Run("an external config ignores both SeaweedFS overrides", func(t *testing.T) {
+		a := assetAddressing{PublicOverride: "http://lab.example:30900", ConnectOverride: "http://localhost:8333"}
+		const ext = "https://s3.example/"
+		if got := a.ConnectEndpoint("my-aws", ext, "192.0.2.10"); got != ext {
+			t.Errorf("ConnectEndpoint = %q, want the config's own endpoint", got)
+		}
+		if got, want := a.PublicURL("my-aws", ext, "bucket", "assets/key.png", "192.0.2.10"), "https://s3.example/bucket/assets/key.png"; got != want {
+			t.Errorf("PublicURL = %q, want %q", got, want)
+		}
+	})
+
+	// The relocated fetch is DFAAS_ASSET_BASE + path, the fallback is url: on
+	// every branch they must name the same object.
+	t.Run("every public URL ends with the asset path", func(t *testing.T) {
+		path := assetPath("bucket", "assets/key.png")
+		if path != "/bucket/assets/key.png" {
+			t.Fatalf("assetPath = %q, want /bucket/assets/key.png", path)
+		}
+		for name, got := range map[string]string{
+			"override":        assetAddressing{PublicOverride: "http://x"}.PublicURL(DefaultS3ConfigName, dnsEndpoint, "bucket", "assets/key.png", "192.0.2.10"),
+			"node IP":         assetAddressing{}.PublicURL(DefaultS3ConfigName, dnsEndpoint, "bucket", "assets/key.png", "192.0.2.10"),
+			"no node IP":      assetAddressing{}.PublicURL(DefaultS3ConfigName, dnsEndpoint, "bucket", "assets/key.png", ""),
+			"external config": assetAddressing{}.PublicURL("my-aws", "https://s3.example", "bucket", "assets/key.png", "192.0.2.10"),
+		} {
+			if !strings.HasSuffix(got, path) {
+				t.Errorf("%s: PublicURL = %q does not end with %q", name, got, path)
+			}
+		}
+	})
+
+	t.Run("Relocatable", func(t *testing.T) {
+		cases := []struct {
+			name       string
+			addr       assetAddressing
+			configName string
+			want       bool
+		}{
+			{"default config, no overrides", assetAddressing{}, DefaultS3ConfigName, true},
+			{"default config, public override", assetAddressing{PublicOverride: "http://x"}, DefaultS3ConfigName, true},
+			{"default config, connect override", assetAddressing{ConnectOverride: "http://y"}, DefaultS3ConfigName, true},
+			{"default config, in-cluster", assetAddressing{InCluster: true}, DefaultS3ConfigName, true},
+			{"an external config", assetAddressing{}, "my-aws", false},
+			{"an external config with every override", assetAddressing{PublicOverride: "http://x", ConnectOverride: "http://y", InCluster: true}, "my-aws", false},
+		}
+		for _, tc := range cases {
+			if got := tc.addr.Relocatable(tc.configName); got != tc.want {
+				t.Errorf("%s: Relocatable = %v, want %v", tc.name, got, tc.want)
+			}
 		}
 	})
 

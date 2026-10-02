@@ -32,6 +32,20 @@ const errorsOf = (mutate) => { const d = good(); mutate(d); return buildLoadTest
   assert.equal(payload.startAt, undefined); assert.equal(payload.nameSuffix, undefined);
 }
 
+// --- an uploaded payload's path reaches the generated script ---------------
+// The scenario goes through the builder as-is, so a relocatable upload lands in
+// the script as a DFAAS_ASSET_BASE fetch and a path-less one does not.
+{
+  const img = { payloadImageURL: 'http://10.0.0.1:30900/b/assets/a.png', payloadContentType: 'image/png' };
+  const d = good(); d.perNode['gen-a'].scenarios = [{ ...scen, ...img, payloadImagePath: '/b/assets/a.png' }];
+  const { payload, errors } = buildLoadTestPayload(d, rules);
+  assert.deepEqual(errors, []);
+  assert.match(payload.perNodeLoad[0].script, /__ENV\.DFAAS_ASSET_BASE/, 'a relocatable image is fetched over DFAAS_ASSET_BASE');
+  assert.ok(payload.perNodeLoad[0].script.includes('"/b/assets/a.png"'), 'the object path is in the script');
+  const p = good(); p.perNode['gen-a'].scenarios = [{ ...scen, ...img }];
+  assert.doesNotMatch(buildLoadTestPayload(p, rules).payload.perNodeLoad[0].script, /DFAAS_ASSET_BASE/, 'a path-less image keeps the baked URL only');
+}
+
 // --- raw source: typed duration must match the CRD pattern ------------------
 {
   const d = good(); d.perNode['gen-a'] = { enabled: true, vus: 1, source: SOURCE_RAW, rawScript: 'export default function(){}', duration: '5m' };

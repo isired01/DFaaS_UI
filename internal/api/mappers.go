@@ -76,9 +76,10 @@ func mapEnvDetail(item unstructured.Unstructured) EnvironmentDetail {
 			continue
 		}
 		d.K6Nodes = append(d.K6Nodes, K6NodeStatus{
-			NodeID:           getStringFromMap(kMap, "nodeID"),
-			IPAddress:        getStringFromMap(kMap, "ipAddress"),
-			KubeconfigSecret: getStringFromMap(kMap, "kubeconfigSecret"),
+			NodeID:            getStringFromMap(kMap, "nodeID"),
+			IPAddress:         getStringFromMap(kMap, "ipAddress"),
+			KubeconfigSecret:  getStringFromMap(kMap, "kubeconfigSecret"),
+			ManagementAddress: getStringFromMap(kMap, "managementAddress"),
 		})
 	}
 
