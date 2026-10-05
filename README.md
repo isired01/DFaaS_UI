@@ -29,7 +29,7 @@ and `helm install` applies them:
 ```bash
 # 1. Install the chart (operator + UI + CRDs)
 helm install dfaas oci://ghcr.io/isired01/charts/dfaas \
-  --version 4.0.0 \
+  --version 4.0.2 \
   --create-namespace \
   --namespace dfaas-operator-system
 
@@ -49,12 +49,13 @@ every runner falls back to the baked asset URL (`SEAWEEDFS_PUBLIC_URL`, else a n
 operator's `DFAAS_SYNC_PUBLIC_URL`, else `HOST_IP`. An Environment provisioned before the upgrade
 gets the address on its next provisioning run (any spec edit), except a generator reached over
 IPv6: its k3s is single-stack IPv4, so the operator never records an IPv6 address and that
-generator keeps the fallback.
+generator keeps the fallback. v4.0.2 changes no CRD and nothing in the UI: it opens the
+operator's Grafana without a login.
 
 ```bash
-kubectl apply -f https://github.com/isired01/DFaaSOperator/releases/download/v4.0.0/dfaas.dfaas.io_environments.yaml
-kubectl apply -f https://github.com/isired01/DFaaSOperator/releases/download/v4.0.0/dfaas.dfaas.io_loadtests.yaml
-helm upgrade dfaas oci://ghcr.io/isired01/charts/dfaas --version 4.0.0 --namespace dfaas-operator-system
+kubectl apply -f https://github.com/isired01/DFaaSOperator/releases/download/v4.0.2/dfaas.dfaas.io_environments.yaml
+kubectl apply -f https://github.com/isired01/DFaaSOperator/releases/download/v4.0.2/dfaas.dfaas.io_loadtests.yaml
+helm upgrade dfaas oci://ghcr.io/isired01/charts/dfaas --version 4.0.2 --namespace dfaas-operator-system
 ```
 
 Custom Resource examples (`Environment` + `LoadTest`) and VM IP configuration: see the
