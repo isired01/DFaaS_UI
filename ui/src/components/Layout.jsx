@@ -3,11 +3,9 @@ import { Outlet, Link, useLocation } from 'react-router-dom';
 import { FlaskConical, LayoutDashboard, TestTube2, Database } from 'lucide-react';
 import { subscribeClusterStatus, getClusterStatus } from '../lib/clusterStatus';
 
-// Reflects whether API calls are actually reaching the cluster. This badge was
-// previously hardcoded to a green "Cluster Connected" and therefore lied
-// whenever the cluster was unreachable — the worst possible moment to be
-// reassuring. Status comes from real traffic (see lib/clusterStatus.js), so
-// before the first request it honestly reads "Cluster —".
+// Reflects whether API calls are actually reaching the cluster. Status comes
+// from real traffic (see lib/clusterStatus.js), so before the first request it
+// reads "Cluster —".
 const CLUSTER_BADGE = {
   ok: { dot: 'bg-emerald-400 animate-pulse', text: 'Cluster Connected' },
   down: { dot: 'bg-red-500', text: 'Cluster Unreachable' },

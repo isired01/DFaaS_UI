@@ -21,8 +21,8 @@ import (
 func (h *Handler) ListLoadTests(c *gin.Context) {
 	envFilter := c.Query("environment")
 
-	// A malformed filter used to fall through to the full unfiltered list, which
-	// reads as "this environment has every test in the cluster". Reject it.
+	// A malformed filter is rejected: the unfiltered list would read as "this
+	// environment has every test in the cluster".
 	var filterNs, filterName string
 	if envFilter != "" {
 		parts := strings.SplitN(envFilter, "/", 2)

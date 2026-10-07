@@ -92,10 +92,9 @@ ${body}
 // (else the node IP), for the URL the gateway baked at upload. Naming the wrong
 // one sends the user to fix a setting that played no part. One known miss: an
 // external S3 config's asset carries no path, so it gets the path-less block,
-// kept byte-identical to the pre-relocation one, and its hint names
-// SEAWEEDFS_PUBLIC_URL although its URL is that config's own endpoint. Both
-// hints are emitted inside single-quoted literals, so neither may contain an
-// apostrophe.
+// and its hint names SEAWEEDFS_PUBLIC_URL although its URL is that config's own
+// endpoint. Both hints are emitted inside single-quoted literals, so neither
+// may contain an apostrophe.
 const BAKED_URL_HINT = `'; SEAWEEDFS_PUBLIC_URL must be reachable from every k6 generator'`;
 const ASSET_BASE_HINT = `'; DFAAS_ASSET_BASE (the management address detected for this generator at provisioning, S3 NodePort 30900) must be reachable from this generator: open the port or re-provision the Environment'`;
 
@@ -251,8 +250,8 @@ export function handleSummary(data) {
     }
   }
   // Defining handleSummary suppresses k6's default stdout summary; return the
-  // raw JSON on stdout so the log-capture channel stays a machine-readable
-  // fallback when the PUT fails.
+  // raw JSON on stdout as a fallback for when the PUT fails. The operator keeps
+  // only the first 256 KiB of the runner log, so a large summary gets cut.
   return { stdout: JSON.stringify(data, null, 1) };
 }
 `;

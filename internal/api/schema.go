@@ -17,9 +17,7 @@ import (
 //
 // Hand-synced with the operator CRDs in DFaaSOperator/api/v1/*_types.go. That
 // is the one remaining hop under the cross-repo rule that the gateway carries
-// no compile-time dependency on the operator's Go types; before this file the
-// same rules were re-typed across six seams (form, component, binding tags,
-// handler, YAML decoder, CRD) and four of them existed only in the browser.
+// no compile-time dependency on the operator's Go types.
 type Schema struct {
 	Node     NodeRules     `json:"node"`
 	LoadTest LoadTestRules `json:"loadTest"`

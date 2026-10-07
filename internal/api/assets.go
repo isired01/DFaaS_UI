@@ -252,13 +252,8 @@ func (h *Handler) UploadLoadTestAsset(c *gin.Context) {
 	c.JSON(http.StatusCreated, resp)
 }
 
-// objectStore is exactly the four calls the asset-upload path makes. newS3Client
-// returned a concrete *s3.Client and every consumer took that concrete type, so
-// the whole upload path needed a live S3 to execute even once -- while the
-// Kubernetes half of the same handler was already fakeable. What sat behind that
-// wall is the file's most load-bearing knowledge, comment-only: that SeaweedFS
-// answers HeadBucket with 403 for a bucket that does not exist yet, and that a
-// genuine auth failure must therefore fall through to CreateBucket.
+// objectStore is exactly the four calls the asset-upload path makes, so the
+// handler runs against a fake.
 type objectStore interface {
 	HeadBucket(ctx context.Context, in *s3.HeadBucketInput, opts ...func(*s3.Options)) (*s3.HeadBucketOutput, error)
 	CreateBucket(ctx context.Context, in *s3.CreateBucketInput, opts ...func(*s3.Options)) (*s3.CreateBucketOutput, error)
@@ -286,9 +281,7 @@ func (h *Handler) store() storeFactory {
 
 // assetAddressing holds the environment-derived inputs of the three URL
 // resolutions: what the gateway dials (ConnectEndpoint), what the k6 VMs dial
-// (PublicURL) and what the browser opens (FilerBase, results.go). The
-// resolvers used to read os.Getenv inside themselves, so they looked pure and
-// were not.
+// (PublicURL) and what the browser opens (FilerBase, results.go).
 //
 // ConnectOverride and PublicOverride are SeaweedFS overrides: they apply to the
 // default config only, and an external S3 config keeps its own endpoint.
@@ -425,7 +418,7 @@ func isAbsoluteHTTPURL(s string) bool {
 //
 // The error distinguishes "the lookup failed" (List error/timeout) from "the
 // cluster genuinely has no Node carrying a usable address" (empty string, nil
-// error) — collapsing the two used to turn an API blip into a silent fallback
+// error) — collapsing the two would turn an API blip into a silent fallback
 // to an unreachable endpoint.
 //
 // NOTE: on a multi-node cluster SeaweedFS's NodePort is reachable on every node,
@@ -574,7 +567,7 @@ func sanitizeAssetFilename(name string) string {
 
 // bucketNameFor builds a deterministic, S3-compliant bucket name from the
 // Environment name and UID. Ported verbatim from the exporter
-// (dataExporter/main.go) so uploads land in the same bucket the exporter reads.
+// (DFaaSOperator/dataExporter/main.go) so uploads land in the same bucket the exporter reads.
 //
 //   - lowercase the env name,
 //   - replace non-[a-z0-9-] with "-",
@@ -612,7 +605,7 @@ func bucketNameFor(envName, envUID string) string {
 	return name + "-" + suffix
 }
 
-// --- S3 error classifiers (ported from dataExporter/main.go) ---
+// --- S3 error classifiers (ported from DFaaSOperator/dataExporter/main.go) ---
 
 // isS3NotFound returns true for the HeadBucket "missing" surface.
 func isS3NotFound(err error) bool {

@@ -632,10 +632,10 @@ func TestAssetAddressing(t *testing.T) {
 
 // --- bucketNameFor: the same golden table as the exporter ---------------
 //
-// This function is copied verbatim from dataExporter/main.go so uploads land
-// in the bucket the exporter reads. Two copies, and until now zero tests on
-// either side. The table below is the one in dataExporter/main_test.go: if the
-// two ever disagree, one of these two tests fails.
+// bucketNameFor is copied from DFaaSOperator/dataExporter/main.go so uploads
+// land in the bucket the exporter reads, and the table below copies the one in
+// DFaaSOperator/dataExporter/main_test.go. Nothing compares the two copies:
+// change both repos together.
 
 func TestBucketNameForMatchesTheExporter(t *testing.T) {
 	cases := []struct {

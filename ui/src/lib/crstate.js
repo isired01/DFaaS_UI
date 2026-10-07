@@ -1,10 +1,7 @@
 // What a CR's state means to a human, in one place.
 //
 // Phase sets, phase presentation (badge / icon / label / tone) and reason
-// rendering for both CRDs. Before this file, "is this test in flight?" was
-// answered four different ways in four files (polling, abort, terminal,
-// env-edit blocking), phase colours were owned three times, and ~50 of the
-// operator's 57 Condition reasons reached the user as raw camelCase.
+// rendering for both CRDs.
 //
 // Phase and reason strings are protocol values from the operator CRDs
 // (DFaaSOperator/api/v1). Labels here are presentation; tones map to the
@@ -175,9 +172,7 @@ export function reason(r) {
 export const isCurated = (r) => Object.prototype.hasOwnProperty.call(REASONS, r);
 
 /** The reasons the operator stamps on the Scheduled Condition. Grouped here
- *  rather than at the page, because a reason list re-typed at a call site is
- *  how LoadTestDetail ended up printing the raw identifier while
- *  ConditionsList, on the same page, printed the curated label. */
+ *  rather than at the page, so every page shows the same curated labels. */
 export const SCHEDULED_REASONS = ['ScheduledArmed', 'ScheduledFired', 'ScheduledDelayedEnvNotReady'];
 
 /** The Condition of this type whose reason is in `reasons`, or undefined.

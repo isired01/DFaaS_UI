@@ -1,8 +1,6 @@
 // Draft → CreateLoadTest payload. Pure: returns { payload, errors } and never
 // throws, so the page only decides how to show the first error and every rule
-// below is table-testable without rendering a form. Before this, handleSubmit
-// in LoadTestNew.jsx was 138 lines with 21 throw sites, reachable only by
-// driving the UI.
+// below is table-testable without rendering a form.
 import { generateK6Script } from '../k6Generator.js';
 import { formatGoDuration } from '../duration.js';
 import { perNodeTotalMs, validateScenarios } from '../scenarios.js';

@@ -12,12 +12,10 @@ export function emptyMetric() {
   return { type: 'custom-promql', metricName: '', query: '', comment: '' };
 }
 
-// Two things here are load-bearing and were both wrong before; verified against
-// a live cluster:
+// Two rules here are load-bearing:
 //
-//   1. The pod selector is `dfaas-agent.*`. The old `dfaas-node-.*` matched ZERO
-//      series, so the shipped defaults exported nothing and the exporter failed
-//      the whole LoadTest on an empty CSV.
+//   1. The pod selector is `dfaas-agent.*`; a selector matching no series
+//      exports an empty CSV and the exporter fails the LoadTest.
 //   2. Rate windows are [5m]. The management Prometheus does not scrape the
 //      workers directly — it federates from each worker's Prometheus once per
 //      server.global.scrape_interval (the operator's prometheus-values.yaml).

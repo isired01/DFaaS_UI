@@ -135,9 +135,10 @@ func (h *Handler) CreateS3Config(c *gin.Context) {
 	})
 }
 
-// DeleteS3Config removes the Secret. Environments still referencing it will
-// surface the failure via the operator's LoadTest reconcile (out of scope
-// here — reference guard deferred per plan).
+// DeleteS3Config removes the Secret. The gateway does not check for
+// Environments still referencing it; their LoadTests then fail at export with
+// S3ConfigMissing (the operator's runExporter in
+// DFaaSOperator/internal/controller/loadtest_observe.go).
 func (h *Handler) DeleteS3Config(c *gin.Context) {
 	name := c.Param("name")
 

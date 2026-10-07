@@ -207,13 +207,8 @@ func mapConditions(obj map[string]interface{}) []ConditionInfo {
 	return out
 }
 
-// nodeInfosFrom projects spec.nodes into NodeInfo. One projection, two callers,
-// which is the point: mapEnvDetail built the full NodeInfo including all four
-// Function tuning fields, while validateEnvironmentYAML rebuilt it from a
-// different map for the SAME validator carrying only name + image. Harmless
-// only because validateEnvNodes never inspected those fields -- adding a
-// function-level rule to the Rule set would have silently not applied on the
-// YAML import path, because the second projection dropped the inputs.
+// nodeInfosFrom projects spec.nodes into NodeInfo. The detail mapper and the
+// YAML import share it, so a node rule applies on both paths.
 //
 // Safe on both a cluster object and a freshly decoded YAML document: it reads
 // through nestedSliceNoCopy, never unstructured.NestedSlice, whose deep copy

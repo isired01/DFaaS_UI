@@ -18,7 +18,7 @@ export default function EnvironmentDetail() {
   const [deleting, setDeleting] = useState(false);
 
   // One read, one error, one spinner: the LoadTest list is a non-fatal extra on
-  // the Environment read, exactly as before.
+  // the Environment read.
   const { data, loading, error, setError } = useResource(
     async ({ signal }) => {
       const [env, lts] = await Promise.all([

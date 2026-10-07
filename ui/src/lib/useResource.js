@@ -12,9 +12,7 @@ import { createPoll } from './resourcePoll.js';
 //
 // `shouldPoll(data)` gates the interval only, never the first read, and is
 // called with the newest data from a ref. That is why the effect does not need
-// the resource's own Phase in its dependency array: LoadTestDetail used to list
-// `loadtest?.phase` there behind an eslint-disable, which tore down and re-armed
-// the interval and fired a redundant read on every Phase transition.
+// the resource's own Phase in its dependency array.
 //
 // `setError` is returned because the pages' own download / upload / delete
 // handlers write into this same error state.

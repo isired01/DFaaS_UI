@@ -110,7 +110,7 @@ assert.equal(parses("export const x = 1;\n"), null, 'node --check must accept va
   assert.ok(abortArg.includes(JSON.stringify(img.name)), 'abort message must name the scenario');
   assert.ok(abortArg.includes(JSON.stringify(img.payloadImageURL)), "abort message must carry the fixture's payload URL literal");
   assert.ok(abortArg.includes('__r.status'), 'abort message must report the transport status');
-  // F1: SEAWEEDFS_PUBLIC_URL reachability is only the right diagnosis for a
+  // SEAWEEDFS_PUBLIC_URL reachability is only the right diagnosis for a
   // transport failure (status 0, no HTTP answer at all) -- a 403 (bucket
   // policy not applied), a 404 (object gone) or an external S3 config are
   // real HTTP responses that hint would misdiagnose. So it must be gated by a

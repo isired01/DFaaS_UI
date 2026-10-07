@@ -2,8 +2,7 @@ import { Link } from 'react-router-dom';
 import { AlertTriangle } from 'lucide-react';
 
 // PageError is the whole-page read failure panel: the detail pages render it
-// instead of their content when the read of the resource itself failed. The
-// same markup was inlined byte-identically in three pages.
+// instead of their content when the read of the resource itself failed.
 //
 // ErrorAlert is the other one, and they are not interchangeable: that is the
 // inline strip inside a form, where the form stays on screen.

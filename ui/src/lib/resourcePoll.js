@@ -1,8 +1,7 @@
 // The read policy every polling page in the SPA needs, with no React in it, so
 // that resourcePoll.selfcheck.mjs can drive it under plain node.
 //
-// Eight pages used to hand-roll this. Two of them carried the correct version
-// and six carried one or both of these defects:
+// Every polling page needs this; it avoids two defects:
 //
 //   * the error was cleared at the START of a read, so on an unreachable
 //     Management cluster a detail page flashed the message for one frame every

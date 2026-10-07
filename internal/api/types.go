@@ -193,7 +193,7 @@ type PerNodeLoadView struct {
 
 // MetricsExportView mirrors LoadTest.spec.metricsExport.
 // S3 export is configured per-Environment via spec.s3ConfigRef (see EnvironmentDetail);
-// LoadTest no longer carries any export-destination fields.
+// LoadTest carries no export-destination fields.
 type MetricsExportView struct {
 	Metrics []MetricEntryView `json:"metrics"`
 	Step    string            `json:"step,omitempty"`

@@ -28,8 +28,8 @@ function storageKeyFor(ns, env, nodeID) {
 }
 
 // loadDraft restores one node's saved form state. A draft written by an older
-// build parses fine but can be missing whole keys (e.g. `scenarios`), which used
-// to take the page down to the route ErrorBoundary until the user cleared
+// build parses fine but can be missing whole keys (e.g. `scenarios`), which would
+// take the page down to the route ErrorBoundary until the user cleared
 // localStorage by hand — so nothing is trusted beyond the shape defaultPerNode()
 // declares, and scenarios get their stable id backfilled.
 function loadDraft(ns, env, nodeID) {
