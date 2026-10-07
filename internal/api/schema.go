@@ -122,7 +122,7 @@ var rules = Schema{
 			{Value: "alllocalstrategy", Label: "All Local — keep traffic local", ShortLabel: "All Local"},
 			{Value: "nodemarginstrategy", Label: "Node Margin (experimental)", ShortLabel: "Node Margin"},
 			{Value: "rlagentstrategy", Label: "RL Agent (experimental)", ShortLabel: "RL Agent"},
-			{Value: "randomstrategy", Label: "Random — pesi casuali, nessun health check", ShortLabel: "Random"},
+			{Value: "randomstrategy", Label: "Random — random weights, no health check", ShortLabel: "Random"},
 		},
 		UniqueIPAddress:       true,
 		RequireEachRole:       true,
@@ -267,7 +267,7 @@ func validateEnvNodes(nodes []NodeInfo) error {
 	// LoadTest is dispatched at it.
 	if r.RequireEachRole {
 		if workers == 0 {
-			return fmt.Errorf("at least one node must have role %s: an environment with no workers has nothing to load-test", roleWorker)
+			return fmt.Errorf("at least one node must have role %s: an environment with no DFaaS nodes has nothing to load-test", roleWorker)
 		}
 		if generators == 0 {
 			return fmt.Errorf("at least one node must have role %s: an environment with no generators cannot run a load test", roleGenerator)

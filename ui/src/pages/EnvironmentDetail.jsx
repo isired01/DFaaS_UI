@@ -179,7 +179,7 @@ export default function EnvironmentDetail() {
           <span className="text-sm font-normal text-surface-450">({dfaasNodes.length})</span>
         </h2>
         {dfaasNodes.length === 0 ? (
-          <p className="text-sm text-surface-450 glass-card p-4">No DFaaS worker nodes in this environment.</p>
+          <p className="text-sm text-surface-450 glass-card p-4">No DFaaS nodes in this environment.</p>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
             {dfaasNodes.map((node, i) => (

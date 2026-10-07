@@ -42,7 +42,7 @@ export function buildEnvironmentPayload(form, rules) {
     // nothing, and the operator's inventory turns the empty list into the JSON
     // literal `null`, which kills the Ansible prune task.
     if (rules.requireWorkerFunction && n.role === 'dfaas-worker' && (n.functions || []).length === 0) {
-      errors.push(`Node '${nid}' is a DFaaS Node with no functions — a worker must deploy at least one`);
+      errors.push(`Node '${nid}' is a DFaaS Node with no functions — a DFaaS node must deploy at least one`);
     }
     if (n.role === 'dfaas-worker') {
       (n.functions || []).forEach((f, j) => {
@@ -59,7 +59,7 @@ export function buildEnvironmentPayload(form, rules) {
     // Same rule the gateway enforces: a single-role environment reaches Ready
     // and only fails once a load test is dispatched at it.
     const roles = new Set(nodes.map((n) => n.role));
-    if (!roles.has('dfaas-worker')) errors.push('At least one node must be a DFaaS Node — an environment with no workers has nothing to load-test');
+    if (!roles.has('dfaas-worker')) errors.push('At least one node must be a DFaaS Node — an environment with no DFaaS nodes has nothing to load-test');
     if (!roles.has('k6-load-generator')) errors.push('At least one node must be a k6 Load Generator — an environment with no generators cannot run a load test');
   }
 

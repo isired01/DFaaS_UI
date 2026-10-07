@@ -77,7 +77,7 @@ export default function Layout() {
       <footer className="border-t border-surface-800/50 py-4">
         <div className="max-w-[1600px] mx-auto px-6 flex items-center justify-between">
           <p className="text-xs text-surface-450">
-            DFaaS Control Plane — Tesi Magistrale
+            DFaaS Control Plane — built as a Master's thesis project at the University of Milano-Bicocca
           </p>
           <p className="text-xs text-surface-450">
             Kubernetes Operator + React UI
