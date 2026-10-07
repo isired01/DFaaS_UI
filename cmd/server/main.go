@@ -50,8 +50,8 @@ func main() {
 		r.Use(cors.New(cors.Config{
 			AllowOrigins: corsOrigins,
 			// PATCH is required by UpdateEnvironment and AbortLoadTest.
-			AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
-			AllowHeaders:     []string{"Origin", "Content-Type", "Authorization"},
+			AllowMethods:     []string{"GET", "POST", "PATCH", "DELETE", "OPTIONS"},
+			AllowHeaders:     []string{"Origin", "Content-Type"},
 			AllowCredentials: allowCredentials,
 		}))
 	}
@@ -74,7 +74,7 @@ func main() {
 	uiDistPath := getUIDistPath()
 	if _, err := os.Stat(uiDistPath); err == nil {
 		r.Static("/assets", filepath.Join(uiDistPath, "assets"))
-		r.StaticFile("/favicon.ico", filepath.Join(uiDistPath, "favicon.ico"))
+		r.StaticFile("/favicon.svg", filepath.Join(uiDistPath, "favicon.svg"))
 
 		// Tutte le rotte non-API servono index.html (SPA routing).
 		// Per /api/* sconosciuti restituiamo JSON 404 invece di SPA fallback,
@@ -104,12 +104,12 @@ func main() {
 }
 
 // parseCORSOrigins reads the CORS_ORIGINS env (csv).
-// Unset → dev defaults (Vite + CRA).
-// Explicit empty (CORS_ORIGINS="") → no CORS middleware (same-origin only).
+// Unset → the Vite dev origin.
+// Explicit empty (CORS_ORIGINS="") → no CORS middleware (no Access-Control-* headers; not a same-origin check).
 func parseCORSOrigins() []string {
 	v, set := os.LookupEnv("CORS_ORIGINS")
 	if !set {
-		return []string{"http://localhost:5173", "http://localhost:3000"}
+		return []string{"http://localhost:5173"}
 	}
 	v = strings.TrimSpace(v)
 	if v == "" {
