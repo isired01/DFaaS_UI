@@ -114,10 +114,6 @@ func (h *Handler) UpdateEnvironment(c *gin.Context) {
 	// nor the operator guards this, so the gateway is the gate, on every PATCH.
 	// It does not tell a no-op apart: an empty PATCH is also refused while a
 	// test is active.
-	//
-	// ansible.Classify already returns VerdictNone for s3-only and
-	// topology-only edits (ansible/snapshot.go), but drift does not use it yet.
-	// Once it does, this guard can let those edits through.
 	ltCtx, ltCancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
 	defer ltCancel()
 
