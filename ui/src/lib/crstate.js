@@ -19,7 +19,6 @@ import {
 
 const ENV_PHASES = {
   '':                       { badge: 'badge-idle',         icon: Circle,        label: 'Initializing', tone: 'idle' },
-  'Idle':                   { badge: 'badge-idle',         icon: Circle,        label: 'Idle', tone: 'idle' },
   'ProvisioningVMs':        { badge: 'badge-idle',         icon: Server,        label: 'Preparing VMs (skipped — pre-existing)', tone: 'info' },
   'ProvisioningInfra':      { badge: 'badge-provisioning', icon: Activity,      label: 'Provisioning workers + k6 (parallel)', spin: true, tone: 'info' },
   'ProvisioningMonitoring': { badge: 'badge-monitoring',   icon: Download,      label: 'Installing monitoring stack', spin: true, tone: 'info' },
