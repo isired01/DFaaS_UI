@@ -265,7 +265,8 @@ why `lib/` holds no JSX, no React and no bundler-specific imports.
   `DFAAS_ASSET_BASE` + `path` when the operator injected `DFAAS_ASSET_BASE` on the runner, and
   the URL baked at upload time otherwise. A failed fetch calls `exec.test.abort()` naming the
   scenario, the URL and the HTTP status; on status 0 the message names where the URL came from.
-  The operator does not yet surface this abort on the LoadTest itself (see the operator's
+  The operator does not yet surface this abort on the LoadTest itself
+  ([DFaaSOperator#45](https://github.com/isired01/DFaaSOperator/issues/45); see also the operator's
   [known limitations](https://github.com/isired01/DFaaSOperator/blob/main/docs/known-limitations.md)).
   Keep the image small and size it together with the arrival rate: a payload that is large
   relative to the rate saturates SeaweedFS, the network or the DFaaS node, and a high failure rate
@@ -275,15 +276,17 @@ why `lib/` holds no JSX, no React and no bundler-specific imports.
   always has a `setup()` with `setupTimeout: '10m'`; when `DFAAS_SYNC_URL` is set it polls that
   URL until it answers 200 (a `sleep(0.25)` between polls). Those polls are ordinary k6
   requests, so they count in `http_reqs`, `http_req_duration` and `http_req_failed` of the
-  exported summary. Read the load's failure rate from the `checks` metric: the generated
-  "status is 2xx" check covers the load requests only. The operator publishes the GO signal when
-  every remote TestRun reports `started`, which can come before every runner has reached the
-  barrier, so runners can still start seconds apart.
+  exported summary ([DFaaS_UI#13](https://github.com/isired01/DFaaS_UI/issues/13)). Read the
+  load's failure rate from the `checks` metric: the generated "status is 2xx" check covers the
+  load requests only. The operator publishes the GO signal when every remote TestRun reports
+  `started`, which can come before every runner has reached the barrier, so runners can still
+  start seconds apart ([DFaaSOperator#43](https://github.com/isired01/DFaaSOperator/issues/43)).
 - **Raw scripts need `handleSummary`.** Only generated scripts emit it. A script that is pasted,
   uploaded, POSTed or imported from YAML must `PUT` `JSON.stringify(data)` to
   `__ENV.DFAAS_SUMMARY_URL` from its own `handleSummary` (copy the generator's block), and with
   `syncStart` must also poll `__ENV.DFAAS_SYNC_URL` in `setup()`. Otherwise the k6 summary in the
-  export holds only `dfaas_summary_fetched=0` rows and the test still ends `Completed`.
+  export holds only `dfaas_summary_fetched=0` rows and the test still ends `Completed`
+  ([DFaaSOperator#44](https://github.com/isired01/DFaaSOperator/issues/44)).
 - **`DeleteS3Config`** does not check which Environments reference the config. A LoadTest whose
   Environment points at a deleted config fails at export with `S3ConfigMissing`.
 

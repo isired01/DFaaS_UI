@@ -73,7 +73,9 @@ authenticating proxy in front of it.
 
 The gateway's ClusterRole is defined in the operator chart
 (`charts/dfaas/templates/ui-rbac.yaml`). It can create and delete every Secret and ConfigMap in
-the cluster, so a compromise of the gateway is a compromise of the cluster's secrets.
+the cluster, so a compromise of the gateway is a compromise of the cluster's secrets. The role is
+broader than the gateway needs, see
+[DFaaSOperator#35](https://github.com/isired01/DFaaSOperator/issues/35).
 
 A registered S3 endpoint is not validated: the gateway dials it exactly as given when an asset is
 uploaded, from inside the cluster.
@@ -97,7 +99,8 @@ What this does and does not stop:
   `ShouldBindJSON`, which does not look at `Content-Type`, so such a request can create
   Environments, LoadTests and S3 configs, upload assets and start a draft (every `POST` route).
   `PATCH` and `DELETE` need a preflight, which the gateway does not answer, so the browser
-  refuses to send them. The page cannot read any response.
+  refuses to send them. The page cannot read any response. This is a known defect:
+  [DFaaS_UI#12](https://github.com/isired01/DFaaS_UI/issues/12).
 - A non-empty list refuses such browser requests with `403`, because they carry an `Origin`
   header.
 - Neither setting affects a client that sends no `Origin` header (`curl`, scripts, other
