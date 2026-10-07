@@ -17,9 +17,7 @@ func main() {
 	// 1. Setup Kubernetes client
 	k8sClient, err := api.NewK8sClient()
 	if err != nil {
-		log.Printf("⚠️  Impossibile connettersi al cluster Kubernetes: %v", err)
-		log.Println("Il server partirà comunque, ma le API K8s non funzioneranno.")
-		log.Println("Imposta KUBECONFIG per connetterti a un cluster.")
+		log.Printf("could not build the Kubernetes client (%v); starting anyway: every /api route answers 503 until the server restarts with a usable kubeconfig", err)
 	}
 
 	// 2. Setup Gin
@@ -31,8 +29,9 @@ func main() {
 	})
 
 	// 3. CORS: configurable via the CORS_ORIGINS env (csv).
-	// Empty = same-origin only (in-cluster Helm install).
-	// Defaults to the localhost dev origins when the env is unset, for `go run`.
+	// Empty = no CORS middleware and no CORS headers (in-cluster Helm install).
+	// That is not a same-origin check: simple cross-origin POSTs still reach the handlers.
+	// Unset = the Vite dev origin, for `go run`.
 	corsOrigins := parseCORSOrigins()
 	if len(corsOrigins) > 0 {
 		// A literal "*" makes the lib emit Access-Control-Allow-Origin: * —
@@ -42,7 +41,7 @@ func main() {
 		allowCredentials := true
 		for _, o := range corsOrigins {
 			if o == "*" {
-				log.Println("⚠️  CORS_ORIGINS contains '*': AllowCredentials disabled (browsers reject a wildcard origin together with credentials). List explicit origins to keep credentialed requests working.")
+				log.Println("CORS_ORIGINS contains '*': AllowCredentials disabled (browsers reject a wildcard origin together with credentials). List explicit origins to keep credentialed requests working.")
 				allowCredentials = false
 				break
 			}
@@ -56,29 +55,29 @@ func main() {
 		}))
 	}
 
-	// 4. Registra le API routes
+	// 4. Register the API routes
 	if k8sClient != nil {
 		handler := api.NewHandler(k8sClient)
 		handler.RegisterRoutes(r)
 	} else {
-		// Se non c'è un client K8s, restituisci errore per le API
+		// No Kubernetes client: every /api route answers 503.
 		apiGroup := r.Group("/api")
 		apiGroup.Any("/*path", func(c *gin.Context) {
 			c.JSON(http.StatusServiceUnavailable, gin.H{
-				"error": "Cluster Kubernetes non disponibile. Verifica KUBECONFIG.",
+				"error": "Kubernetes cluster unavailable: check KUBECONFIG.",
 			})
 		})
 	}
 
-	// 5. Serve il frontend statico (build di produzione)
+	// 5. Serve the static frontend (production build)
 	uiDistPath := getUIDistPath()
 	if _, err := os.Stat(uiDistPath); err == nil {
 		r.Static("/assets", filepath.Join(uiDistPath, "assets"))
 		r.StaticFile("/favicon.svg", filepath.Join(uiDistPath, "favicon.svg"))
 
-		// Tutte le rotte non-API servono index.html (SPA routing).
-		// Per /api/* sconosciuti restituiamo JSON 404 invece di SPA fallback,
-		// così il client non scarica index.html scambiandolo per la risposta API.
+		// Every non-API route serves index.html (SPA routing). An unknown /api/*
+		// path gets a JSON 404 instead, so the client never takes index.html for an
+		// API response.
 		r.NoRoute(func(c *gin.Context) {
 			if strings.HasPrefix(c.Request.URL.Path, "/api/") {
 				c.JSON(http.StatusNotFound, gin.H{"error": "route not found: " + c.Request.URL.Path})
@@ -86,20 +85,20 @@ func main() {
 			}
 			c.File(filepath.Join(uiDistPath, "index.html"))
 		})
-		log.Printf("📂 Frontend servito da: %s", uiDistPath)
+		log.Printf("serving the frontend from %s", uiDistPath)
 	} else {
-		log.Printf("⚠️  Frontend non trovato in %s. Usa 'npm run dev' nella cartella ui/ per lo sviluppo.", uiDistPath)
+		log.Printf("frontend not found in %s; for development run 'npm run dev' in ui/", uiDistPath)
 	}
 
-	// 6. Avvia il server
+	// 6. Start the server
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8082"
 	}
 
-	log.Printf("🚀 DFaaS Control Plane avviato su http://localhost:%s", port)
+	log.Printf("DFaaS Control Plane listening on :%s", port)
 	if err := r.Run(":" + port); err != nil {
-		log.Fatalf("Errore avvio server: %v", err)
+		log.Fatalf("server failed: %v", err)
 	}
 }
 
@@ -125,11 +124,11 @@ func parseCORSOrigins() []string {
 	return out
 }
 
-// getUIDistPath determina il path della build frontend.
-// In produzione (Docker) è relativo al binario.
-// In sviluppo è relativo alla root del progetto.
+// getUIDistPath returns the frontend build directory: ui/dist next to the
+// binary (the container image), else ui/dist under the working directory
+// (development).
 func getUIDistPath() string {
-	// Prima prova il path relativo al binario (Docker)
+	// First the path next to the binary (the container image).
 	exe, err := os.Executable()
 	if err == nil {
 		dockerPath := filepath.Join(filepath.Dir(exe), "ui", "dist")
@@ -138,6 +137,6 @@ func getUIDistPath() string {
 		}
 	}
 
-	// Fallback al path relativo alla working directory
+	// Fall back to the working directory.
 	return filepath.Join("ui", "dist")
 }

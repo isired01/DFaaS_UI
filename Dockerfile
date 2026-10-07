@@ -26,19 +26,19 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH:-amd64} \
     go build -ldflags="-s -w" -o /server ./cmd/server
 
 # ============================================
-# Stage 3: Runtime (immagine finale minimale)
+# Stage 3: Runtime (minimal final image)
 # ============================================
 FROM alpine:3.22
 
-# Certificati SSL per le chiamate HTTPS al cluster K8s
+# CA roots for HTTPS to external S3 endpoints (asset uploads); in a Pod the API server is verified with the ServiceAccount's ca.crt
 RUN apk add --no-cache ca-certificates
 
 WORKDIR /app
 
-# Binario Go
+# Go binary
 COPY --from=backend /server .
 
-# Frontend compilato
+# Compiled frontend
 COPY --from=frontend /app/ui/dist ./ui/dist
 
 EXPOSE 8082
