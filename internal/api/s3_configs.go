@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -80,13 +79,6 @@ func (h *Handler) CreateS3Config(c *gin.Context) {
 		return
 	}
 
-	// Reject control characters / bracket injection up front — these would
-	// produce confusing API-server errors and there's no legit use for them
-	// in a Secret name.
-	if strings.ContainsAny(req.Name, "]\n\r\t") {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "name contains invalid characters"})
-		return
-	}
 	if !dns1123Re.MatchString(req.Name) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "name must match DNS-1123 (lowercase alphanumeric and '-', start/end alphanumeric)"})
 		return
@@ -196,9 +188,7 @@ func mapS3ConfigSummary(item unstructured.Unstructured) S3ConfigSummary {
 }
 
 // decodeSecretValue reads data[key] from a Secret-shaped unstructured map and
-// returns the decoded string. Falls back to stringData[key] if present (only
-// the gateway's own create path uses stringData on the way in; the API server
-// normalises everything to data on read).
+// returns the decoded string.
 //
 // A corrupt base64 payload comes back as an error naming the field rather than
 // as an empty string: silently blanking a credential surfaces much later as an
@@ -211,11 +201,6 @@ func decodeSecretValue(obj map[string]interface{}, key string) (string, error) {
 				return "", fmt.Errorf("field %q is not valid base64: %w", key, err)
 			}
 			return string(decoded), nil
-		}
-	}
-	if sd, ok := obj["stringData"].(map[string]interface{}); ok {
-		if raw, ok := sd[key].(string); ok {
-			return raw, nil
 		}
 	}
 	return "", nil
