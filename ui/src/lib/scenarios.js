@@ -74,7 +74,6 @@ export const EXECUTORS = {
 };
 
 export const DEFAULT_EXECUTOR = 'ramping-arrival-rate';
-export const SUPPORTED_EXECUTORS = Object.keys(EXECUTORS);
 
 /** The executor entry for a scenario; unknown executors resolve to the default
  *  (drafts saved while the picker still offered VU-based executors). */

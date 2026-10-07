@@ -4,12 +4,7 @@ import NumberInput from './NumberInput';
 import InfoTooltip from './InfoTooltip';
 import { uploadLoadTestAsset } from '../api/client';
 
-import { EXECUTORS, newScenario, ensureScenarioIds, effectiveMethod, payloadPatch, NO_PAYLOAD } from '../lib/scenarios';
-
-// Re-exported for existing importers; the definitions live in lib/scenarios.
-export { newScenario, ensureScenarioIds };
-export const SUPPORTED_EXECUTORS = Object.keys(EXECUTORS);
-export const DEFAULT_EXECUTOR = 'ramping-arrival-rate';
+import { EXECUTORS, newScenario, effectiveMethod, payloadPatch, NO_PAYLOAD } from '../lib/scenarios';
 
 const DEFAULT_STAGE = { duration: '10s', target: 10 };
 

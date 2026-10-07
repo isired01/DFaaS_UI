@@ -49,7 +49,6 @@ export function useResource(fetch, { pollMs = 0, shouldPoll, deps = [] } = {}) {
     };
     // The caller's deps are spread in: this effect re-arms when the identity of
     // the resource changes (namespace, name), not when its contents do.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pollMs, ...deps]);
 
   // A manual refresh shows the spinner; an interval tick never does, so a

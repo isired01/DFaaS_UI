@@ -10,13 +10,12 @@ import { RefreshCw, Search, Upload } from 'lucide-react';
 // Props:
 // - title, subtitle, titleIcon (lucide component), titleId
 // - onRefresh, loading
-// - upload: { onChange, uploading, label, id, title } | null
+// - upload: { onChange, uploading, id, title } | null
 // - actions: extra header nodes rendered after the upload button (e.g. New btn)
 // - stats: [{ label, value, color }], statsCols (Tailwind grid-cols-N)
 // - search, onSearch, searchPlaceholder, searchId
 // - error
-// - columns: [{ label, className?, thClassName? }] — last entry may be a
-//   spacer header with no label.
+// - columns: [{ label }] — last entry may be a spacer header with no label.
 // - items, totalCount (unfiltered count for the first-load spinner guard)
 // - renderRow(item, index) — must set the row's React key
 // - emptyIcon (lucide component), emptyText, loadingText
@@ -89,7 +88,7 @@ export default function ResourceTable({
                 title={upload.title}
               >
                 <Upload className="w-4 h-4" />
-                {upload.uploading ? 'Uploading…' : (upload.label || 'Upload YAML')}
+                {upload.uploading ? 'Uploading…' : 'Upload YAML'}
               </button>
             </>
           )}
@@ -126,9 +125,9 @@ export default function ResourceTable({
                 {columns.map((col, i) => (
                   <th
                     key={i}
-                    className={col.thClassName || (col.label
+                    className={col.label
                       ? 'text-left py-3.5 px-5 text-xs font-semibold text-surface-400 uppercase tracking-wider'
-                      : 'w-24')}
+                      : 'w-24'}
                   >
                     {col.label}
                   </th>

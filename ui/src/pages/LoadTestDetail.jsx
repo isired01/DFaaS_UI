@@ -262,7 +262,7 @@ export default function LoadTestDetail() {
           <p className="text-sm text-surface-450">No per-node loads.</p>
         ) : (
           <div className="space-y-3">
-            {loadtest.perNodeLoad.map((pn, i) => {
+            {loadtest.perNodeLoad.map((pn) => {
               const tr = (loadtest.testRuns || []).find(t => t.nodeID === pn.nodeID);
               const scriptOpen = expandedScript === pn.nodeID;
               return (

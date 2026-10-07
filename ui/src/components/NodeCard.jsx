@@ -1,4 +1,4 @@
-import { Server, Cpu, Zap, Box, Clock, Layers, Key, Play, Network } from 'lucide-react';
+import { Server, Cpu, Zap, Box, Clock, Layers, Key, Network } from 'lucide-react';
 import { useSchema, enumLabel } from '../lib/schema';
 
 // The address a generator dials back to the management node on is detected
@@ -13,7 +13,7 @@ const CAPACITY_STYLES = {
   HIGH: { border: 'border-red-500/40', bg: 'bg-red-500/10', text: 'text-red-400', label: 'High' },
 };
 
-export default function NodeCard({ node, index, variant, onConfigureLoad, configureDisabled, configureDisabledReason }) {
+export default function NodeCard({ node, index, variant }) {
   const schema = useSchema();
   const capacity = CAPACITY_STYLES[node.capacity] || CAPACITY_STYLES.MEDIUM;
   const isK6 = variant === 'k6' || node.role === 'k6-load-generator';
@@ -69,21 +69,6 @@ export default function NodeCard({ node, index, variant, onConfigureLoad, config
               <FunctionRow key={fn.name + i} fn={fn} />
             ))}
           </div>
-        </div>
-      )}
-
-      {isK6 && onConfigureLoad && (
-        <div className="mt-4 pt-4 border-t border-surface-700/50">
-          <button
-            type="button"
-            className="btn-primary w-full justify-center text-xs py-2"
-            disabled={configureDisabled}
-            onClick={onConfigureLoad}
-            title={configureDisabled ? configureDisabledReason : undefined}
-          >
-            <Play className="w-3.5 h-3.5" />
-            Configure Load
-          </button>
         </div>
       )}
     </div>
