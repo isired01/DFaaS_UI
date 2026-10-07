@@ -270,7 +270,7 @@ export default function LoadTestDetail() {
                       <Server className="w-4 h-4 text-amber-400" />
                       <div>
                         <p className="text-sm font-semibold text-white">{pn.nodeID}</p>
-                        <p className="text-[12px] text-surface-450 font-mono">vus={pn.vus} · duration={pn.duration}</p>
+                        <p className="text-[12px] text-surface-450 font-mono">duration={pn.duration}</p>
                       </div>
                     </div>
                     <div className="flex items-center gap-3 text-xs">

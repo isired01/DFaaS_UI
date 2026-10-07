@@ -25,7 +25,7 @@ const errorsOf = (mutate) => { const d = good(); mutate(d); return buildLoadTest
   assert.equal(payload.targetEnvironment, 'env'); assert.equal(payload.suspended, true);
   assert.equal(payload.perNodeLoad.length, 1);
   const pn = payload.perNodeLoad[0];
-  assert.equal(pn.nodeID, 'gen-a'); assert.equal(pn.vus, 2);
+  assert.equal(pn.nodeID, 'gen-a'); assert.equal(pn.vus, 1, 'vus is fixed at the CRD minimum; the draft value is ignored');
   assert.equal(pn.duration, '30s', 'duration derived from the stages');
   assert.match(pn.script, /executor: 'ramping-arrival-rate'/, 'script generated');
   assert.deepEqual(payload.metricsExport, { metrics: [{ type: 'raw', query: 'up' }], step: '15s' });
@@ -59,7 +59,6 @@ assert.match(errorsOf((d) => { d.perNode['gen-a'] = { enabled: true, vus: 1, sou
 assert.match(errorsOf((d) => { d.metrics = []; }).join(' '), /At least one metric/);
 assert.match(errorsOf((d) => { d.metrics = [{ type: 'bogus', query: 'up' }]; }).join(' '), /invalid type/);
 assert.match(errorsOf((d) => { d.metrics = [{ type: 'custom-promql', query: 'up' }]; }).join(' '), /metric name is required/);
-assert.match(errorsOf((d) => { d.perNode['gen-a'].vus = 0; }).join(' '), /vus >= 1/);
 assert.match(errorsOf((d) => { d.perNode['gen-a'].scenarios = [{ ...scen, targetURL: '' }]; }).join(' '), /targetURL/);
 assert.match(errorsOf((d) => { d.perNode['gen-a'].scenarios = [scen, scen]; }).join(' '), /two scenarios named/);
 assert.match(errorsOf((d) => { d.perNode['gen-a'].enabled = false; }).join(' '), /Enable at least one k6 node/);

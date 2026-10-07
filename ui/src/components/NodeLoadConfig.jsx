@@ -1,15 +1,14 @@
 import { Upload, Wand2, FileCode, Server } from 'lucide-react';
 import K6ScenariosEditor from './K6ScenariosEditor';
-import NumberInput from './NumberInput';
 import { formatGoDuration } from '../lib/duration';
 import { perNodeTotalMs } from '../lib/scenarios';
 
 import { SOURCE_GENERATE, SOURCE_RAW } from '../lib/payloads/loadtest';
 export { SOURCE_GENERATE, SOURCE_RAW };
 
-// NodeLoadConfig renders one k6 node's load configuration: enable toggle, VUs /
-// duration, the script-source switch, and either the scenarios editor or the
-// raw-JS textarea. The draft state lives in the parent (LoadTestNew).
+// NodeLoadConfig renders one k6 node's load configuration: enable toggle, duration,
+// the script-source switch, and either the scenarios editor or the raw-JS
+// textarea. The draft state lives in the parent (LoadTestNew).
 export default function NodeLoadConfig({ node, draft, onUpdate, onFile, availableUrls, envNs, envName }) {
   const update = (patch) => onUpdate(node.nodeID, patch);
 
@@ -45,10 +44,6 @@ export default function NodeLoadConfig({ node, draft, onUpdate, onFile, availabl
       {draft.enabled && (
         <>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <div>
-              <label htmlFor={`vus-${node.nodeID}`} className="block text-xs font-medium text-surface-400 mb-1">VUs</label>
-              <NumberInput id={`vus-${node.nodeID}`} className="input py-2 text-sm" value={draft.vus} onChange={(v) => update({ vus: v })} required />
-            </div>
             <div>
               <label htmlFor={`duration-${node.nodeID}`} className="block text-xs font-medium text-surface-400 mb-1">
                 {generated ? 'Duration (from stages)' : 'Duration (e.g. 30s, 5m)'}

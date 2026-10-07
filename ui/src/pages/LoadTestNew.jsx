@@ -16,7 +16,6 @@ import SubmitButton from '../components/SubmitButton';
 function defaultPerNode() {
   return {
     enabled: false,
-    vus: 5,
     duration: '30s',
     source: SOURCE_GENERATE,
     scenarios: [newScenario()],
