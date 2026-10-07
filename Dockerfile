@@ -4,7 +4,7 @@
 # Pinned to BUILDPLATFORM: the Vite output is architecture-independent, so
 # running npm ci + vite build under QEMU for the arm64 leg costs minutes and
 # buys nothing.
-FROM --platform=$BUILDPLATFORM node:20-alpine AS frontend
+FROM --platform=$BUILDPLATFORM node:22-alpine AS frontend
 WORKDIR /app/ui
 COPY ui/package*.json ./
 RUN npm ci
@@ -28,7 +28,7 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH:-amd64} \
 # ============================================
 # Stage 3: Runtime (immagine finale minimale)
 # ============================================
-FROM alpine:3.21
+FROM alpine:3.22
 
 # Certificati SSL per le chiamate HTTPS al cluster K8s
 RUN apk add --no-cache ca-certificates
