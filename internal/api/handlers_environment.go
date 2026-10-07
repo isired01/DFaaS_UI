@@ -140,9 +140,6 @@ func (h *Handler) UpdateEnvironment(c *gin.Context) {
 	if len(req.Spec.Nodes) > 0 {
 		specPatch["nodes"] = req.Spec.Nodes
 	}
-	if req.Spec.Topology != nil {
-		specPatch["topology"] = req.Spec.Topology
-	}
 	if req.Spec.ClearS3ConfigRef {
 		specPatch["s3ConfigRef"] = nil
 	} else if req.Spec.S3ConfigRef != nil {
@@ -275,7 +272,7 @@ func (h *Handler) DeleteEnvironment(c *gin.Context) {
 
 // buildEnvironmentUnstructured assembles the Environment object from the typed
 // create request, omitting optional fields (balancingStrategy, functions,
-// topology, s3ConfigRef) when empty.
+// s3ConfigRef) when empty.
 func buildEnvironmentUnstructured(req CreateEnvironmentRequest) *unstructured.Unstructured {
 	nodes := make([]interface{}, 0, len(req.Nodes))
 	for _, n := range req.Nodes {
@@ -320,20 +317,8 @@ func buildEnvironmentUnstructured(req CreateEnvironmentRequest) *unstructured.Un
 		nodes = append(nodes, node)
 	}
 
-	links := make([]interface{}, 0, len(req.Topology.Links))
-	for _, l := range req.Topology.Links {
-		links = append(links, map[string]interface{}{
-			"nodeA":     l.NodeA,
-			"nodeB":     l.NodeB,
-			"latencyMs": int64(l.LatencyMs),
-		})
-	}
-
 	spec := map[string]interface{}{
 		"nodes": nodes,
-	}
-	if len(links) > 0 {
-		spec["topology"] = map[string]interface{}{"links": links}
 	}
 	if req.S3ConfigRef != nil && req.S3ConfigRef.Name != "" {
 		spec["s3ConfigRef"] = map[string]interface{}{"name": req.S3ConfigRef.Name}
