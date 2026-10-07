@@ -18,7 +18,7 @@ System-level documentation lives in the operator repository:
 - [Cross-repo contract](https://github.com/isired01/DFaaSOperator/blob/main/docs/cross-repo-contract.md): what couples this repository to the operator
 - [Known limitations](https://github.com/isired01/DFaaSOperator/blob/main/docs/known-limitations.md)
 - [Glossary](https://github.com/isired01/DFaaSOperator/blob/main/docs/glossary.md)
-- [Architecture decision records](https://github.com/isired01/DFaaSOperator/blob/main/docs/adr/README.md) (ADR-0001 and ADR-0007 concern code in this repository)
+- Architecture decision records that concern code in this repository: [ADR-0001](https://github.com/isired01/DFaaSOperator/blob/main/docs/adr/0001-gateway-owns-the-validation-rule-set.md) and [ADR-0007](https://github.com/isired01/DFaaSOperator/blob/main/docs/adr/0007-keep-url-template-exports-in-client-js.md)
 
 For developers of this repository: [docs/development.md](docs/development.md) (code map, REST
 routes, status codes, how to follow a CRD change).
@@ -86,8 +86,8 @@ uploaded, from inside the cluster.
 |---|---|
 | unset | Allows `http://localhost:5173` (the Vite dev server) only. |
 | set, empty (the chart's default) | The CORS middleware is not installed: no `Access-Control-*` headers are sent and no request is refused for its origin. |
-| comma-separated list | A request carrying an `Origin` header that is neither in the list nor the request's own `http(s)://<Host>` is answered `403` before it reaches a handler. Entries must start with `http://` or `https://`; any other value makes the server panic at start-up. |
-| contains `*` | Every origin is allowed. The gateway drops `Access-Control-Allow-Credentials` and logs a warning. Any page a user opens can then read every response, SSH passwords included, so list real origins instead. |
+| comma-separated list | A request carrying an `Origin` header that is neither in the list nor the request's own `http(s)://<Host>` is answered `403` before it reaches a handler. Each entry must start with `http://` or `https://`, or the server panics at start-up. The one exception is an entry containing `*`: the library skips its check for those, but only an entry that is exactly `*` is acted on (next row). |
+| an entry that is exactly `*` | Every origin is allowed. The gateway drops `Access-Control-Allow-Credentials` and logs a warning. Any page a user opens can then read every response, SSH passwords included, so list real origins instead. |
 
 What this does and does not stop:
 

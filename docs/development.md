@@ -159,7 +159,7 @@ Things that are easy to get wrong:
   A few Environment rules exist only in the gateway (at least one node of each role, non-blank
   username and password, a function image on every function). The non-negative check on function
   tuning fields is enforced but not served. See
-  [ADR-0001](https://github.com/isired01/DFaaSOperator/blob/main/docs/adr/README.md).
+  [ADR-0001](https://github.com/isired01/DFaaSOperator/blob/main/docs/adr/0001-gateway-owns-the-validation-rule-set.md).
 
 ## SPA conventions
 
@@ -301,7 +301,7 @@ operator changes one of these, change the matching place here.
 | The Environment occupancy rule | `activeLoadTestNames` in `handlers_environment.go` and `lt.occupying` / `lt.holdReason` in `crstate.js`. |
 | How `observedGeneration` is stamped | The edit lock in `EnvironmentDetail.jsx`: a non-zero `status.observedGeneration` below `metadata.generation` means an update is in progress. The operator stamps it only when provisioning settles (`Ready` or `Failed`). |
 | The runner environment variables (`DFAAS_SYNC_URL`, `DFAAS_SUMMARY_URL`, `DFAAS_ASSET_BASE`) | The generated script in `k6Generator.js`. |
-| The management address of a generator (`status.k6Nodes[].managementAddress`) | `K6NodeStatus.ManagementAddress` in `types.go`, copied in `mapEnvDetail`, shown on the generator's `NodeCard`. Display only. See [ADR-0008](https://github.com/isired01/DFaaSOperator/blob/main/docs/adr/README.md). |
+| The management address of a generator (`status.k6Nodes[].managementAddress`) | `K6NodeStatus.ManagementAddress` in `types.go`, copied in `mapEnvDetail`, shown on the generator's `NodeCard`. Display only. See [ADR-0008](https://github.com/isired01/DFaaSOperator/blob/main/docs/adr/0008-detected-management-address-beats-env-fallbacks.md). |
 | The federation interval of the management Prometheus | The `[5m]` rate windows in `MetricsEditor.jsx` (keep at least four times the interval). |
 | The bucket name and key layout of the exporter (`dataExporter/main.go`) | `bucketNameFor` in `assets.go` and the key built in `UploadLoadTestAsset`. |
 | The Helm release name of the DFaaS agent (`dfaas-agent`, set in the operator's `setup-nodes.yml`) | The `dfaas-agent.*` pod selector in `DEFAULT_METRICS` in `MetricsEditor.jsx`. |
@@ -310,8 +310,8 @@ operator changes one of these, change the matching place here.
 | The length limit of a LoadTest name (a label value, so 63) | `maxLoadTestNameLen` in `schema.go` and `generatedLoadTestName` in `handlers_loadtest.go`. |
 
 The two design decisions that govern this code are in the
-[ADR index](https://github.com/isired01/DFaaSOperator/blob/main/docs/adr/README.md): ADR-0001 (the
-gateway owns the validation rule set and serves it to the SPA) and ADR-0007 (the one-line
+[ADR-0001](https://github.com/isired01/DFaaSOperator/blob/main/docs/adr/0001-gateway-owns-the-validation-rule-set.md) (the
+gateway owns the validation rule set and serves it to the SPA) and [ADR-0007](https://github.com/isired01/DFaaSOperator/blob/main/docs/adr/0007-keep-url-template-exports-in-client-js.md) (the one-line
 URL-template exports in `client.js` stay; do not remove them to save lines).
 
 ## Driving the UI from a script

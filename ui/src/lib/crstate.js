@@ -137,7 +137,7 @@ const REASONS = {
   InfraFailed:        { label: 'Provisioning failed', tone: 'error' },
   Failed:             { label: 'Failed', tone: 'error' },
   // retried without bound, but nothing changes until a human acts: red, or
-  // the provisioning row spins forever (293bf21)
+  // the provisioning row spins forever
   JobCreationFailed:  { label: 'Could not create the provisioning Job', tone: 'error' },
   CheckFailed:        { label: 'Readiness could not be evaluated', tone: 'error' },
   // degraded / waiting — the operator keeps retrying these

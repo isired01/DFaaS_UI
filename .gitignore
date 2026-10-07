@@ -16,4 +16,3 @@ go.work.sum
 *.log
 .claude/
 CLAUDE.md
-.superpowers/
