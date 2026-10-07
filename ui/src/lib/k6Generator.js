@@ -1,5 +1,4 @@
 // k6 script generator. Pure function: scenarios -> JS script string.
-// Mirrors the layout previously rendered by internal/api/k6_generator.go.
 // Nothing outside this script controls the run: k6 reads options.scenarios and
 // nothing else. The LoadTest CRD's spec.perNodeLoad[].vus and .duration reach
 // neither k6 nor the k6-operator TestRun — .duration is derived back FROM the

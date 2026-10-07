@@ -58,9 +58,8 @@ export function useResource(fetch, { pollMs = 0, shouldPoll, deps = [] } = {}) {
     return pollRef.current?.load();
   }, []);
 
-  // setData is for the pages that already hold an authoritative object: after
-  // an activate or an abort the write path returns the updated LoadTest, and
-  // reload() would go through the in-flight guard and be dropped if a poll
-  // happened to be running.
+  // setData is for a page that re-reads the object itself after a write
+  // (LoadTestDetail after Start or Abort): reload() would go through the
+  // in-flight guard and be dropped if a poll happened to be running.
   return { data, setData, loading, error, reload, setError };
 }

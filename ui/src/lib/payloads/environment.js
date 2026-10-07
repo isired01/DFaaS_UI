@@ -79,7 +79,7 @@ export function buildEnvironmentPayload(form, rules) {
           const fn = { name: f.name, image: f.image };
           // Omit numeric fields the user cleared so the CRD default applies.
           // NumberInput reports a cleared box as 0 and none of these accept 0
-          // (maxRate has Minimum=1; the others are timeouts/limits).
+          // (the CRD sets Minimum=1 on all four).
           for (const k of ['execTimeout', 'maxInflight', 'timeoutMs', 'maxRate']) {
             const v = parseInt(f[k]);
             if (v > 0) fn[k] = v;

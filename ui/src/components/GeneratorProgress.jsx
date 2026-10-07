@@ -18,8 +18,6 @@ import { testRun } from '../lib/crstate';
 
 const TRACK = 'h-1.5 w-full rounded-full bg-surface-700/60 overflow-hidden';
 
-// Terminal remote stages, as reported by k6-operator.
-
 function Bar({ pct, className }) {
   return (
     <div className={TRACK}>

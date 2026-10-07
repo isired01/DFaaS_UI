@@ -32,10 +32,6 @@ export default function EnvironmentNew({ mode = 'create' }) {
   const isEdit = mode === 'edit';
   const [namespace, setNamespace] = useState(isEdit ? (params.namespace || '') : 'default');
   const [name, setName] = useState(isEdit ? (params.name || '') : '');
-  // No longer editable from the form (the checkbox was removed), but still
-  // carried through create and edit: an Environment set to true via kubectl or
-  // YAML import must not be silently flipped to false by saving the form.
-  // Defaults to false on create, matching the CRD default.
   const [nodes, setNodes] = useState([emptyNode()]);
   const [s3ConfigName, setS3ConfigName] = useState('');
   const [availableConfigs, setAvailableConfigs] = useState([]);
