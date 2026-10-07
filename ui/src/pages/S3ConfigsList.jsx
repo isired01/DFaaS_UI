@@ -152,9 +152,9 @@ export default function S3ConfigsList() {
                   >
                     <td className="py-3.5 px-5">
                       <span className="inline-flex items-center gap-2">
-                        <span className="font-semibold text-white group-hover:text-dfaas-400 transition-colors">
+                        <Link to={`/s3-configs/${cfg.name}`} className="font-semibold text-white group-hover:text-dfaas-400 transition-colors">
                           {cfg.name}
-                        </span>
+                        </Link>
                         {isDefault && (
                           <span className="text-[12px] font-medium px-2 py-0.5 rounded-md bg-dfaas-500/15 text-dfaas-300 border border-dfaas-500/30">
                             built-in default
@@ -193,7 +193,9 @@ export default function S3ConfigsList() {
                             <Trash2 className="w-4 h-4" />
                           </button>
                         )}
-                        <ChevronRight className="w-5 h-5 text-surface-450 opacity-0 group-hover:opacity-100 transition-opacity" />
+                        <Link to={`/s3-configs/${cfg.name}`} aria-hidden="true" tabIndex={-1} className="opacity-0 group-hover:opacity-100 transition-opacity">
+                          <ChevronRight className="w-5 h-5 text-surface-450" />
+                        </Link>
                       </div>
                     </td>
                   </tr>

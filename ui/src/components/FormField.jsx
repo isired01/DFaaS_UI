@@ -12,8 +12,8 @@ import { Children, cloneElement, isValidElement, useId } from 'react';
 // - `label`     : field label text (omit to render children only).
 // - `labelExtra`: optional node rendered inline after the label (e.g. a lock icon).
 // - `hint`      : optional helper text rendered under the control.
-// - `labelClassName` / `hintClassName`: override the default typography so a
-//   field can match its surrounding form (e.g. the tighter `text-[12px]` rows).
+// - `labelClassName`: overrides the default label typography so a field can
+//   match its surrounding form (e.g. the tighter `text-[12px]` rows).
 export default function FormField({
   label,
   labelExtra,
@@ -21,7 +21,6 @@ export default function FormField({
   children,
   className = '',
   labelClassName = 'block text-xs font-medium text-surface-400 mb-1',
-  hintClassName = 'text-[12px] text-surface-450 mt-1',
 }) {
   const generatedID = useId();
   const only = Children.count(children) === 1 ? Children.only(children) : null;
@@ -37,7 +36,7 @@ export default function FormField({
         </label>
       )}
       {control ? cloneElement(control, { id: controlID }) : children}
-      {hint != null && <p className={hintClassName}>{hint}</p>}
+      {hint != null && <p className="text-[12px] text-surface-450 mt-1">{hint}</p>}
     </div>
   );
 }

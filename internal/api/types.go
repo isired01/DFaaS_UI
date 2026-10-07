@@ -7,8 +7,8 @@ import "time"
 
 // EnvironmentSummary is returned by GET /api/environments.
 //
-// There is no message field: the operator never writes status.message on either
-// CRD — all messaging goes through the Ready condition, surfaced in Conditions.
+// There is no message field: the CRDs have no status.message. All messaging goes
+// through the Ready condition, surfaced in Conditions.
 type EnvironmentSummary struct {
 	Name               string    `json:"name"`
 	Namespace          string    `json:"namespace"`
@@ -32,7 +32,6 @@ type EnvironmentDetail struct {
 	LastHealthCheck    string           `json:"lastHealthCheck,omitempty"`
 	Conditions         []ConditionInfo  `json:"conditions,omitempty"`
 	Nodes              []NodeInfo       `json:"nodes"`
-	Topology           TopologyInfo     `json:"topology"`
 	K6Nodes            []K6NodeStatus   `json:"k6Nodes,omitempty"`
 	DfaasNodes         []string         `json:"dfaasNodes,omitempty"`
 	S3ConfigRef        *S3ConfigRefView `json:"s3ConfigRef,omitempty"`
@@ -63,7 +62,7 @@ type NodeInfo struct {
 // FunctionInfo mirrors a dfaas function deployed on a worker. The numeric
 // tuning fields carry omitempty: a value of 0 is never valid for them, so a
 // blank form field (0) is dropped from the outgoing patch/create body and the
-// CRD's defaulting applies instead of an explicit 0 (which would defeat it).
+// CRD's defaulting applies instead of an explicit 0 (which the CRD's Minimum=1 rejects).
 type FunctionInfo struct {
 	Name        string `json:"name"`
 	Image       string `json:"image"`
@@ -71,18 +70,6 @@ type FunctionInfo struct {
 	MaxInflight int    `json:"maxInflight,omitempty"`
 	TimeoutMs   int    `json:"timeoutMs,omitempty"`
 	MaxRate     int    `json:"maxRate,omitempty"`
-}
-
-// TopologyInfo mirrors Environment.spec.topology.
-type TopologyInfo struct {
-	Links []LinkInfo `json:"links"`
-}
-
-// LinkInfo mirrors a topology link with optional latency.
-type LinkInfo struct {
-	NodeA     string `json:"nodeA"`
-	NodeB     string `json:"nodeB"`
-	LatencyMs int    `json:"latencyMs"`
 }
 
 // K6NodeStatus mirrors Environment.status.k6Nodes[] entries.
@@ -105,14 +92,13 @@ type CreateEnvironmentRequest struct {
 	Namespace   string           `json:"namespace" binding:"required"`
 	Name        string           `json:"name" binding:"required"`
 	Nodes       []NodeInfo       `json:"nodes" binding:"required,min=1"`
-	Topology    TopologyInfo     `json:"topology"`
 	S3ConfigRef *S3ConfigRefView `json:"s3ConfigRef,omitempty"`
 }
 
 // UpdateEnvironmentRequest is the body for PATCH /api/environments/:ns/:name.
 // Mirrors the merge-patch shape Kubernetes expects: { "spec": { ... } }.
-// Pointer fields (Topology, S3ConfigRef) use "absent in the
-// patch" vs "set" semantics: nil is omitted and preserved on the cluster object.
+// S3ConfigRef uses "absent in the patch" vs "set" semantics: nil is omitted and
+// preserved on the cluster object.
 type UpdateEnvironmentRequest struct {
 	Spec UpdateEnvironmentSpec `json:"spec" binding:"required"`
 }
@@ -130,7 +116,6 @@ type UpdateEnvironmentRequest struct {
 // omitempty pointer alone cannot express an explicit null).
 type UpdateEnvironmentSpec struct {
 	Nodes            []NodeInfo       `json:"nodes,omitempty"`
-	Topology         *TopologyInfo    `json:"topology,omitempty"`
 	S3ConfigRef      *S3ConfigRefView `json:"s3ConfigRef,omitempty"`
 	ClearS3ConfigRef bool             `json:"clearS3ConfigRef,omitempty"`
 }
@@ -140,8 +125,8 @@ type UpdateEnvironmentSpec struct {
 
 // LoadTestSummary is returned by GET /api/loadtests.
 //
-// There is no message field: the operator never writes status.message on either
-// CRD — all messaging goes through the Ready condition, surfaced in Conditions.
+// There is no message field: the CRDs have no status.message. All messaging goes
+// through the Ready condition, surfaced in Conditions.
 type LoadTestSummary struct {
 	Name              string     `json:"name"`
 	Namespace         string     `json:"namespace"`
@@ -208,7 +193,7 @@ type PerNodeLoadView struct {
 
 // MetricsExportView mirrors LoadTest.spec.metricsExport.
 // S3 export is configured per-Environment via spec.s3ConfigRef (see EnvironmentDetail);
-// LoadTest no longer carries any export-destination fields.
+// LoadTest carries no export-destination fields.
 type MetricsExportView struct {
 	Metrics []MetricEntryView `json:"metrics"`
 	Step    string            `json:"step,omitempty"`
@@ -237,14 +222,14 @@ type CreateLoadTestRequest struct {
 	Namespace string `json:"namespace" binding:"required"`
 	Name      string `json:"name,omitempty"`
 	// NameSuffix is an optional user-supplied suffix appended to the
-	// auto-generated name (lt-<env>-<timestamp>-<suffix>). Ignored when Name
-	// is set (full override). Sanitized to DNS-1123 server-side.
+	// auto-generated name (lt-<env>-<timestamp>[-<suffix>]-<nonce>). Ignored
+	// when Name is set (full override). Sanitized to DNS-1123 server-side.
 	NameSuffix        string `json:"nameSuffix,omitempty"`
 	TargetEnvironment string `json:"targetEnvironment" binding:"required"`
 	Suspended         bool   `json:"suspended,omitempty"`
 	// SyncStart requests a synchronized start: the operator injects DFAAS_SYNC_URL
-	// into every remote k6 runner and holds them at a barrier until all TestRuns
-	// are started, so the generators begin load together (~250ms skew).
+	// into every remote k6 runner and holds them at a barrier until every TestRun
+	// reports k6-operator's stage started; a few seconds of skew can remain.
 	SyncStart     bool                `json:"syncStart"`
 	StartAt       *time.Time          `json:"startAt,omitempty"`
 	PerNodeLoad   []CreatePerNodeLoad `json:"perNodeLoad" binding:"required,min=1"`

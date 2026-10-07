@@ -1,24 +1,21 @@
 import { Upload, Wand2, FileCode, Server } from 'lucide-react';
 import K6ScenariosEditor from './K6ScenariosEditor';
-import NumberInput from './NumberInput';
 import { formatGoDuration } from '../lib/duration';
 import { perNodeTotalMs } from '../lib/scenarios';
 
 import { SOURCE_GENERATE, SOURCE_RAW } from '../lib/payloads/loadtest';
 export { SOURCE_GENERATE, SOURCE_RAW };
 
-// NodeLoadConfig renders one k6 node's load configuration: enable toggle, VUs /
-// duration, the script-source switch, and either the scenarios editor or the
-// raw-JS textarea. The draft state lives in the parent (LoadTestNew).
+// NodeLoadConfig renders one k6 node's load configuration: enable toggle, duration,
+// the script-source switch, and either the scenarios editor or the raw-JS
+// textarea. The draft state lives in the parent (LoadTestNew).
 export default function NodeLoadConfig({ node, draft, onUpdate, onFile, availableUrls, envNs, envName }) {
   const update = (patch) => onUpdate(node.nodeID, patch);
 
-  // With generated scripts the runtime is fully determined by the scenario
-  // stages, so duration is computed rather than typed. It used to be a free
-  // text box that drove nothing: k6 never sees the CRD field (the operator only
-  // copies it onto an unread annotation), so a user could write "10m" next to a
-  // 30-second script and never be told. LoadTestNew recomputes the same value
-  // on submit — this is its preview.
+  // With generated scripts the run length follows from the scenarios, so
+  // duration is computed, not typed. Neither k6 nor the operator reads the CRD
+  // field; it only drives the progress bar. buildLoadTestPayload recomputes the
+  // same value on submit; this is its preview.
   const generated = draft.source === SOURCE_GENERATE;
   const derivedMs = generated ? perNodeTotalMs(draft.scenarios) : null;
 
@@ -46,12 +43,8 @@ export default function NodeLoadConfig({ node, draft, onUpdate, onFile, availabl
         <>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div>
-              <label htmlFor={`vus-${node.nodeID}`} className="block text-xs font-medium text-surface-400 mb-1">VUs</label>
-              <NumberInput id={`vus-${node.nodeID}`} className="input py-2 text-sm" value={draft.vus} onChange={(v) => update({ vus: v })} required />
-            </div>
-            <div>
               <label htmlFor={`duration-${node.nodeID}`} className="block text-xs font-medium text-surface-400 mb-1">
-                {generated ? 'Duration (from stages)' : 'Duration (e.g. 30s, 5m)'}
+                {generated ? 'Duration (from scenarios)' : 'Duration (e.g. 30s, 5m)'}
               </label>
               {generated ? (
                 <>
@@ -61,12 +54,12 @@ export default function NodeLoadConfig({ node, draft, onUpdate, onFile, availabl
                     className="input py-2 text-sm opacity-60 cursor-not-allowed"
                     value={derivedMs === null ? '—' : formatGoDuration(derivedMs)}
                     readOnly
-                    title="Computed from the scenario stages below"
+                    title="Computed from the scenarios below"
                   />
                   <p className="text-[12px] text-surface-450 mt-1">
                     {derivedMs === null
-                      ? 'Fix the stage durations below to compute this.'
-                      : 'Longest scenario (startTime + its stages). Drives the progress bar.'}
+                      ? 'Fix the scenario durations below to compute this.'
+                      : 'Longest scenario (startTime + its stages or duration). Drives the progress bar.'}
                   </p>
                 </>
               ) : (

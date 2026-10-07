@@ -12,9 +12,7 @@ import { createPoll } from './resourcePoll.js';
 //
 // `shouldPoll(data)` gates the interval only, never the first read, and is
 // called with the newest data from a ref. That is why the effect does not need
-// the resource's own Phase in its dependency array: LoadTestDetail used to list
-// `loadtest?.phase` there behind an eslint-disable, which tore down and re-armed
-// the interval and fired a redundant read on every Phase transition.
+// the resource's own Phase in its dependency array.
 //
 // `setError` is returned because the pages' own download / upload / delete
 // handlers write into this same error state.
@@ -49,7 +47,6 @@ export function useResource(fetch, { pollMs = 0, shouldPoll, deps = [] } = {}) {
     };
     // The caller's deps are spread in: this effect re-arms when the identity of
     // the resource changes (namespace, name), not when its contents do.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pollMs, ...deps]);
 
   // A manual refresh shows the spinner; an interval tick never does, so a
@@ -59,9 +56,8 @@ export function useResource(fetch, { pollMs = 0, shouldPoll, deps = [] } = {}) {
     return pollRef.current?.load();
   }, []);
 
-  // setData is for the pages that already hold an authoritative object: after
-  // an activate or an abort the write path returns the updated LoadTest, and
-  // reload() would go through the in-flight guard and be dropped if a poll
-  // happened to be running.
+  // setData is for a page that re-reads the object itself after a write
+  // (LoadTestDetail after Start or Abort): reload() would go through the
+  // in-flight guard and be dropped if a poll happened to be running.
   return { data, setData, loading, error, reload, setError };
 }

@@ -47,7 +47,8 @@ func writeK8sError(c *gin.Context, err error, resource string) {
 // Handler implementations are split by concern across files in this package:
 // environment handlers in handlers_environment.go, loadtest handlers in
 // handlers_loadtest.go, YAML import in yaml_import.go, YAML export in
-// yaml_export.go, S3 config handlers in s3_configs.go, asset upload in assets.go.
+// yaml_export.go, S3 config handlers in s3_configs.go, asset upload in assets.go,
+// the rule set (GetSchema) in schema.go.
 func (h *Handler) RegisterRoutes(r *gin.Engine) {
 	api := r.Group("/api")
 	{

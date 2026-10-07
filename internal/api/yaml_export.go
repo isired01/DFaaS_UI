@@ -52,11 +52,9 @@ func (h *Handler) exportResourceYAML(c *gin.Context, gvr schema.GroupVersionReso
 var envKeyOrder = map[string][]string{
 	"root":                          {"apiVersion", "kind", "metadata", "spec"},
 	"root.metadata":                 {"name", "namespace", "labels", "annotations"},
-	"root.spec":                     {"nodes", "topology", "s3ConfigRef"},
+	"root.spec":                     {"nodes", "s3ConfigRef"},
 	"root.spec.nodes[]":             {"nodeID", "ipAddress", "role", "capacity", "username", "password", "balancingStrategy", "functions"},
 	"root.spec.nodes[].functions[]": {"name", "image", "execTimeout", "maxInflight", "timeoutMs", "maxRate"},
-	"root.spec.topology":            {"links"},
-	"root.spec.topology.links[]":    {"nodeA", "nodeB", "latencyMs"},
 	"root.spec.s3ConfigRef":         {"name"},
 }
 
@@ -64,7 +62,7 @@ var loadtestKeyOrder = map[string][]string{
 	"root":                    {"apiVersion", "kind", "metadata", "spec"},
 	"root.metadata":           {"name", "namespace", "labels", "annotations"},
 	"root.spec":               {"targetEnvironment", "syncStart", "perNodeLoad", "metricsExport"},
-	"root.spec.perNodeLoad[]": {"nodeID", "vus", "duration", "scriptConfigMap", "script"},
+	"root.spec.perNodeLoad[]": {"nodeID", "vus", "duration", "scriptConfigMap"},
 	"root.spec.perNodeLoad[].scriptConfigMap": {"name"},
 	"root.spec.metricsExport":                 {"metrics", "step"},
 	"root.spec.metricsExport.metrics[]":       {"type", "metricName", "query", "comment"},

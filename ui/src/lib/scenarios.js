@@ -1,10 +1,9 @@
 // The k6 scenario shape, owned once.
 //
-// One entry per executor holds everything that used to be spread over four
-// files and held together by "change one, change the other" comments: the
-// option fragment the script emitter renders, how long the scenario runs (for
-// the progress bar), which fields the editor shows, and the defaults. Adding an
-// executor is one entry here plus whatever new form fields it needs.
+// One entry per executor holds everything about it: the option fragment the
+// script emitter renders, how long the scenario runs (for the progress bar),
+// which fields the editor shows, and the defaults. Adding an executor is one
+// entry here plus whatever new form fields it needs.
 //
 // Pure: no React, no DOM, so lib/payloads and the selfcheck scripts can use it.
 
@@ -74,7 +73,6 @@ export const EXECUTORS = {
 };
 
 export const DEFAULT_EXECUTOR = 'ramping-arrival-rate';
-export const SUPPORTED_EXECUTORS = Object.keys(EXECUTORS);
 
 /** The executor entry for a scenario; unknown executors resolve to the default
  *  (drafts saved while the picker still offered VU-based executors). */

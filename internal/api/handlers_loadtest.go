@@ -21,8 +21,8 @@ import (
 func (h *Handler) ListLoadTests(c *gin.Context) {
 	envFilter := c.Query("environment")
 
-	// A malformed filter used to fall through to the full unfiltered list, which
-	// reads as "this environment has every test in the cluster". Reject it.
+	// A malformed filter is rejected: the unfiltered list would read as "this
+	// environment has every test in the cluster".
 	var filterNs, filterName string
 	if envFilter != "" {
 		parts := strings.SplitN(envFilter, "/", 2)
@@ -172,8 +172,6 @@ func (h *Handler) CreateLoadTest(c *gin.Context) {
 	c.JSON(http.StatusCreated, detail)
 }
 
-// shortNonce returns a short lowercase-hex disambiguator for generated resource
-// names.
 // generatedLoadTestName is lt-<env>-<timestamp>[-<suffix>]-<nonce>, cut to fit
 // a label value (63). The timestamp is second-granular and the name also seeds
 // every script ConfigMap name, so a double-click on Create inside the same
@@ -215,6 +213,8 @@ func admitAgainstEnvironment(req CreateLoadTestRequest, envObj *unstructured.Uns
 	return 0, "", true
 }
 
+// shortNonce returns a short lowercase-hex disambiguator for generated resource
+// names.
 func shortNonce() string {
 	return uuid.NewString()[:6]
 }
@@ -482,9 +482,10 @@ func (h *Handler) ActivateLoadTest(c *gin.Context) {
 // AbortLoadTest flips spec.stop=true via merge-patch. Thin pass-through:
 // operator owns the run-once guard (silent no-op on Exporting/Completed/
 // Failed/Aborted) and the phase transition. Gateway forwards the patch
-// regardless of phase; UI hides the button outside {Pending, Running}.
-// 202 Accepted on success, 404 NotFound, 409 on resourceVersion conflict,
-// 500 otherwise.
+// regardless of phase; the UI shows the button for "", Pending and Running
+// (crstate lt.abortable).
+// 202 Accepted on success, 404 NotFound, 500 otherwise: the patch carries no
+// resourceVersion, so it never conflicts.
 func (h *Handler) AbortLoadTest(c *gin.Context) {
 	namespace := c.Param("namespace")
 	name := c.Param("name")

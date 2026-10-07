@@ -1,12 +1,11 @@
 // Cluster reachability, derived from real API traffic rather than guessed.
 //
-// The header badge used to be hardcoded to "Cluster Connected", so it stayed
-// green while every request was failing — the single most misleading thing the
-// UI could say. Rather than adding a dedicated health poll (more traffic, and
-// still only a proxy for what the user cares about), status is reported by the
-// one choke point every call already goes through: `request()` in api/client.js.
-// If real calls are succeeding we are connected; if they fail at the network
-// layer or the gateway reports it cannot reach the cluster, we are not.
+// Rather than a dedicated health poll (more traffic, and still only a proxy for
+// what the user cares about), status is reported by `request()` in api/client.js,
+// which every JSON call goes through. The asset upload and the YAML download and
+// apply helpers call `fetch` directly and report nothing. If real calls are
+// succeeding we are connected; if they fail at the network layer or the gateway
+// reports it cannot reach the cluster, we are not.
 //
 // Backs a `useSyncExternalStore` subscription — no state library needed.
 

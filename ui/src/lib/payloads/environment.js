@@ -3,7 +3,7 @@
 // 'create' or 'edit' — the one place the dual-mode form branches on it for
 // data (the page keeps the rendering branches).
 /**
- * @param form { namespace, name, nodes, links, s3ConfigName, mode }
+ * @param form { namespace, name, nodes, s3ConfigName, mode }
  * @param rules the gateway's node rules (GET /api/meta/schema).node
  */
 export function buildEnvironmentPayload(form, rules) {
@@ -42,7 +42,7 @@ export function buildEnvironmentPayload(form, rules) {
     // nothing, and the operator's inventory turns the empty list into the JSON
     // literal `null`, which kills the Ansible prune task.
     if (rules.requireWorkerFunction && n.role === 'dfaas-worker' && (n.functions || []).length === 0) {
-      errors.push(`Node '${nid}' is a DFaaS Node with no functions — a worker must deploy at least one`);
+      errors.push(`Node '${nid}' is a DFaaS Node with no functions — a DFaaS node must deploy at least one`);
     }
     if (n.role === 'dfaas-worker') {
       (n.functions || []).forEach((f, j) => {
@@ -59,7 +59,7 @@ export function buildEnvironmentPayload(form, rules) {
     // Same rule the gateway enforces: a single-role environment reaches Ready
     // and only fails once a load test is dispatched at it.
     const roles = new Set(nodes.map((n) => n.role));
-    if (!roles.has('dfaas-worker')) errors.push('At least one node must be a DFaaS Node — an environment with no workers has nothing to load-test');
+    if (!roles.has('dfaas-worker')) errors.push('At least one node must be a DFaaS Node — an environment with no DFaaS nodes has nothing to load-test');
     if (!roles.has('k6-load-generator')) errors.push('At least one node must be a k6 Load Generator — an environment with no generators cannot run a load test');
   }
 
@@ -79,7 +79,7 @@ export function buildEnvironmentPayload(form, rules) {
           const fn = { name: f.name, image: f.image };
           // Omit numeric fields the user cleared so the CRD default applies.
           // NumberInput reports a cleared box as 0 and none of these accept 0
-          // (maxRate has Minimum=1; the others are timeouts/limits).
+          // (the CRD sets Minimum=1 on all four).
           for (const k of ['execTimeout', 'maxInflight', 'timeoutMs', 'maxRate']) {
             const v = parseInt(f[k]);
             if (v > 0) fn[k] = v;
@@ -90,18 +90,15 @@ export function buildEnvironmentPayload(form, rules) {
     }
     return node;
   });
-  const topology = {
-    links: (form.links || []).map((l) => ({ nodeA: l.nodeA, nodeB: l.nodeB, latencyMs: parseInt(l.latencyMs) || 0 })),
-  };
   const trimmedS3 = (form.s3ConfigName || '').trim();
 
-  const payload = { namespace: form.namespace, name: form.name, nodes: nodesOut, topology };
+  const payload = { namespace: form.namespace, name: form.name, nodes: nodesOut };
   if (trimmedS3) payload.s3ConfigRef = { name: trimmedS3 };
 
   // Edit: the whole node array replaces (merge-patch semantics); an explicit
   // clear of s3ConfigRef is a separate flag because omitting the field would
   // leave the previous reference untouched.
-  const patch = { nodes: nodesOut, topology };
+  const patch = { nodes: nodesOut };
   if (trimmedS3) patch.s3ConfigRef = { name: trimmedS3 };
   else patch.clearS3ConfigRef = true;
 

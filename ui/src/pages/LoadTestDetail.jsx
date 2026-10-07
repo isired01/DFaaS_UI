@@ -120,7 +120,9 @@ export default function LoadTestDetail() {
     ? conditionOf(loadtest.conditions, 'Ready', ['UserAborted'])?.message || ''
     : '';
   const pendingTooltip = loadtest.phase === 'Pending'
-    ? (isDraft ? 'Draft saved' : 'Waiting for Environment Ready')
+    ? (isDraft
+      ? (loadtest.startAt ? 'Scheduled start armed' : 'Draft saved')
+      : 'Not running yet: waiting for the Environment, queued behind another test, dispatching, or waiting for the synchronized start. See Conditions.')
     : abortedMsg;
 
   return (
@@ -260,7 +262,7 @@ export default function LoadTestDetail() {
           <p className="text-sm text-surface-450">No per-node loads.</p>
         ) : (
           <div className="space-y-3">
-            {loadtest.perNodeLoad.map((pn, i) => {
+            {loadtest.perNodeLoad.map((pn) => {
               const tr = (loadtest.testRuns || []).find(t => t.nodeID === pn.nodeID);
               const scriptOpen = expandedScript === pn.nodeID;
               return (
@@ -270,7 +272,7 @@ export default function LoadTestDetail() {
                       <Server className="w-4 h-4 text-amber-400" />
                       <div>
                         <p className="text-sm font-semibold text-white">{pn.nodeID}</p>
-                        <p className="text-[12px] text-surface-450 font-mono">vus={pn.vus} · duration={pn.duration}</p>
+                        <p className="text-[12px] text-surface-450 font-mono">duration={pn.duration}</p>
                       </div>
                     </div>
                     <div className="flex items-center gap-3 text-xs">

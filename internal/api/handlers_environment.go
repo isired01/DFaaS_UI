@@ -76,12 +76,13 @@ func (h *Handler) CreateEnvironment(c *gin.Context) {
 
 // UpdateEnvironment applies a merge-patch to Environment.spec.
 // 202 on success, 400/404/409/500 otherwise.
-// Server forwards the user-supplied {"spec":{...}} payload verbatim as
-// application/merge-patch+json. nodeID immutability for existing nodes is
-// enforced UI-side (form renders nodeID readOnly on existing nodes); the gateway
-// validates the node array shape (enum/required-fields/duplicates/role
-// composition) and refuses any spec edit while a load test on this
-// environment is still active — see the comment on that check below.
+// Builds the merge patch (application/merge-patch+json) from nodes and
+// s3ConfigRef; clearS3ConfigRef becomes s3ConfigRef: null. nodeID immutability
+// for existing nodes is enforced UI-side (form renders nodeID readOnly on
+// existing nodes); the gateway validates the node array shape
+// (enum/required-fields/duplicates/role composition) and refuses any spec edit
+// while a load test on this environment is still active — see the comment on
+// that check below.
 func (h *Handler) UpdateEnvironment(c *gin.Context) {
 	namespace := c.Param("namespace")
 	name := c.Param("name")
@@ -114,10 +115,6 @@ func (h *Handler) UpdateEnvironment(c *gin.Context) {
 	// nor the operator guards this, so the gateway is the gate, on every PATCH.
 	// It does not tell a no-op apart: an empty PATCH is also refused while a
 	// test is active.
-	//
-	// ansible.Classify already returns VerdictNone for s3-only and
-	// topology-only edits (ansible/snapshot.go), but drift does not use it yet.
-	// Once it does, this guard can let those edits through.
 	ltCtx, ltCancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
 	defer ltCancel()
 
@@ -139,9 +136,6 @@ func (h *Handler) UpdateEnvironment(c *gin.Context) {
 	specPatch := map[string]interface{}{}
 	if len(req.Spec.Nodes) > 0 {
 		specPatch["nodes"] = req.Spec.Nodes
-	}
-	if req.Spec.Topology != nil {
-		specPatch["topology"] = req.Spec.Topology
 	}
 	if req.Spec.ClearS3ConfigRef {
 		specPatch["s3ConfigRef"] = nil
@@ -275,7 +269,7 @@ func (h *Handler) DeleteEnvironment(c *gin.Context) {
 
 // buildEnvironmentUnstructured assembles the Environment object from the typed
 // create request, omitting optional fields (balancingStrategy, functions,
-// topology, s3ConfigRef) when empty.
+// s3ConfigRef) when empty.
 func buildEnvironmentUnstructured(req CreateEnvironmentRequest) *unstructured.Unstructured {
 	nodes := make([]interface{}, 0, len(req.Nodes))
 	for _, n := range req.Nodes {
@@ -298,9 +292,9 @@ func buildEnvironmentUnstructured(req CreateEnvironmentRequest) *unstructured.Un
 					"image": f.Image,
 				}
 				// Emit the tuning fields only when set (>0): a blank form field
-				// arrives as 0, and sending an explicit 0 would defeat the CRD's
-				// defaulting (defaults apply to absent fields only) and deploy a
-				// function with a 0 timeout. Omitting lets the CRD default apply.
+				// arrives as 0, and an explicit 0 would defeat the CRD's defaulting
+				// (defaults apply to absent fields only) and fail its Minimum=1.
+				// Omitting lets the CRD default apply.
 				if f.ExecTimeout > 0 {
 					fn["execTimeout"] = int64(f.ExecTimeout)
 				}
@@ -320,20 +314,8 @@ func buildEnvironmentUnstructured(req CreateEnvironmentRequest) *unstructured.Un
 		nodes = append(nodes, node)
 	}
 
-	links := make([]interface{}, 0, len(req.Topology.Links))
-	for _, l := range req.Topology.Links {
-		links = append(links, map[string]interface{}{
-			"nodeA":     l.NodeA,
-			"nodeB":     l.NodeB,
-			"latencyMs": int64(l.LatencyMs),
-		})
-	}
-
 	spec := map[string]interface{}{
 		"nodes": nodes,
-	}
-	if len(links) > 0 {
-		spec["topology"] = map[string]interface{}{"links": links}
 	}
 	if req.S3ConfigRef != nil && req.S3ConfigRef.Name != "" {
 		spec["s3ConfigRef"] = map[string]interface{}{"name": req.S3ConfigRef.Name}

@@ -45,9 +45,6 @@ func fullEnvObject() *unstructured.Unstructured {
 				},
 			},
 			"s3ConfigRef": map[string]interface{}{"name": "seaweedfs-default"},
-			"topology": map[string]interface{}{"links": []interface{}{
-				map[string]interface{}{"nodeA": "w1", "nodeB": "g4", "latencyMs": int64(10)},
-			}},
 		},
 		"status": map[string]interface{}{
 			"phase":              "Ready",

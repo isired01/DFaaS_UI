@@ -110,7 +110,7 @@ assert.equal(parses("export const x = 1;\n"), null, 'node --check must accept va
   assert.ok(abortArg.includes(JSON.stringify(img.name)), 'abort message must name the scenario');
   assert.ok(abortArg.includes(JSON.stringify(img.payloadImageURL)), "abort message must carry the fixture's payload URL literal");
   assert.ok(abortArg.includes('__r.status'), 'abort message must report the transport status');
-  // F1: SEAWEEDFS_PUBLIC_URL reachability is only the right diagnosis for a
+  // SEAWEEDFS_PUBLIC_URL reachability is only the right diagnosis for a
   // transport failure (status 0, no HTTP answer at all) -- a 403 (bucket
   // policy not applied), a 404 (object gone) or an external S3 config are
   // real HTTP responses that hint would misdiagnose. So it must be gated by a
@@ -138,7 +138,7 @@ assert.equal(parses("export const x = 1;\n"), null, 'node --check must accept va
   assert.doesNotMatch(script, /^\s*body: /m, 'an image scenario must not also emit a body');
   // The decode is cached per VU, not per iteration.
   assert.match(script, /let __img_0 = undefined;/);
-  // Defensive only: setup() now aborts the test itself on a real fetch
+  // Defensive only: setup() aborts the test itself on a real fetch
   // failure (asserted above). This null-payload branch is reachable only when
   // setup() did not run at all, e.g. `k6 run --no-setup`.
   assert.match(script, /check\(null, \{ 'payload image available': \(\) => false \}\);/);
@@ -293,10 +293,10 @@ const okBody = () => ({ status: 200, body: { byteLength: 3 } });
   const rel = scenario(REL);
   const baked = scenario({ payloadImageURL: 'https://s3.example.org/b/assets/b.png', payloadContentType: 'image/png' });
   const script = generateK6Script([rel, baked]);
-  const relocated = 'http://100.64.0.7:30900/b/assets/a.png';
+  const relocated = 'http://192.0.2.7:30900/b/assets/a.png';
 
   // A detected base, with and without a trailing slash: base + path.
-  for (const base of ['http://100.64.0.7:30900', 'http://100.64.0.7:30900/']) {
+  for (const base of ['http://192.0.2.7:30900', 'http://192.0.2.7:30900/']) {
     const { fetched, aborts } = runSetup(script, { DFAAS_ASSET_BASE: base }, down);
     assert.deepEqual(fetched, [relocated], `base ${base}: fetch base + path, once, and stop at the abort`);
     assert.equal(aborts.length, 1);
@@ -317,15 +317,15 @@ const okBody = () => ({ status: 200, body: { byteLength: 3 } });
 
   // A real HTTP answer gets no reachability hint from either source.
   {
-    const { aborts } = runSetup(script, { DFAAS_ASSET_BASE: 'http://100.64.0.7:30900' }, () => ({ status: 403, body: null }));
+    const { aborts } = runSetup(script, { DFAAS_ASSET_BASE: 'http://192.0.2.7:30900' }, () => ({ status: 403, body: null }));
     assert.ok(aborts[0].endsWith('(status=403)'), `no hint on a 403: ${aborts[0]}`);
   }
 
   // Success: the path-less scenario ignores the base, both payloads land, and
   // the barrier runs after the fetches.
   {
-    const sync = 'http://100.64.0.1:30901/dfaas-sync/go';
-    const { fetched, aborts, data } = runSetup(script, { DFAAS_ASSET_BASE: 'http://100.64.0.7:30900', DFAAS_SYNC_URL: sync }, okBody);
+    const sync = 'http://192.0.2.1:30901/dfaas-sync/go';
+    const { fetched, aborts, data } = runSetup(script, { DFAAS_ASSET_BASE: 'http://192.0.2.7:30900', DFAAS_SYNC_URL: sync }, okBody);
     assert.equal(aborts.length, 0);
     assert.deepEqual(fetched, [relocated, baked.payloadImageURL, sync], 'fetches first, then the barrier; a path-less scenario keeps its baked URL');
     assert.deepEqual(data, { payloads: { [rel.name]: 'b64', [baked.name]: 'b64' } });
@@ -341,9 +341,9 @@ const okBody = () => ({ status: 200, body: { byteLength: 3 } });
 {
   const p = `/b/assets/x'y"z.png`;
   const script = generateK6Script([scenario({ ...REL, name: `it's "quoted"`, payloadImagePath: p })]);
-  const { fetched, aborts } = runSetup(script, { DFAAS_ASSET_BASE: 'http://100.64.0.7:30900' }, down);
-  assert.deepEqual(fetched, [`http://100.64.0.7:30900${p}`]);
-  assert.ok(aborts[0].includes(`scenario it's "quoted" could not be fetched from http://100.64.0.7:30900${p}`), aborts[0]);
+  const { fetched, aborts } = runSetup(script, { DFAAS_ASSET_BASE: 'http://192.0.2.7:30900' }, down);
+  assert.deepEqual(fetched, [`http://192.0.2.7:30900${p}`]);
+  assert.ok(aborts[0].includes(`scenario it's "quoted" could not be fetched from http://192.0.2.7:30900${p}`), aborts[0]);
 }
 
 // --- degenerate input -----------------------------------------------------

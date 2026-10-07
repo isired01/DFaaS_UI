@@ -382,7 +382,7 @@ func TestUploadRefusesAnExternalConfigWithNoAbsoluteEndpoint(t *testing.T) {
 // SEAWEEDFS_PUBLIC_URL sets the fallback URL only; the asset stays relocatable.
 func TestUploadWithThePublicOverrideIsStillRelocatable(t *testing.T) {
 	store := &recordingStore{}
-	h := assetHandler(store, assetAddressing{PublicOverride: "http://100.64.0.1:30900", InCluster: true},
+	h := assetHandler(store, assetAddressing{PublicOverride: "http://192.0.2.1:30900", InCluster: true},
 		assetEnvObj("bari", "uid-fake-1", ""),
 		s3ConfigSecret(DefaultS3ConfigName, "http://seaweedfs:8333"),
 	)
@@ -395,7 +395,7 @@ func TestUploadWithThePublicOverrideIsStillRelocatable(t *testing.T) {
 	if !body.Relocatable || !strings.HasPrefix(body.Path, "/bari-uid-fa/assets/") {
 		t.Errorf("relocatable = %v, path = %q; want a relocatable asset under /bari-uid-fa/assets/", body.Relocatable, body.Path)
 	}
-	if body.URL != "http://100.64.0.1:30900"+body.Path {
+	if body.URL != "http://192.0.2.1:30900"+body.Path {
 		t.Errorf("url = %q, want the override followed by path %q", body.URL, body.Path)
 	}
 }
@@ -632,10 +632,10 @@ func TestAssetAddressing(t *testing.T) {
 
 // --- bucketNameFor: the same golden table as the exporter ---------------
 //
-// This function is copied verbatim from dataExporter/main.go so uploads land
-// in the bucket the exporter reads. Two copies, and until now zero tests on
-// either side. The table below is the one in dataExporter/main_test.go: if the
-// two ever disagree, one of these two tests fails.
+// bucketNameFor is copied from DFaaSOperator/dataExporter/main.go so uploads
+// land in the bucket the exporter reads, and the table below copies the one in
+// DFaaSOperator/dataExporter/main_test.go. Nothing compares the two copies:
+// change both repos together.
 
 func TestBucketNameForMatchesTheExporter(t *testing.T) {
 	cases := []struct {

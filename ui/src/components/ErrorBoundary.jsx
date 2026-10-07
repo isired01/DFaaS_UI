@@ -6,7 +6,7 @@ import { AlertTriangle } from 'lucide-react';
 // fallback panel instead of a blank screen. Pages already handle their own
 // fetch/error state and `return null` on missing data; this only guards against
 // unexpected render crashes.
-export default class ErrorBoundary extends Component {
+class ErrorBoundary extends Component {
   constructor(props) {
     super(props);
     this.state = { error: null };
@@ -17,7 +17,6 @@ export default class ErrorBoundary extends Component {
   }
 
   componentDidCatch(error, info) {
-    // eslint-disable-next-line no-console
     console.error('[ErrorBoundary]', error, info);
   }
 

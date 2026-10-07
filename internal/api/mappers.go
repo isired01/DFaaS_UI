@@ -56,19 +56,6 @@ func mapEnvDetail(item unstructured.Unstructured) EnvironmentDetail {
 	// path calls the same projection and does surface it.
 	d.Nodes, _ = nodeInfosFrom(nestedSliceNoCopy(item.Object, "spec", "nodes"))
 
-	links, _, _ := unstructured.NestedSlice(item.Object, "spec", "topology", "links")
-	for _, l := range links {
-		lMap, ok := l.(map[string]interface{})
-		if !ok {
-			continue
-		}
-		d.Topology.Links = append(d.Topology.Links, LinkInfo{
-			NodeA:     getStringFromMap(lMap, "nodeA"),
-			NodeB:     getStringFromMap(lMap, "nodeB"),
-			LatencyMs: getIntFromMap(lMap, "latencyMs"),
-		})
-	}
-
 	k6Status, _, _ := unstructured.NestedSlice(item.Object, "status", "k6Nodes")
 	for _, k := range k6Status {
 		kMap, ok := k.(map[string]interface{})
@@ -197,9 +184,7 @@ func mapLoadTestDetail(item unstructured.Unstructured) LoadTestDetail {
 	return d
 }
 
-// mapConditions projects status.conditions. One loop, two callers: mapEnvDetail
-// and mapLoadTestDetail each carried a byte-identical 14-line copy of it, and
-// the SPA has the same shape a third time in ProvisioningConditionRow.
+// mapConditions projects status.conditions.
 //
 // A missing status, a missing conditions key and a non-object entry are all the
 // same answer: no condition. Nothing here can fail, so nothing here returns an
@@ -222,13 +207,8 @@ func mapConditions(obj map[string]interface{}) []ConditionInfo {
 	return out
 }
 
-// nodeInfosFrom projects spec.nodes into NodeInfo. One projection, two callers,
-// which is the point: mapEnvDetail built the full NodeInfo including all four
-// Function tuning fields, while validateEnvironmentYAML rebuilt it from a
-// different map for the SAME validator carrying only name + image. Harmless
-// only because validateEnvNodes never inspected those fields -- adding a
-// function-level rule to the Rule set would have silently not applied on the
-// YAML import path, because the second projection dropped the inputs.
+// nodeInfosFrom projects spec.nodes into NodeInfo. The detail mapper and the
+// YAML import share it, so a node rule applies on both paths.
 //
 // Safe on both a cluster object and a freshly decoded YAML document: it reads
 // through nestedSliceNoCopy, never unstructured.NestedSlice, whose deep copy

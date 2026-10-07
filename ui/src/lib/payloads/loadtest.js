@@ -1,8 +1,6 @@
 // Draft → CreateLoadTest payload. Pure: returns { payload, errors } and never
 // throws, so the page only decides how to show the first error and every rule
-// below is table-testable without rendering a form. Before this, handleSubmit
-// in LoadTestNew.jsx was 138 lines with 21 throw sites, reachable only by
-// driving the UI.
+// below is table-testable without rendering a form.
 import { generateK6Script } from '../k6Generator.js';
 import { formatGoDuration } from '../duration.js';
 import { perNodeTotalMs, validateScenarios } from '../scenarios.js';
@@ -43,7 +41,6 @@ export function buildLoadTestPayload(draft, rules) {
   const perNodeLoad = [];
   for (const [nodeID, d] of Object.entries(draft.perNode || {})) {
     if (!d.enabled) continue;
-    if (!d.vus || d.vus < rules.minVUs) errors.push(`Node '${nodeID}' needs vus >= ${rules.minVUs}`);
 
     // Duration is derived for generated scripts and typed only for raw ones.
     // k6 never reads the CRD field; its job is to be truthful enough to drive
@@ -70,7 +67,8 @@ export function buildLoadTestPayload(draft, rules) {
         script = generateK6Script(d.scenarios);
       }
     }
-    perNodeLoad.push({ nodeID, vus: parseInt(d.vus) || 1, duration, script });
+    // vus is the CRD minimum; k6 takes VUs from the scenarios or the raw script.
+    perNodeLoad.push({ nodeID, vus: 1, duration, script });
   }
   if (perNodeLoad.length === 0) errors.push('Enable at least one k6 node and configure its load');
 

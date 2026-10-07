@@ -9,10 +9,7 @@ import (
 // read. Both create paths build one: the JSON handler from CreateLoadTestRequest,
 // the YAML importer from the decoded document.
 //
-// Scheduled is presence, not a value: no rule inspects the instant itself, and
-// the YAML path cannot produce a reliable time.Time (yaml.v3 resolves an
-// unquoted RFC3339 scalar to time.Time and a quoted one to string), so asking
-// it for one would only add a parse that nothing consumes.
+// Scheduled is presence, not a value: no rule inspects the instant itself.
 type LoadTestIntent struct {
 	TargetEnvironment string
 	Suspended         bool
@@ -23,15 +20,10 @@ type LoadTestIntent struct {
 // LoadTest be created against an Environment in this Phase? It returns the HTTP
 // status and message the caller must send, or ok.
 //
-// Two rules, previously re-typed per path — and the first one was missing from
-// the YAML path entirely, so an imported document with spec.startAt and no
-// spec.suspended reached the operator, which ignores startAt unless suspended
-// is set and dispatched the test immediately against a non-dispatchable
-// Environment.
-//
-// The startAt rule now runs after the Environment read rather than before it,
-// so a submission that breaks both rules at once reports the missing
-// Environment first. Still no cluster write happens before either verdict.
+// Both create paths reach it through admitAgainstEnvironment after the
+// Environment read, so a missing Environment is reported first; no cluster
+// write happens before either verdict. The operator fails the same
+// startAt-without-suspended object at admission (a kubectl apply).
 func AdmitLoadTest(intent LoadTestIntent, envPhase string) (status int, msg string, ok bool) {
 	if intent.Scheduled && !intent.Suspended {
 		return http.StatusBadRequest, "startAt requires suspended=true", false

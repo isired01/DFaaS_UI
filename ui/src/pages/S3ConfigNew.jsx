@@ -106,7 +106,7 @@ export default function S3ConfigNew() {
             className="input"
             value={endpoint}
             onChange={(e) => setEndpoint(e.target.value)}
-            placeholder="https://s3.amazonaws.com or http://seaweedfs-all-in-one.monitoring.svc:8333"
+            placeholder="https://s3.amazonaws.com or https://minio.example.org"
           />
         </FormField>
         <FormField label="Region">

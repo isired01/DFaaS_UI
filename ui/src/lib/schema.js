@@ -1,7 +1,6 @@
 // The validation rule set, fetched once from the gateway (GET /api/meta/schema)
 // and shared by every form. The gateway enforces the same value on every write
-// path, so the inline errors here and the 400s there cannot drift. Replaces the
-// hand-typed regexes, enum lists and limits that used to live in each page.
+// path, so the inline errors here and the 400s there cannot drift.
 import { useEffect, useState } from 'react';
 import { request } from '../api/client';
 

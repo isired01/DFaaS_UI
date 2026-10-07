@@ -191,7 +191,7 @@ export default function LoadTestsList() {
 
           {envsLoading ? (
             <div className="flex items-center justify-center py-10">
-              <div className="w-8 h-8 border-3 border-dfaas-500/30 border-t-dfaas-500 rounded-full animate-spin" />
+              <div className="w-8 h-8 border-4 border-dfaas-500/30 border-t-dfaas-500 rounded-full animate-spin" />
             </div>
           ) : envsError ? (
             <ErrorAlert message={envsError} />

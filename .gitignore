@@ -1,60 +1,18 @@
-# File intermedi
-.tmp/
-/directives/
-/execution/
-GEMINI.md
-.claude
-CLAUDE.md
-
-
-# Credenziali e segreti
-.env
-credentials.json
-token.json
-
-# Build artifacts — both are rebuilt by the Dockerfile, so tracked copies are
-# never consumed and only produce noisy diffs (ui/dist filenames are content-hashed).
+# Build output: the Dockerfile and `npm run build` produce these
 /server
-ui/dist/
-
-# Dipendenze
-node_modules/
-vendor/
-
-# OS
-.DS_Store
-
-# Binaries for programs and plugins
 *.exe
-*.exe~
-*.dll
-*.so
-*.dylib
+ui/dist/
+node_modules/
 
-# Test binary, built with `go test -c`
+# Go tooling
 *.test
-
-# Output of the go coverage tool, specifically when used with LiteIDE
 *.out
-
-# Dependency directories (remove the comment below to include it)
-# vendor/
-
-# Go workspace file
 go.work
+go.work.sum
 
-### react ###
-.DS_*
+# Local environment, secrets, editor and agent state
+.env
+.DS_Store
 *.log
-logs
-**/*.backup.*
-**/*.back.*
-
-node_modules
-bower_components
-
-*.sublime*
-
-psd
-thumb
-sketch
+.claude/
+CLAUDE.md

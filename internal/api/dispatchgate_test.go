@@ -96,13 +96,14 @@ func TestAdmitLoadTest(t *testing.T) {
 }
 
 // The gateway must match the operator, which dispatches against Ready only.
-// Degraded is listed on the negative side on purpose: the phase was removed
-// from the CRD, and an object still carrying it must not be dispatched.
+// Degraded and Idle are listed on the negative side on purpose: both phases
+// were removed from the CRD, and an object still carrying one must not be
+// dispatched.
 func TestDispatchablePhases(t *testing.T) {
 	if !dispatchable("Ready") {
 		t.Error("Ready must be dispatchable")
 	}
-	for _, p := range []string{"", "Pending", "ProvisioningInfra", "ProvisioningMonitoring", "Unreachable", "Failed", "Degraded"} {
+	for _, p := range []string{"", "ProvisioningVMs", "ProvisioningInfra", "ProvisioningMonitoring", "Unreachable", "Failed", "Degraded", "Idle"} {
 		if dispatchable(p) {
 			t.Errorf("%s must not be dispatchable", p)
 		}

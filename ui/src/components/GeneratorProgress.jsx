@@ -10,15 +10,13 @@ import { testRun } from '../lib/crstate';
 //
 // What it can and cannot know. The elapsed side is solid: status.startTime is
 // stamped when the operator releases the runners. The total is a declaration —
-// the form derives it from the scenario stages, but a raw pasted script can do
+// the form derives it from the scenarios, but a raw pasted script can do
 // whatever it likes and nothing validates it. So the bar is an *estimate* and
 // is built to say so: once elapsed passes the declared total while the runner
 // is still going, it drops to indeterminate rather than sitting frozen at 99%.
 // A bar that lies confidently is worse than one that admits it does not know.
 
 const TRACK = 'h-1.5 w-full rounded-full bg-surface-700/60 overflow-hidden';
-
-// Terminal remote stages, as reported by k6-operator.
 
 function Bar({ pct, className }) {
   return (

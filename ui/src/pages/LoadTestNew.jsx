@@ -16,7 +16,6 @@ import SubmitButton from '../components/SubmitButton';
 function defaultPerNode() {
   return {
     enabled: false,
-    vus: 5,
     duration: '30s',
     source: SOURCE_GENERATE,
     scenarios: [newScenario()],
@@ -29,8 +28,8 @@ function storageKeyFor(ns, env, nodeID) {
 }
 
 // loadDraft restores one node's saved form state. A draft written by an older
-// build parses fine but can be missing whole keys (e.g. `scenarios`), which used
-// to take the page down to the route ErrorBoundary until the user cleared
+// build parses fine but can be missing whole keys (e.g. `scenarios`), which would
+// take the page down to the route ErrorBoundary until the user cleared
 // localStorage by hand — so nothing is trusted beyond the shape defaultPerNode()
 // declares, and scenarios get their stable id backfilled.
 function loadDraft(ns, env, nodeID) {
@@ -202,7 +201,7 @@ export default function LoadTestNew() {
           placeholder="e.g. baseline, run-2"
         />
         <p className="text-[12px] text-surface-450 mt-1">
-          Name: <code className="text-surface-400">lt-{envName}-&lt;timestamp&gt;{nameSuffix.trim() ? `-${nameSuffix.trim()}` : ''}</code> (sanitized to lowercase DNS-1123)
+          Name: <code className="text-surface-400">lt-{envName}-&lt;timestamp&gt;{nameSuffix.trim() ? `-${nameSuffix.trim()}` : ''}-&lt;nonce&gt;</code> (sanitized to lowercase DNS-1123)
         </p>
       </div>
 
@@ -240,7 +239,7 @@ export default function LoadTestNew() {
           Synchronized start
         </label>
         <p className="text-[12px] text-surface-450 mt-1">
-          All generators wait for a GO signal and start together (~250ms skew). Requires k6 VMs to reach the management node on port 30901.
+          All generators wait for a GO signal before sending load; runners can still start a few seconds apart. Requires k6 VMs to reach the management node on port 30901.
         </p>
       </div>
 

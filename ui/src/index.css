@@ -83,10 +83,6 @@
     @apply bg-blue-500/15 text-blue-400 border border-blue-500/30;
   }
 
-  .badge-installing {
-    @apply bg-indigo-500/15 text-indigo-400 border border-indigo-500/30;
-  }
-
   .badge-monitoring {
     @apply bg-violet-500/15 text-violet-400 border border-violet-500/30;
   }
@@ -97,10 +93,6 @@
 
   .badge-running {
     @apply bg-amber-500/15 text-amber-400 border border-amber-500/30 animate-pulse-slow;
-  }
-
-  .badge-cooldown {
-    @apply bg-cyan-500/15 text-cyan-400 border border-cyan-500/30;
   }
 
   .badge-cleanup {

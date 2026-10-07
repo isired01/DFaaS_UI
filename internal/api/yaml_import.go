@@ -156,9 +156,7 @@ func validateEnvironmentYAML(_ context.Context, _ string, obj map[string]interfa
 		return http.StatusBadRequest, "spec.nodes must contain at least one node", false
 	}
 
-	// The same projection the detail mapper uses. It used to be rebuilt here
-	// from a different map, carrying only name + image -- so a function-level
-	// rule added to the Rule set would silently not apply on this path.
+	// The same projection the detail mapper uses.
 	nodes, err := nodeInfosFrom(rawNodes)
 	if err != nil {
 		return http.StatusBadRequest, err.Error(), false
