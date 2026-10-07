@@ -1,259 +1,218 @@
-# DFaaS Control Plane — UI & API Gateway
+# DFaaS Control Plane
 
-Web control plane for the **DFaaS** (distributed Function-as-a-Service) system. It drives the
-[dfaas-operator](https://github.com/isired01/DFaaSOperator)'s two CRDs (`dfaas.dfaas.io/v1`):
-create and monitor `Environment` federations, configure and launch k6 `LoadTest`s, and view the
-state of the edge/cloud federation.
+Web UI and REST gateway for the [DFaaSOperator](https://github.com/isired01/DFaaSOperator). It
+manages the operator's two custom resources, `Environment` (a federated DFaaS testbed: DFaaS nodes
+and k6 load generators) and `LoadTest` (one k6 test against a `Ready` Environment), and manages
+the S3 export configurations the operator uses for results.
 
-## Architecture
+The gateway needs the operator's CRDs (`dfaas.dfaas.io/v1`) in the cluster it talks to. In normal
+use you do not build or deploy it yourself: the operator's Helm chart installs it together with
+the operator. Installation is described in the
+[DFaaSOperator README](https://github.com/isired01/DFaaSOperator#install-via-helm) and upgrades
+(CRDs first, then the chart) in its
+[Upgrade section](https://github.com/isired01/DFaaSOperator#upgrade).
 
-Two parts shipped as **one Go binary** in production:
+System-level documentation lives in the operator repository:
 
-1. **Frontend (React 19 + Vite + Tailwind)** — a reactive SPA. In production it is compiled to
-   static assets and served by the backend; unknown non-API paths fall through to `index.html` for
-   client-side routing.
-2. **Backend (Go + Gin)** — a stateless API gateway that talks to the Kubernetes cluster through
-   the **dynamic client** (unstructured). No informers, no schema dependency on the operator's
-   typed Go types, no persistence — every read is a live cluster call.
+- [Overview](https://github.com/isired01/DFaaSOperator/blob/main/docs/overview.md): what the system does and how the two repositories fit together
+- [Cross-repo contract](https://github.com/isired01/DFaaSOperator/blob/main/docs/cross-repo-contract.md): what couples this repository to the operator
+- [Known limitations](https://github.com/isired01/DFaaSOperator/blob/main/docs/known-limitations.md)
+- [Glossary](https://github.com/isired01/DFaaSOperator/blob/main/docs/glossary.md)
+- [Architecture decision records](https://github.com/isired01/DFaaSOperator/blob/main/docs/adr/README.md) (ADR-0001 and ADR-0007 concern code in this repository)
 
-What the UI manages: Environments (create/edit/delete, live phase + per-node status), LoadTests
-(structured create, **save-as-draft** via `spec.suspended`, **scheduled start** via `spec.startAt`,
-**Start** of a draft or scheduled test, **abort** via `spec.stop`, delete), S3 export
-configurations, and raw-YAML import/export of both CRs.
+For developers of this repository: [docs/development.md](docs/development.md) (code map, REST
+routes, status codes, how to follow a CRD change).
 
-## Install via Helm
+## What it is made of
 
-The UI is packaged in the **same unified chart** as the operator. The chart carries the two CRDs,
-and `helm install` applies them:
+- A Go (Gin) binary that exposes a REST API under `/api` and serves the compiled SPA. It keeps no
+  state: every request is a live call to the Kubernetes API through the dynamic (unstructured)
+  client. The one exception is asset upload, which talks to S3 directly.
+- A React 19 SPA (Vite, Tailwind) in `ui/`. Its production build is written to `ui/dist/`.
+- There is no `go:embed`. The container image holds `/app/server` and `/app/ui/dist` side by
+  side, and the server looks for `ui/dist` next to its own binary, then under the working
+  directory.
 
-```bash
-# 1. Install the chart (operator + UI + CRDs)
-helm install dfaas oci://ghcr.io/isired01/charts/dfaas \
-  --version 4.0.2 \
-  --create-namespace \
-  --namespace dfaas-operator-system
+The UI manages Environments (create, edit, delete, live phase and per-node status), LoadTests
+(create, save as draft, scheduled start, start, abort, delete), S3 export configurations, and raw
+YAML import and export of both resources.
 
-# 2. Open the UI: the Service is a NodePort on 30800 by default
-open http://<node-ip>:30800
-# or through a port-forward:
-kubectl -n dfaas-ui port-forward svc/dfaas-ui 8082:8082   # then http://localhost:8082
-```
+Names used for this component:
 
-**Upgrading:** `helm upgrade` never updates CRDs. Apply the new release's CRDs first, or the API
-server prunes the fields the new operator writes. For v3.5.0 that is
-`status.provisioningGeneration`; without it, an Environment edit saved while the Environment is
-still provisioning is marked as applied, although the run in progress was provisioning the
-previous spec. v4.0.0 adds `status.k6Nodes[].managementAddress`, which the gateway
-mirrors and the Environment page shows on each generator; against an old CRD it is pruned, and
-every runner falls back to the baked asset URL (`SEAWEEDFS_PUBLIC_URL`, else a node IP) and to the
-operator's `DFAAS_SYNC_PUBLIC_URL`, else `HOST_IP`. An Environment provisioned before the upgrade
-gets the address on its next provisioning run (any spec edit), except a generator reached over
-IPv6: its k3s is single-stack IPv4, so the operator never records an IPv6 address and that
-generator keeps the fallback. v4.0.2 changes no CRD and nothing in the UI: it opens the
-operator's Grafana without a login.
+| Where | Name |
+|---|---|
+| Repository | `DFaaS_UI` |
+| Go module | `dfaas-control-plane` |
+| Container image | `ghcr.io/isired01/dfaas-control-plane` |
+| npm package | `dfaas-control-plane-ui` |
+| Helm chart values key | `ui` |
+| Namespace | `dfaas-ui` |
+| Service | `<release>-ui` (`dfaas-ui` for a release named `dfaas`) |
 
-```bash
-kubectl apply -f https://github.com/isired01/DFaaSOperator/releases/download/v4.0.2/dfaas.dfaas.io_environments.yaml
-kubectl apply -f https://github.com/isired01/DFaaSOperator/releases/download/v4.0.2/dfaas.dfaas.io_loadtests.yaml
-helm upgrade dfaas oci://ghcr.io/isired01/charts/dfaas --version 4.0.2 --namespace dfaas-operator-system
-```
+## Security
 
-Custom Resource examples (`Environment` + `LoadTest`) and VM IP configuration: see the
-[DFaaSOperator README](https://github.com/isired01/DFaaSOperator#install-via-helm).
+**The gateway has no authentication and no authorization.** The only middleware is CORS. Anyone
+who can reach its port can:
 
-## Prerequisites (development)
+- read every Environment, including each node's SSH `username` and `password` in clear text
+  (`GET /api/environments/:namespace/:name` and its `/yaml` export);
+- create, edit and delete Environments, which makes the operator run Ansible as root against the
+  IP addresses in the request;
+- create, start, abort and delete LoadTests, upload assets, and register and delete S3 configs.
 
-- **Go** ≥ 1.26
-- **Node.js** ≥ 20 and **npm**
-- **kubectl** configured for access to a Kubernetes cluster
+S3 access keys are never returned by the API. The namespace in a request URL or body is used
+without any check.
 
-## Development setup
+The operator's Helm chart publishes the UI on NodePort 30800 of every node by default. Keep it on
+a trusted network (see also
+[Exposing the UI](https://github.com/isired01/DFaaSOperator#exposing-the-ui) and the operator's
+[known limitations](https://github.com/isired01/DFaaSOperator/blob/main/docs/known-limitations.md)).
+On any other network install the chart with `--set ui.service.type=ClusterIP`
+and reach the UI with `kubectl -n dfaas-ui port-forward svc/dfaas-ui 8082:8082`, or put an
+authenticating proxy in front of it.
 
-For development, run the frontend and backend separately to get Hot Module Replacement (HMR).
+The gateway's ClusterRole is defined in the operator chart
+(`charts/dfaas/templates/ui-rbac.yaml`). It can create and delete every Secret and ConfigMap in
+the cluster, so a compromise of the gateway is a compromise of the cluster's secrets.
 
-### 1. Frontend
+A registered S3 endpoint is not validated: the gateway dials it exactly as given when an asset is
+uploaded, from inside the cluster.
 
-```bash
-cd ui
-npm install
-npm run dev        # http://localhost:5173 — Vite proxies /api → :8082
-```
+### CORS
 
-### 2. Backend
+`CORS_ORIGINS` controls which browser origins may call the API. It is not access control.
 
-In another terminal, from the repo root:
+| `CORS_ORIGINS` | Behaviour |
+|---|---|
+| unset | Allows `http://localhost:5173` (the Vite dev server) only. |
+| set, empty (the chart's default) | The CORS middleware is not installed: no `Access-Control-*` headers are sent and no request is refused for its origin. |
+| comma-separated list | A request carrying an `Origin` header that is neither in the list nor the request's own `http(s)://<Host>` is answered `403` before it reaches a handler. Entries must start with `http://` or `https://`; any other value makes the server panic at start-up. |
+| contains `*` | Every origin is allowed. The gateway drops `Access-Control-Allow-Credentials` and logs a warning. Any page a user opens can then read every response, SSH passwords included, so list real origins instead. |
 
-```bash
-go run ./cmd/server        # http://localhost:8082
-```
+What this does and does not stop:
 
-The backend serves the API and (in production) the compiled SPA. In dev, the Vite server proxies
-`/api/*` to the backend, so use the `:5173` URL.
-
-## Cluster connection
-
-The backend resolves Kubernetes credentials in this order (see
-[`internal/api/k8s_client.go`](internal/api/k8s_client.go)):
-
-1. **In-cluster** ServiceAccount (when running as a Pod).
-2. `KUBECONFIG` environment variable.
-3. `~/.kube/config`, only when `KUBECONFIG` is unset.
-
-If the chosen config cannot be loaded, the server still starts but every `/api/*` request
-returns `503`; a broken `KUBECONFIG` does not fall back to `~/.kube/config`. A config that loads
-but points at an unreachable cluster fails per request instead.
-
-```bash
-# Local run against a specific kubeconfig:
-export KUBECONFIG=/path/to/cluster-config.yaml
-go run ./cmd/server
-```
+- With the empty setting, a page on another site can still make the browser send a "simple"
+  cross-site request (a form-style `POST` with a `text/plain`, form or multipart body) to a
+  reachable gateway, and the handler runs. The JSON handlers bind the body with
+  `ShouldBindJSON`, which does not look at `Content-Type`, so such a request can create
+  Environments, LoadTests and S3 configs, upload assets and start a draft (every `POST` route).
+  `PATCH` and `DELETE` need a preflight, which the gateway does not answer, so the browser
+  refuses to send them. The page cannot read any response.
+- A non-empty list refuses such browser requests with `403`, because they carry an `Origin`
+  header.
+- Neither setting affects a client that sends no `Origin` header (`curl`, scripts, other
+  servers): they reach every handler.
 
 ## Configuration
 
-The server reads environment variables directly (no `.env` file is loaded):
+The gateway reads these environment variables. No `.env` file is loaded.
 
-- `PORT` — port the server listens on (default `8082`).
-- `GIN_MODE` — set to `release` in production.
-- `KUBECONFIG` — kubeconfig path for local (out-of-cluster) runs.
-- `CORS_ORIGINS` — comma-separated allow-list of browser origins for the API (empty = same-origin only; unset = the dev origins `http://localhost:5173` and `http://localhost:3000`). The chart sets it empty; override via `ui.env`.
-- `SEAWEEDFS_PUBLIC_URL` — base of the absolute asset URL baked into the k6 script at upload, for the in-cluster SeaweedFS (default `http://<node-ip>:30900`). It is a fallback: a runner whose generator has a detected management address gets `DFAAS_ASSET_BASE` from the operator and fetches from there. Runners without one must reach this URL (on a multi-site lab, the management node's tailnet IP, not its LAN one). Ignored for an external S3 config. See "Image payloads in k6 load tests".
-- `SEAWEEDFS_ENDPOINT` — override for the gateway→SeaweedFS **dial** endpoint (default: auto — in-cluster DNS, or node-IP:30900 in dev). Applies to the in-cluster SeaweedFS only; an external S3 config is always dialled at its own endpoint.
-- `SEAWEEDFS_FILER_PUBLIC_URL` — base URL of the SeaweedFS filer for the result links a `Completed` test shows. Default: the host you opened the UI on, with port `30901`, when the gateway runs in the cluster; a cluster node IP when that host is loopback, a cluster-internal name or otherwise unusable (`kubectl port-forward`, the Vite dev proxy), and always when the gateway runs outside the cluster (`go run`), since the host then names the machine running it, which serves no filer. Set it when the UI sits behind an Ingress or proxy whose host does not expose the NodePorts. No links appear when the Environment exports to an external S3 config.
+| Variable | Default | Meaning |
+|---|---|---|
+| `PORT` | `8082` | Port the server listens on. The chart sets it from `ui.service.port`. |
+| `GIN_MODE` | unset | Read by Gin itself. Neither the image nor the chart sets it, so Gin runs in debug mode and prints its route table at start. Set it to `release` (for example `ui.env.GIN_MODE: release` in the chart values) to quiet that. |
+| `KUBECONFIG` | unset | Path of one kubeconfig file, used only when the gateway is not running in a Pod. Unset falls back to `~/.kube/config`. A colon-separated list is not split: it is read as a single path. |
+| `KUBERNETES_SERVICE_HOST` | set by Kubernetes in a Pod | Used only as the "running in the cluster" signal for SeaweedFS addressing (the same signal `rest.InClusterConfig` uses). Do not set it by hand. |
+| `CORS_ORIGINS` | unset (dev origin); the chart sets it empty | See [CORS](#cors). |
+| `SEAWEEDFS_ENDPOINT` | auto | Endpoint the gateway dials to upload an asset to the in-cluster SeaweedFS (`seaweedfs-default` only). Auto: the endpoint stored in the `seaweedfs-default` Secret (an in-cluster service address) when in a Pod, `http://<node-ip>:30900` when outside the cluster. |
+| `SEAWEEDFS_PUBLIC_URL` | auto: `http://<node-ip>:30900` | Base of the absolute asset URL written into a generated k6 script at upload time (`seaweedfs-default` only). It is the fallback for runners that the operator gave no `DFAAS_ASSET_BASE`. Those runners must be able to reach it. |
+| `SEAWEEDFS_FILER_PUBLIC_URL` | auto | Base URL of the SeaweedFS filer, used for the result links shown on a `Completed` LoadTest. Auto: the host the browser opened the UI on with port `30901` when the gateway runs in a Pod; a node IP when that host is loopback or otherwise unusable, or when the gateway runs outside the cluster. Set it when the UI sits behind an Ingress or proxy whose host does not expose the NodePorts. No links appear when the Environment exports to an external S3 config. |
 
-> **`CORS_ORIGINS=*` is not usable as an origin list.** The server always sends `Access-Control-Allow-Credentials: true`, and the CORS spec forbids pairing that with a `*` origin — browsers silently refuse such responses. On startup the gateway warns and disables credentials rather than shipping a combination that cannot work. List the real origins instead.
+The three `SEAWEEDFS_*` variables apply to the in-cluster SeaweedFS only. An external S3 config
+keeps its own endpoint for both dialling and the URL baked into the script.
 
-**RBAC: the gateway needs `nodes` read access.** Auto-detecting the baked asset URL lists cluster Nodes to find a reachable IP, and the result links use a node IP when the UI was opened on a loopback or unusable host, or the gateway runs outside the cluster. The chart's UI ClusterRole grants core `nodes` `get`/`list` for this; without it an asset upload to the default SeaweedFS fails with **502** unless `SEAWEEDFS_PUBLIC_URL` is set (and `SEAWEEDFS_ENDPOINT`, when the gateway runs outside the cluster). This holds for relocatable uploads too, since the baked URL is their fallback.
+Auto-detecting the addresses above lists the cluster's Nodes, so the gateway needs `list` on
+`nodes`; the chart's ClusterRole grants it. Without it an upload to `seaweedfs-default` answers
+`502` unless `SEAWEEDFS_PUBLIC_URL` is set.
 
-## Image payloads in k6 load tests
+In the chart, set any of these through `ui.env` in the values file.
 
-A k6 scenario can carry an uploaded image as its request body — e.g. to load-test an image-processing function like `dfaas-imgproc`.
+## Running locally
 
-- **Upload** (`POST /api/loadtests/assets`, [internal/api/assets.go](internal/api/assets.go)): the gateway stores the file in the Environment's bucket on its S3 config (the in-cluster SeaweedFS unless `spec.s3ConfigRef` names another; `assets/` prefix, anonymous-readable) and returns `{url, contentType, filename, relocatable, path}`. `url` is the absolute URL baked at upload. On the in-cluster SeaweedFS (`seaweedfs-default`) `relocatable` is `true` and `path` is the object's `/<bucket>/<key>`; on an external config `relocatable` is `false`, `path` is absent, and the config needs an absolute http(s) `endpoint`: with none (the AWS default) the URL would be relative, so the upload is refused with **409** before anything is written.
-- **Script generation** ([ui/src/lib/k6Generator.js](ui/src/lib/k6Generator.js)): the k6 script fetches the image **once** in `setup()` (base64-encoded), and each VU decodes it once and POSTs the **raw bytes**. SeaweedFS is hit a single time regardless of VU count — not once per VU. For a relocatable image the script fetches `DFAAS_ASSET_BASE` + `path` when the operator injected `DFAAS_ASSET_BASE` on the runner (`http://<management address detected for that generator>:30900`), and the baked `url` otherwise. If the `setup()` fetch fails, the script calls `exec.test.abort()` naming the scenario, the URL it tried and the status, with a hint on status 0: `DFAAS_ASSET_BASE` when the script fetched from it, `SEAWEEDFS_PUBLIC_URL` for every baked URL, including an external S3 config's own endpoint, where that setting plays no part (the script of an image with no `path` is kept identical to the one generated before this feature). A test cannot run without its image, so it does not run at all rather than silently measuring something else. The abort message lands only in that generator's k6 runner log (the test's "k6 logs & summaries" link) — the LoadTest's own status does not reflect it yet: a plain test still reads `Completed`, and a `syncStart` test fails with "finished before the GO signal" instead of naming the payload fetch. Surfacing the abort on the LoadTest itself is a pending operator-side follow-up.
-- **Reachability / config:**
-  - For an image on the in-cluster SeaweedFS each runner fetches over port **30900** (SeaweedFS S3 API, object GET). A runner whose generator has a detected management address (shown as **Management address** on the generator's card on the Environment page) uses `DFAAS_ASSET_BASE`, which follows that generator at run time: no gateway setting and no re-upload is involved.
-  - `SEAWEEDFS_PUBLIC_URL=http://<node-ip-reachable-from-k6-VMs>:30900` — the fallback, for runners without `DFAAS_ASSET_BASE` (an operator older than this feature, or a generator with no detected address). Those runners must reach it (on a multi-site lab, the management node's tailnet IP). Auto-detect picks a node IP from the k8s node status, which on a multi-subnet lab may not be the routable one → set this explicitly. **Re-upload** the image after changing it, since the baked URL is fixed at upload time. Tests and form drafts made before this feature carry no `path` and always use the baked URL; re-attach the image to get the per-generator fetch. A generator that cannot reach its URL aborts its test in `setup()` naming the scenario, the URL and the HTTP status; before the abort existed, the affected VUs silently skipped the POST instead, so the test ran to completion without ever sending its payload.
-  - Target URL = `http://<dfaas-node-ip>:30080/function/<name>` (HAProxy NodePort on the DFaaS node — not the k6 node, not the gateway).
-- **Use a small image** (KB, not multi-MB): the base64 payload is copied per-VU (runner memory) and the function receives the full image on **every** request — a large image saturates SeaweedFS / network / DFaaS node under load (symptoms: `unknown format` from failed fetches, `500/504` from a saturated node). Keep the arrival rate sane.
+Prerequisites:
 
-## Drafts, scheduled starts and Start
+- Go 1.26 and Node.js 22 with npm.
+- A cluster with the operator's CRDs installed. The simplest way to get one is to install the
+  operator chart (see its [install instructions](https://github.com/isired01/DFaaSOperator#install-via-helm)). Asset upload also needs the `seaweedfs-default`
+  Secret in the `dfaas-s3` namespace, which the operator creates; without it an upload answers
+  `409`.
+- A kubeconfig whose identity has the permissions of the UI ClusterRole in
+  [`charts/dfaas/templates/ui-rbac.yaml`](https://github.com/isired01/DFaaSOperator/blob/main/charts/dfaas/templates/ui-rbac.yaml).
+  What the gateway actually uses: `environments` and `loadtests` (get, list, create, patch,
+  delete), `configmaps` (get, create, patch, delete), `secrets` in `dfaas-s3` (get, list, create,
+  delete) and `nodes` (list).
 
-The create form saves a test as a **draft** (`spec.suspended=true`) or as a **scheduled** test
-(`suspended=true` plus `spec.startAt`); it never dispatches one directly. Neither kind is checked
-against the Environment's phase, so both can be created while the Environment is still provisioning.
-
-- **Start** on the detail page (`POST /api/loadtests/:namespace/:name/activate`) sets
-  `suspended=false` and removes `startAt` in one patch, so Start on a scheduled test starts it now
-  and drops the schedule. It answers **409** once the test has left `Pending` or when the test
-  changes while the request is in flight, and **400** when the test is not suspended.
-- A scheduled test stays `Pending` until `startAt`. The operator then un-suspends it itself if the
-  Environment is `Ready`; otherwise the test stays suspended (`Scheduled` reason
-  `ScheduledDelayedEnvNotReady`) and fires once the Environment is `Ready`.
-- A started test waits while its Environment is not `Ready`, and queues behind any other test that
-  holds the same Environment (`Queued` condition). A test that ended with a runner the operator
-  could not delete (`K6Healthy` reason `RunnersUnreclaimed`) keeps holding it; the operator retries
-  the delete every 30 s, and deleting that test releases the Environment.
-- A test created without `suspended` (through the API or a YAML import) needs a `Ready`
-  Environment, otherwise the gateway answers **409**. `startAt` without `suspended: true` is a
-  **400**.
-- When k6 finishes the test moves to `Exporting`, and the exporter Job starts 1 min later so the
-  management Prometheus has federated the end of the run (`MetricsExported` reason
-  `ExportCooldown`, with a countdown).
-- **Delete** is disabled on the detail page while the test is `Running` or `Exporting`: abort a
-  running test first, or wait for the export to finish. Deleting a test that has not ended aborts
-  it, and the operator deletes its runners on every generator it can reach.
-
-## Validation
-
-The gateway validates every Environment and LoadTest submission before it writes anything, and the
-SPA checks the same rules inline: the gateway serves them at `GET /api/meta/schema`
-([internal/api/schema.go](internal/api/schema.go)). Most are hand-synced copies of the operator's
-CRD rules. A few Environment rules exist only in the gateway, so a `kubectl apply` is not held to
-them: one node of each role, a non-blank username and a non-empty password, a non-blank image on
-every function. The non-negative check on function tuning fields is enforced but not served. A
-rule failure is a **400** that names the field. The form's `POST /api/loadtests` and the YAML
-import (`POST /api/loadtests/yaml`) go through the same checks, so an imported document is held to
-the same rules as the form.
-
-- **LoadTest:** a name, when given, is a DNS-1123 name of at most 63 characters; at least one
-  `perNodeLoad` entry, each with a `nodeID` that is a k6-load-generator of the target Environment
-  (no duplicates), `vus` ≥ 1, a Go-duration `duration`, and exactly one of an inline `script` or a
-  `scriptConfigMap` (a YAML document must name `scriptConfigMap.name`, since the CR carries no
-  inline script); at least one metric, each with a valid `type` and a query, plus a `metricName`
-  for `custom-promql`; `metricsExport.step`, when set, is a Go duration.
-- **Environment** (create, edit and YAML import): at most 50 nodes and at least one of each role;
-  `nodeID` a DNS-1123 label, unique; `ipAddress` unique; `username` and `password` on every node;
-  every DFaaS node deploys at least one function; function names use lowercase letters and digits
-  only (no `-` or `_`); every function names an image; function tuning fields are not negative.
-
-Editing **or deleting** an Environment is refused with **409** while one of its tests is `Running`,
-`Exporting`, started and waiting to dispatch, or ended with its runners not reclaimed (`K6Healthy`
-reason `RunnersUnreclaimed`: delete the test to release the Environment). Every edit counts,
-`s3ConfigRef` included, because any spec change re-runs provisioning on every node. Drafts and armed
-schedules do not block the edit. A second delete while the operator's finalizer is already draining
-the Environment answers **200**, not another 409.
-
-## Load-test progress
-
-The LoadTest detail page draws **one progress bar per generator**, next to that node's run stage.
-It counts `status.startTime` against the node's declared `duration`, and colours from the remote
-k6 stage: amber while running, green on `finished`, red on `error`.
-
-The elapsed side is exact. The total is a *declaration*, so the bar is explicit about the limits of
-what it knows — if the run passes its declared length while the runner is still going, the bar
-switches to indeterminate rather than sitting at 99% pretending.
-
-**Where that declaration comes from.** k6 never reads `spec.perNodeLoad[].duration`; the script's own
-`options.scenarios` decides how long the run lasts. The field used to be a free text box that drove
-nothing, and it was wrong out of the box — the default said `30s` for a default scenario that runs
-`50s`. Now:
-
-- **Generated scripts** — computed for you and shown read-only: the longest scenario, `startTime`
-  plus its stages (or plus its `duration`, for a constant-arrival-rate scenario). Edit a stage and
-  the number follows. This is also the only check stage durations get, since they live inside the
-  script where the CRD cannot reach them.
-- **Raw pasted scripts** — you still type it, because nobody can parse arbitrary JS. Get it wrong and
-  only the bar is wrong; the test itself is unaffected.
-
-## Known limitation — k6 executors
-
-**The scenario editor generates only the two arrival-rate executors:**
-`ramping-arrival-rate` (the rate follows `stages`) and `constant-arrival-rate`
-(a flat `rate` for one `duration`). Each emits its own option set from the
-executor registry in [ui/src/lib/scenarios.js](ui/src/lib/scenarios.js);
-`renderScenario` in [ui/src/lib/k6Generator.js](ui/src/lib/k6Generator.js) adds
-`timeUnit`, `preAllocatedVUs` and `maxVUs` to every scenario, which both accept.
-k6 rejects options that do not belong to the executor, on the remote runner after
-dispatch: the runner reports `error` and the operator fails the LoadTest. A
-generated script does not hit this. A raw pasted script with the wrong options
-for its executor does, and so would a new executor whose options do not match.
-
-The VU-based executors (`constant-vus`, `ramping-vus`, `shared-iterations`,
-`per-vu-iterations`) are not offered, because the generator does not emit their
-options. For those, use **Paste raw JS** on the generator; its run length for the
-progress bar is then typed by hand. Adding an executor to the form takes an entry
-in `EXECUTORS` (option block, run length, validation, defaults) plus whatever
-inputs it needs in `K6ScenariosEditor`; a VU-based one also needs
-`renderScenario` to stop emitting the three arrival-rate options.
-
-Steady plateaus, bursts and sawtooth spikes are all expressible with `stages`,
-and several scenarios can run concurrently on one generator with different
-`startTime` offsets. Arrival-rate is also the better model for these
-experiments: it holds throughput as a controlled independent variable instead of
-letting it fall out of how fast the system happens to respond.
-
-## Verification
-
-CI ([.github/workflows/test.yml](.github/workflows/test.yml)) runs these on every push to `main`
-and every pull request:
+The gateway, from the repository root:
 
 ```bash
-go vet ./... && go test ./...            # gateway
-(cd ui && npm ci && npm run check)       # SPA selfcheck scripts
-docker build -t dfaas-control-plane .    # the image, which also runs npm run build and go build
+export KUBECONFIG=/path/to/kubeconfig     # one file
+go run ./cmd/server                       # API on http://localhost:8082
 ```
 
-The SPA has no test framework: `npm run check` is a chain of plain-`node` assert scripts
-(`ui/src/lib/**/*.selfcheck.mjs`), and a new one runs only once it is appended to that chain in
-[ui/package.json](ui/package.json).
+It resolves credentials in this order: the in-cluster ServiceAccount, then `KUBECONFIG`, then
+`~/.kube/config` (only when `KUBECONFIG` is unset). If the configuration cannot be loaded the
+server still starts, and every `/api` request answers `503`.
+
+`ui/dist` is not tracked, so on a fresh clone `go run` serves the API only and logs
+`frontend not found ... run 'npm run dev' in ui/`. Either run the dev server below or build the
+SPA once with `cd ui && npm ci && npm run build`, after which the gateway serves it from
+`ui/dist`.
+
+The SPA with hot reload, in a second terminal:
+
+```bash
+cd ui
+npm ci
+npm run dev                               # http://localhost:5173
+```
+
+The Vite dev server listens on `5173` and proxies `/api` to `http://localhost:8082`
+(`ui/vite.config.js`). Open the `5173` URL. `npm run preview` serves the built bundle on `4173`
+with the same proxy, but its write requests carry the origin `http://localhost:4173`, which the
+default CORS setting refuses with `403`. Start the gateway with
+`CORS_ORIGINS=http://localhost:4173` to use it.
+
+When the laptop cannot reach a node IP, uploads fail on the SeaweedFS connection. Forward the
+S3 port and point the gateway at it:
+
+```bash
+kubectl -n monitoring port-forward svc/seaweedfs-all-in-one 8333:8333
+SEAWEEDFS_ENDPOINT=http://localhost:8333 go run ./cmd/server
+```
+
+## Build and test
+
+CI ([`.github/workflows/test.yml`](.github/workflows/test.yml)) runs these on every pull request
+and every push to `main`:
+
+```bash
+go mod tidy -diff && go mod verify        # go.mod is tidy and matches go.sum
+go vet ./...
+go test ./...                             # gateway tests, in internal/api
+cd ui
+npm ci
+npm run check                             # the SPA selfcheck chain
+cd ..
+docker build -t dfaas-control-plane .     # the image
+```
+
+`npm run build` (in `ui/`) produces the production bundle in `ui/dist/`. The SPA has no test
+framework: `npm run check` is a chain of plain-`node` assert scripts, described in
+[docs/development.md](docs/development.md#spa-selfchecks).
+
+The [Dockerfile](Dockerfile) has three stages: the SPA is built with `node:22-alpine`, the
+gateway with `golang:1.26-alpine` (static binary, `CGO_ENABLED=0`), and the runtime is
+`alpine:3.22` holding `/app/server` and `/app/ui/dist`. It listens on `8082`. The frontend stage
+always runs on the build platform, since its output does not depend on the architecture.
+
+## Releases
+
+The image is published by [`.github/workflows/release.yml`](.github/workflows/release.yml) when a
+tag matching `v*` is pushed: `ghcr.io/isired01/dfaas-control-plane` tagged `vX.Y.Z`, `X.Y.Z` and
+`latest`, for `linux/amd64` and `linux/arm64`. This repository and the operator release with the
+same tag, even when this one did not change. The steps are in the operator's
+[releasing guide](https://github.com/isired01/DFaaSOperator/blob/main/docs/releasing.md).
+
+## License
+
+Apache-2.0, see [LICENSE](LICENSE).
