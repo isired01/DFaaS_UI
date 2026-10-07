@@ -7,8 +7,8 @@ import "time"
 
 // EnvironmentSummary is returned by GET /api/environments.
 //
-// There is no message field: the operator never writes status.message on either
-// CRD — all messaging goes through the Ready condition, surfaced in Conditions.
+// There is no message field: the CRDs have no status.message. All messaging goes
+// through the Ready condition, surfaced in Conditions.
 type EnvironmentSummary struct {
 	Name               string    `json:"name"`
 	Namespace          string    `json:"namespace"`
@@ -62,7 +62,7 @@ type NodeInfo struct {
 // FunctionInfo mirrors a dfaas function deployed on a worker. The numeric
 // tuning fields carry omitempty: a value of 0 is never valid for them, so a
 // blank form field (0) is dropped from the outgoing patch/create body and the
-// CRD's defaulting applies instead of an explicit 0 (which would defeat it).
+// CRD's defaulting applies instead of an explicit 0 (which the CRD's Minimum=1 rejects).
 type FunctionInfo struct {
 	Name        string `json:"name"`
 	Image       string `json:"image"`
@@ -125,8 +125,8 @@ type UpdateEnvironmentSpec struct {
 
 // LoadTestSummary is returned by GET /api/loadtests.
 //
-// There is no message field: the operator never writes status.message on either
-// CRD — all messaging goes through the Ready condition, surfaced in Conditions.
+// There is no message field: the CRDs have no status.message. All messaging goes
+// through the Ready condition, surfaced in Conditions.
 type LoadTestSummary struct {
 	Name              string     `json:"name"`
 	Namespace         string     `json:"namespace"`

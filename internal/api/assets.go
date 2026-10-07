@@ -318,8 +318,7 @@ func addressingFromEnv() assetAddressing {
 	}
 }
 
-// isDefault reports whether configName names the built-in in-cluster SeaweedFS.
-// The comparison was re-derived at four sites.
+// isDefaultS3Config reports whether configName names the built-in in-cluster SeaweedFS.
 func isDefaultS3Config(configName string) bool { return configName == DefaultS3ConfigName }
 
 // assetPath is the object's path on an S3 endpoint in path-style addressing:

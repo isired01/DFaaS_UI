@@ -184,9 +184,7 @@ func mapLoadTestDetail(item unstructured.Unstructured) LoadTestDetail {
 	return d
 }
 
-// mapConditions projects status.conditions. One loop, two callers: mapEnvDetail
-// and mapLoadTestDetail each carried a byte-identical 14-line copy of it, and
-// the SPA has the same shape a third time in ProvisioningConditionRow.
+// mapConditions projects status.conditions.
 //
 // A missing status, a missing conditions key and a non-object entry are all the
 // same answer: no condition. Nothing here can fail, so nothing here returns an

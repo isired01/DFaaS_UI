@@ -76,12 +76,13 @@ func (h *Handler) CreateEnvironment(c *gin.Context) {
 
 // UpdateEnvironment applies a merge-patch to Environment.spec.
 // 202 on success, 400/404/409/500 otherwise.
-// Server forwards the user-supplied {"spec":{...}} payload verbatim as
-// application/merge-patch+json. nodeID immutability for existing nodes is
-// enforced UI-side (form renders nodeID readOnly on existing nodes); the gateway
-// validates the node array shape (enum/required-fields/duplicates/role
-// composition) and refuses any spec edit while a load test on this
-// environment is still active — see the comment on that check below.
+// Builds the merge patch (application/merge-patch+json) from nodes and
+// s3ConfigRef; clearS3ConfigRef becomes s3ConfigRef: null. nodeID immutability
+// for existing nodes is enforced UI-side (form renders nodeID readOnly on
+// existing nodes); the gateway validates the node array shape
+// (enum/required-fields/duplicates/role composition) and refuses any spec edit
+// while a load test on this environment is still active — see the comment on
+// that check below.
 func (h *Handler) UpdateEnvironment(c *gin.Context) {
 	namespace := c.Param("namespace")
 	name := c.Param("name")
@@ -291,9 +292,9 @@ func buildEnvironmentUnstructured(req CreateEnvironmentRequest) *unstructured.Un
 					"image": f.Image,
 				}
 				// Emit the tuning fields only when set (>0): a blank form field
-				// arrives as 0, and sending an explicit 0 would defeat the CRD's
-				// defaulting (defaults apply to absent fields only) and deploy a
-				// function with a 0 timeout. Omitting lets the CRD default apply.
+				// arrives as 0, and an explicit 0 would defeat the CRD's defaulting
+				// (defaults apply to absent fields only) and fail its Minimum=1.
+				// Omitting lets the CRD default apply.
 				if f.ExecTimeout > 0 {
 					fn["execTimeout"] = int64(f.ExecTimeout)
 				}
