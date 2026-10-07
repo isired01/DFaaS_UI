@@ -222,14 +222,14 @@ type CreateLoadTestRequest struct {
 	Namespace string `json:"namespace" binding:"required"`
 	Name      string `json:"name,omitempty"`
 	// NameSuffix is an optional user-supplied suffix appended to the
-	// auto-generated name (lt-<env>-<timestamp>-<suffix>). Ignored when Name
-	// is set (full override). Sanitized to DNS-1123 server-side.
+	// auto-generated name (lt-<env>-<timestamp>[-<suffix>]-<nonce>). Ignored
+	// when Name is set (full override). Sanitized to DNS-1123 server-side.
 	NameSuffix        string `json:"nameSuffix,omitempty"`
 	TargetEnvironment string `json:"targetEnvironment" binding:"required"`
 	Suspended         bool   `json:"suspended,omitempty"`
 	// SyncStart requests a synchronized start: the operator injects DFAAS_SYNC_URL
-	// into every remote k6 runner and holds them at a barrier until all TestRuns
-	// are started, so the generators begin load together (~250ms skew).
+	// into every remote k6 runner and holds them at a barrier until every TestRun
+	// reports k6-operator's stage started; a few seconds of skew can remain.
 	SyncStart     bool                `json:"syncStart"`
 	StartAt       *time.Time          `json:"startAt,omitempty"`
 	PerNodeLoad   []CreatePerNodeLoad `json:"perNodeLoad" binding:"required,min=1"`

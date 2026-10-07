@@ -201,7 +201,7 @@ export default function LoadTestNew() {
           placeholder="e.g. baseline, run-2"
         />
         <p className="text-[12px] text-surface-450 mt-1">
-          Name: <code className="text-surface-400">lt-{envName}-&lt;timestamp&gt;{nameSuffix.trim() ? `-${nameSuffix.trim()}` : ''}</code> (sanitized to lowercase DNS-1123)
+          Name: <code className="text-surface-400">lt-{envName}-&lt;timestamp&gt;{nameSuffix.trim() ? `-${nameSuffix.trim()}` : ''}-&lt;nonce&gt;</code> (sanitized to lowercase DNS-1123)
         </p>
       </div>
 
@@ -239,7 +239,7 @@ export default function LoadTestNew() {
           Synchronized start
         </label>
         <p className="text-[12px] text-surface-450 mt-1">
-          All generators wait for a GO signal and start together (~250ms skew). Requires k6 VMs to reach the management node on port 30901.
+          All generators wait for a GO signal before sending load; runners can still start a few seconds apart. Requires k6 VMs to reach the management node on port 30901.
         </p>
       </div>
 

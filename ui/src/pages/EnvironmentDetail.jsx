@@ -166,7 +166,7 @@ export default function EnvironmentDetail() {
         <div className="glass-card p-5" id="provisioning-monitoring-progress">
           <h2 className="text-sm font-semibold text-surface-300 uppercase tracking-wider mb-3">Monitoring Stack</h2>
           <div className="grid grid-cols-1 gap-3">
-            <ProvisioningConditionRow conditions={environment.conditions} type="MonitoringReady" label="Prometheus + Grafana (Helm)" />
+            <ProvisioningConditionRow conditions={environment.conditions} type="MonitoringReady" label="Prometheus + Grafana + SeaweedFS (Helm)" />
           </div>
         </div>
       )}
