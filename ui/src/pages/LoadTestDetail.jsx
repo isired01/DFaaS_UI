@@ -120,7 +120,9 @@ export default function LoadTestDetail() {
     ? conditionOf(loadtest.conditions, 'Ready', ['UserAborted'])?.message || ''
     : '';
   const pendingTooltip = loadtest.phase === 'Pending'
-    ? (isDraft ? 'Draft saved' : 'Waiting for Environment Ready')
+    ? (isDraft
+      ? (loadtest.startAt ? 'Scheduled start armed' : 'Draft saved')
+      : 'Not running yet: waiting for the Environment, queued behind another test, dispatching, or waiting for the synchronized start. See Conditions.')
     : abortedMsg;
 
   return (
