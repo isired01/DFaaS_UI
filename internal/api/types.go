@@ -32,6 +32,7 @@ type EnvironmentDetail struct {
 	LastHealthCheck    string           `json:"lastHealthCheck,omitempty"`
 	Conditions         []ConditionInfo  `json:"conditions,omitempty"`
 	Nodes              []NodeInfo       `json:"nodes"`
+	Topology           TopologyInfo     `json:"topology"`
 	K6Nodes            []K6NodeStatus   `json:"k6Nodes,omitempty"`
 	DfaasNodes         []string         `json:"dfaasNodes,omitempty"`
 	S3ConfigRef        *S3ConfigRefView `json:"s3ConfigRef,omitempty"`
@@ -72,6 +73,18 @@ type FunctionInfo struct {
 	MaxRate     int    `json:"maxRate,omitempty"`
 }
 
+// TopologyInfo mirrors Environment.spec.topology.
+type TopologyInfo struct {
+	Links []LinkInfo `json:"links"`
+}
+
+// LinkInfo mirrors a topology link with optional latency.
+type LinkInfo struct {
+	NodeA     string `json:"nodeA"`
+	NodeB     string `json:"nodeB"`
+	LatencyMs int    `json:"latencyMs"`
+}
+
 // K6NodeStatus mirrors Environment.status.k6Nodes[] entries.
 type K6NodeStatus struct {
 	NodeID           string `json:"nodeID"`
@@ -92,13 +105,14 @@ type CreateEnvironmentRequest struct {
 	Namespace   string           `json:"namespace" binding:"required"`
 	Name        string           `json:"name" binding:"required"`
 	Nodes       []NodeInfo       `json:"nodes" binding:"required,min=1"`
+	Topology    TopologyInfo     `json:"topology"`
 	S3ConfigRef *S3ConfigRefView `json:"s3ConfigRef,omitempty"`
 }
 
 // UpdateEnvironmentRequest is the body for PATCH /api/environments/:ns/:name.
 // Mirrors the merge-patch shape Kubernetes expects: { "spec": { ... } }.
-// S3ConfigRef uses "absent in the patch" vs "set" semantics: nil is omitted and
-// preserved on the cluster object.
+// Pointer fields (Topology, S3ConfigRef) use "absent in the
+// patch" vs "set" semantics: nil is omitted and preserved on the cluster object.
 type UpdateEnvironmentRequest struct {
 	Spec UpdateEnvironmentSpec `json:"spec" binding:"required"`
 }
@@ -116,6 +130,7 @@ type UpdateEnvironmentRequest struct {
 // omitempty pointer alone cannot express an explicit null).
 type UpdateEnvironmentSpec struct {
 	Nodes            []NodeInfo       `json:"nodes,omitempty"`
+	Topology         *TopologyInfo    `json:"topology,omitempty"`
 	S3ConfigRef      *S3ConfigRefView `json:"s3ConfigRef,omitempty"`
 	ClearS3ConfigRef bool             `json:"clearS3ConfigRef,omitempty"`
 }

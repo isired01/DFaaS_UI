@@ -1,6 +1,7 @@
 package api
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 
@@ -45,6 +46,9 @@ func fullEnvObject() *unstructured.Unstructured {
 				},
 			},
 			"s3ConfigRef": map[string]interface{}{"name": "seaweedfs-default"},
+			"topology": map[string]interface{}{"links": []interface{}{
+				map[string]interface{}{"nodeA": "w1", "nodeB": "g4", "latencyMs": int64(10)},
+			}},
 		},
 		"status": map[string]interface{}{
 			"phase":              "Ready",
@@ -123,6 +127,11 @@ func TestMapEnvDetailGolden(t *testing.T) {
 	// A node with no functions must project an empty list, not a phantom entry.
 	if len(d.Nodes[1].Functions) != 0 {
 		t.Errorf("node[1].functions = %+v, want none", d.Nodes[1].Functions)
+	}
+
+	// spec.topology.links: a drifted key would render an empty links table.
+	if want := []LinkInfo{{NodeA: "w1", NodeB: "g4", LatencyMs: 10}}; !reflect.DeepEqual(d.Topology.Links, want) {
+		t.Errorf("topology.links = %+v, want %+v", d.Topology.Links, want)
 	}
 
 	// status.k6Nodes: managementAddress is the one field the SPA shows that no

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { ArrowLeft, TestTube2, AlertTriangle, Plus, Trash2, Server, Cpu, Download, Pencil, RefreshCw, Database } from 'lucide-react';
+import { ArrowLeft, Network, Zap, TestTube2, AlertTriangle, Plus, Trash2, Server, Cpu, Download, Pencil, RefreshCw, Database } from 'lucide-react';
 import { fetchEnvironment, fetchLoadTests, deleteEnvironment, fetchEnvironmentYAML, downloadTextAsFile } from '../api/client';
 import PhaseBadge from '../components/PhaseBadge';
 import NodeCard from '../components/NodeCard';
@@ -220,6 +220,44 @@ export default function EnvironmentDetail() {
             <span className="text-xs text-surface-450">
               every LoadTest export lands in <code>s3://{environment.name}-&lt;uid&gt;/metrics/...</code>
             </span>
+          </div>
+        </div>
+      )}
+
+      {environment.topology?.links?.length > 0 && (
+        <div className="glass-card p-5">
+          <h2 className="text-lg font-semibold text-white flex items-center gap-2 mb-4" id="topology-section">
+            <Zap className="w-5 h-5 text-violet-400" />Network Topology
+          </h2>
+          <div className="flex items-start gap-2 p-2.5 mb-4 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 text-[13px] leading-snug">
+            <AlertTriangle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
+            <span>
+              <strong>Not supported yet — placeholder.</strong> These links are stored on the Environment, but nothing applies latency shaping between the nodes, so the values below have no effect on the running federation.
+            </span>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="border-b border-surface-700/50">
+                  <th className="text-left py-2 px-4 text-xs font-semibold text-surface-400 uppercase">Node A</th>
+                  <th className="text-left py-2 px-4 text-xs font-semibold text-surface-400 uppercase">Node B</th>
+                  <th className="text-left py-2 px-4 text-xs font-semibold text-surface-400 uppercase">Latency</th>
+                </tr>
+              </thead>
+              <tbody>
+                {environment.topology.links.map((link, i) => (
+                  <tr key={i} className="border-b border-surface-800/30">
+                    <td className="py-2.5 px-4 text-sm font-mono text-surface-200">{link.nodeA}</td>
+                    <td className="py-2.5 px-4 text-sm font-mono text-surface-200">{link.nodeB}</td>
+                    <td className="py-2.5 px-4">
+                      <span className={`text-sm font-semibold ${link.latencyMs < 30 ? 'text-emerald-400' : link.latencyMs < 60 ? 'text-amber-400' : 'text-red-400'}`}>
+                        {link.latencyMs}ms
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </div>
       )}

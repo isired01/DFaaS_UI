@@ -8,7 +8,7 @@ const rules = { nodeIDPattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?$', nodeIDMaxLengt
 const worker = (o = {}) => ({ nodeID: 'w1', ipAddress: '10.0.0.1', role: 'dfaas-worker', capacity: 'LOW', username: 'u', password: 'p', balancingStrategy: 'recalcstrategy',
   functions: [{ name: 'f', image: 'img', execTimeout: 5, maxInflight: 0, timeoutMs: '', maxRate: 100 }], ...o });
 const gen = (o = {}) => ({ nodeID: 'g1', ipAddress: '10.0.0.2', role: 'k6-load-generator', capacity: 'LOW', username: 'u', password: 'p', functions: [], ...o });
-const good = (o = {}) => ({ namespace: 'default', name: 'env', nodes: [worker(), gen()], s3ConfigName: '', mode: 'create', ...o });
+const good = (o = {}) => ({ namespace: 'default', name: 'env', nodes: [worker(), gen()], links: [{ nodeA: 'w1', nodeB: 'g1', latencyMs: '12' }], s3ConfigName: '', mode: 'create', ...o });
 const errorsOf = (o) => buildEnvironmentPayload(good(o), rules).errors;
 
 // --- create: shape the gateway binds ---------------------------------------
@@ -20,7 +20,7 @@ const errorsOf = (o) => buildEnvironmentPayload(good(o), rules).errors;
   assert.equal(w.balancingStrategy, 'recalcstrategy');
   assert.deepEqual(w.functions, [{ name: 'f', image: 'img', execTimeout: 5, maxRate: 100 }], 'cleared numeric fields omitted so CRD defaults apply');
   assert.equal(payload.nodes[1].balancingStrategy, undefined, 'k6 node carries no strategy');
-  assert.equal(payload.topology, undefined); assert.equal(patch.topology, undefined);
+  assert.deepEqual(payload.topology.links, [{ nodeA: 'w1', nodeB: 'g1', latencyMs: 12 }]);
   assert.equal(payload.s3ConfigRef, undefined);
   assert.equal(patch.clearS3ConfigRef, true, 'empty s3 → explicit clear on edit');
 }

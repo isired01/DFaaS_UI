@@ -5,6 +5,7 @@ import { createEnvironment, fetchEnvironment, updateEnvironment, listS3Configs }
 import { loadSchema } from '../lib/schema';
 import { buildEnvironmentPayload } from '../lib/payloads/environment';
 import NodeList from '../components/NodeList';
+import LinkEditor from '../components/LinkEditor';
 import FormField from '../components/FormField';
 import ErrorAlert from '../components/ErrorAlert';
 import SubmitButton from '../components/SubmitButton';
@@ -26,6 +27,10 @@ function emptyFunction() {
   return { name: '', image: '', execTimeout: 5, maxInflight: 400, timeoutMs: 6000, maxRate: 100 };
 }
 
+function emptyLink() {
+  return { nodeA: '', nodeB: '', latencyMs: 10 };
+}
+
 export default function EnvironmentNew({ mode = 'create' }) {
   const navigate = useNavigate();
   const params = useParams();
@@ -33,6 +38,7 @@ export default function EnvironmentNew({ mode = 'create' }) {
   const [namespace, setNamespace] = useState(isEdit ? (params.namespace || '') : 'default');
   const [name, setName] = useState(isEdit ? (params.name || '') : '');
   const [nodes, setNodes] = useState([emptyNode()]);
+  const [links, setLinks] = useState([]);
   const [s3ConfigName, setS3ConfigName] = useState('');
   const [availableConfigs, setAvailableConfigs] = useState([]);
   const [submitting, setSubmitting] = useState(false);
@@ -74,6 +80,9 @@ export default function EnvironmentNew({ mode = 'create' }) {
           _originalRole: n.role || '',
         }));
         setNodes(prefilledNodes.length > 0 ? prefilledNodes : [emptyNode()]);
+        setLinks((env.topology?.links || []).map(l => ({
+          nodeA: l.nodeA, nodeB: l.nodeB, latencyMs: l.latencyMs ?? 10,
+        })));
       })
       .catch(err => setError(err.message))
       .finally(() => setLoadingEnv(false));
@@ -89,6 +98,10 @@ export default function EnvironmentNew({ mode = 'create' }) {
     functions: nodes[nodeIdx].functions.map((f, i) => i === fnIdx ? { ...f, ...patch } : f),
   });
 
+  const addLink = () => setLinks([...links, emptyLink()]);
+  const removeLink = (i) => setLinks(links.filter((_, idx) => idx !== i));
+  const updateLink = (i, patch) => setLinks(links.map((l, idx) => idx === i ? { ...l, ...patch } : l));
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setSubmitting(true);
@@ -96,7 +109,7 @@ export default function EnvironmentNew({ mode = 'create' }) {
     try {
       const rules = (await loadSchema()).node;
       const { payload, patch, flipped, errors } = buildEnvironmentPayload(
-        { namespace, name, nodes, s3ConfigName, mode }, rules);
+        { namespace, name, nodes, links, s3ConfigName, mode }, rules);
       if (errors.length > 0) throw new Error(errors[0]);
       if (isEdit) {
         if (flipped.length > 0 && !window.confirm(
@@ -115,6 +128,8 @@ export default function EnvironmentNew({ mode = 'create' }) {
       setSubmitting(false);
     }
   };
+
+  const nodeIDs = nodes.map(n => n.nodeID).filter(Boolean);
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6 animate-fade-in max-w-5xl mx-auto">
@@ -182,6 +197,14 @@ export default function EnvironmentNew({ mode = 'create' }) {
           </p>
         </div>
       </div>
+
+      <LinkEditor
+        links={links}
+        nodeIDs={nodeIDs}
+        onAdd={addLink}
+        onRemove={removeLink}
+        onUpdate={updateLink}
+      />
 
       {error && <ErrorAlert message={error} />}
 

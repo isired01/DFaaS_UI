@@ -3,7 +3,7 @@
 // 'create' or 'edit' — the one place the dual-mode form branches on it for
 // data (the page keeps the rendering branches).
 /**
- * @param form { namespace, name, nodes, s3ConfigName, mode }
+ * @param form { namespace, name, nodes, links, s3ConfigName, mode }
  * @param rules the gateway's node rules (GET /api/meta/schema).node
  */
 export function buildEnvironmentPayload(form, rules) {
@@ -90,15 +90,18 @@ export function buildEnvironmentPayload(form, rules) {
     }
     return node;
   });
+  const topology = {
+    links: (form.links || []).map((l) => ({ nodeA: l.nodeA, nodeB: l.nodeB, latencyMs: parseInt(l.latencyMs) || 0 })),
+  };
   const trimmedS3 = (form.s3ConfigName || '').trim();
 
-  const payload = { namespace: form.namespace, name: form.name, nodes: nodesOut };
+  const payload = { namespace: form.namespace, name: form.name, nodes: nodesOut, topology };
   if (trimmedS3) payload.s3ConfigRef = { name: trimmedS3 };
 
   // Edit: the whole node array replaces (merge-patch semantics); an explicit
   // clear of s3ConfigRef is a separate flag because omitting the field would
   // leave the previous reference untouched.
-  const patch = { nodes: nodesOut };
+  const patch = { nodes: nodesOut, topology };
   if (trimmedS3) patch.s3ConfigRef = { name: trimmedS3 };
   else patch.clearS3ConfigRef = true;
 
