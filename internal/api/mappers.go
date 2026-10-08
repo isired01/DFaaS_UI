@@ -56,6 +56,19 @@ func mapEnvDetail(item unstructured.Unstructured) EnvironmentDetail {
 	// path calls the same projection and does surface it.
 	d.Nodes, _ = nodeInfosFrom(nestedSliceNoCopy(item.Object, "spec", "nodes"))
 
+	links, _, _ := unstructured.NestedSlice(item.Object, "spec", "topology", "links")
+	for _, l := range links {
+		lMap, ok := l.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		d.Topology.Links = append(d.Topology.Links, LinkInfo{
+			NodeA:     getStringFromMap(lMap, "nodeA"),
+			NodeB:     getStringFromMap(lMap, "nodeB"),
+			LatencyMs: getIntFromMap(lMap, "latencyMs"),
+		})
+	}
+
 	k6Status, _, _ := unstructured.NestedSlice(item.Object, "status", "k6Nodes")
 	for _, k := range k6Status {
 		kMap, ok := k.(map[string]interface{})

@@ -54,7 +54,7 @@ data poll every 5 seconds through `useResource`.
 | GET | `/api/environments/:namespace/:name/yaml` | `GetEnvironmentYAML` | The resource as YAML. |
 | POST | `/api/environments` | `CreateEnvironment` | Structured body. |
 | POST | `/api/environments/yaml` | `CreateEnvironmentFromYAML` | Raw YAML body. |
-| PATCH | `/api/environments/:namespace/:name` | `UpdateEnvironment` | Merge patch of `spec.nodes` and `spec.s3ConfigRef`; the operator re-provisions. |
+| PATCH | `/api/environments/:namespace/:name` | `UpdateEnvironment` | Merge patch of `spec.nodes`, `spec.topology` and `spec.s3ConfigRef`; the operator re-provisions. |
 | DELETE | `/api/environments/:namespace/:name` | `DeleteEnvironment` | Guarded, see below. |
 | GET | `/api/s3-configs` | `ListS3Configs` | |
 | GET | `/api/s3-configs/:name` | `GetS3Config` | |
@@ -302,6 +302,7 @@ operator changes one of these, change the matching place here.
 | A Condition reason | The reason table in `ui/src/lib/crstate.js`. A terminal one (the object is dead) also goes into the hand-copied list in `crstate.selfcheck.mjs`, with tone `error`. |
 | The dispatch gate (`EnvironmentPhase.Dispatchable`) | `dispatchable` in `dispatchgate.go` (and its test) and `env.dispatchable` in `crstate.js`. |
 | The Environment occupancy rule | `activeLoadTestNames` in `handlers_environment.go` and `lt.occupying` / `lt.holdReason` in `crstate.js`. |
+| `spec.topology.links[]` (`nodeA`, `nodeB`, `latencyMs`) | `TopologyInfo` and `LinkInfo` in `types.go`, `mapEnvDetail`, `buildEnvironmentUnstructured`, the PATCH in `UpdateEnvironment`, `envKeyOrder` in `yaml_export.go`, `LinkEditor.jsx` and the links table in `EnvironmentDetail.jsx`. The operator stores the links but applies no latency, so both views carry a "Not supported yet" warning; remove it once the operator shapes traffic. |
 | How `observedGeneration` is stamped | The edit lock in `EnvironmentDetail.jsx`: a non-zero `status.observedGeneration` below `metadata.generation` means an update is in progress. The operator stamps it only when provisioning settles (`Ready` or `Failed`). |
 | The runner environment variables (`DFAAS_SYNC_URL`, `DFAAS_SUMMARY_URL`, `DFAAS_ASSET_BASE`) | The generated script in `k6Generator.js`. |
 | The management address of a generator (`status.k6Nodes[].managementAddress`) | `K6NodeStatus.ManagementAddress` in `types.go`, copied in `mapEnvDetail`, shown on the generator's `NodeCard`. Display only. See [ADR-0008](https://github.com/isired01/DFaaSOperator/blob/main/docs/adr/0008-detected-management-address-beats-env-fallbacks.md). |
